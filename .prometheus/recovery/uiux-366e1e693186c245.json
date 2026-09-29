@@ -1,0 +1,4065 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "AGENTS.md",
+      "before": "PCEtLSBwcm9tZXRoZXVzLWJhc2U6c3RhcnQgdjEgLS0+CiMgQWdlbnQgT3BlcmF0aW5nIFJ1bGVzCgpUaGlzIHJlZ2lvbiBpcyB0aGUgc3RhbmRpbmcgY29udHJhY3QuIEl0IGhvbGRzIG9ubHkgaW52YXJpYW50cyB0aGF0IG11c3QKc3Vydml2ZSBjb21wYWN0aW9uLiBFdmVyeXRoaW5nIGVsc2UgbGl2ZXMgaW4gb24tZGVtYW5kIHJ1bGVzLCBza2lsbHMsIGhvb2tzLAphbmQgcmVmZXJlbmNlIGZpbGVzLiBXaGVyZSBhIGhvb2sgZW5mb3JjZXMgYSBydWxlIHN0YXRlZCBoZXJlLCB0aGUgaG9vayB3aW5zLgoKTWFuYWdlZCBieSBgcHJvbWV0aGV1cy1jb250ZXh0LWJvb3RzdHJhcGAuIEVkaXRzIGluc2lkZSB0aGVzZSBtYXJrZXJzIGFyZQpvdmVyd3JpdHRlbiBvbiByZS1ydW4uIFdyaXRlIHByb2plY3QgcHJvc2Ugb3V0c2lkZSB0aGVtLgoKIyMgUG9zaXRpb24gYW5kIGF1dGhvcml0eQoKLSBgLmtiZC1vcmNoZXN0cmF0b3IvY3VycmVudC13YXlwb2ludC5qc29uYCBpcyBhdXRob3JpdGF0aXZlIGZvciBwb3NpdGlvbi4KLSBgdmVyc2lvbnMudG9tbGAgaXMgYXV0aG9yaXRhdGl2ZSBmb3IgYXJjaGl0ZWN0dXJlIGRlY2lzaW9ucyBhbmQgZGVwZW5kZW5jeSBwaW5zLgotIFJFQURNRXMgZ28gc3RhbGUuIERvIG5vdCB0cnVzdCBvbmUgb3ZlciB0aGUgdHdvIGZpbGVzIGFib3ZlLgotIFJlYWQgdGhlIHdheXBvaW50IGF0IHNlc3Npb24gc3RhcnQuIFN0YXRlIHRoZSBjdXJyZW50IHBoYXNlIGJlZm9yZSBleGVjdXRpbmcuCgojIyBDYXBhYmlsaXR5IGludmVyc2lvbgoKQWdlbnQga2VybmVscyBkbyBub3Qgd3JpdGUuIE11dGF0aW5nIGFjdGlvbnMgYXJlIGdhdGVkIGluIHRoZSB0cnVzdGVkIGhvc3QKbGF5ZXIgb25seSwgbmV2ZXIgaW4gYW4gYWdlbnQga2VybmVsLiBXaGVyZSB0aGUgbGFuZ3VhZ2UgYWxsb3dzIGl0LCB0aGlzIGlzCmVuZm9yY2VkIGF0IHRoZSBkZXBlbmRlbmN5IGdyYXBoIGFzIGEgY29tcGlsZS10aW1lIGd1YXJhbnRlZSByYXRoZXIgdGhhbiBhCnJ1bnRpbWUgY2hlY2suIElmIGEgdGFzayBhcHBlYXJzIHRvIHJlcXVpcmUgYSB3cml0ZSBmcm9tIGEga2VybmVsLCBzdG9wIGFuZApzdXJmYWNlIHRoZSBjb25mbGljdCBpbnN0ZWFkIG9mIHJvdXRpbmcgYXJvdW5kIGl0LgoKIyMgUGhhc2Ugb3JkZXIKClRhc2sgbG9vcDogU3BlYywgUGxhbiwgRXhlY3V0ZSwgUmVmbGVjdC4KRXZvbHV0aW9uIGxvb3A6IENvbXBpbGUsIEV2YWx1YXRlLCBPcHRpbWl6ZSwgUHJvbW90ZS4KClJ1bm5pbmcgYSBwaGFzZSBvdXQgb2Ygb3JkZXIgaXMgYSBxdWFsaXR5IGZhaWx1cmUsIG5vdCBhIHNob3J0Y3V0LiBOYW1lIHRoZQpwaGFzZSB5b3UgYXJlIGluLiBEbyBub3QgZXhlY3V0ZSBiZWZvcmUgYSBwbGFuIGV4aXN0cy4KCiMjIFZlcmlmaWNhdGlvbiBib3VuZGFyaWVzCgpGaW5pc2ggYSBjb2hlcmVudCBpbXBsZW1lbnRhdGlvbiBzZXQgYmVmb3JlIHRlc3RpbmcgaXQuIER1cmluZyBpbXBsZW1lbnRhdGlvbiwKdXNlIHN0YXRpYyBpbnNwZWN0aW9uIGFuZCByZWFzb25pbmc7IHVzZSBhIG5hcnJvdyBjb21waWxlciBjaGVjayBvbmx5IHdoZW4gaXQgaXMKcmVxdWlyZWQgdG8gdW5ibG9jayBwcm9ncmVzcy4gRmluaXNoIGV2ZXJ5IHBsYW5uZWQgcHJvZHVjdGlvbiBjaGFuZ2UgaW4gdGhlIHBoYXNlLAp0aGVuIHJ1biBvbmUgaW50ZWdyYXRpb24gZ2F0ZSB0aHJvdWdoIHRoZSByZWFsIHByb2R1Y3Rpb24gcGF0aCBhbmQgY29sbGFib3JhdG9ycyBhdAp0aGUgZmluYWwgcGhhc2UgYm91bmRhcnkuIFdoZW4gdGhlIGhhcm5lc3MgcHJvdmlkZXMgYW4gYWdlbnQgdGVhbSwga2VlcCByZXZpZXdlciwKYXVkaXRvciwgdmVyaWZpZXIsIGFuZCBpbnRlZ3JhdGlvbi1jaGVja2VyIHJvbGVzIGRvcm1hbnQgdW50aWwgdGhhdCBib3VuZGFyeS4gVW5pdCwKbW9jay1vbmx5LCBmaWx0ZXJlZC1mdW5jdGlvbiwgYW5kIHBlci1lZGl0IHRlc3RzIGFyZSBub3QgY29tcGxldGlvbiBldmlkZW5jZS4KUGVyLXN0YWNrIGNvbW1hbmRzIGxpdmUgaW4gYC5jbGF1ZGUvcnVsZXMvYCwgbG9hZGVkIG9ubHkgd2hlbiBhIG1hdGNoaW5nIGZpbGUgaXMgcmVhZC4KCi0gYC5jbGF1ZGUvcnVsZXMvdHlwZXNjcmlwdC5tZGAg4oCUIHR5cGVzY3JpcHQgdGllcnMgYW5kIGhhcmQgcnVsZXMKLSBgLmNsYXVkZS9ydWxlcy9ydXN0Lm1kYCDigJQgcnVzdCB0aWVycyBhbmQgaGFyZCBydWxlcwoKIyMgRXZpZGVudGlhcnkgc3RhbmRhcmQKCkFkZHJlc3Mgb2JzZXJ2ZWQgcHJvYmxlbXMuIEFuIG9ic2VydmVkIHByb2JsZW0gY29tZXMgZnJvbSBhbiBvcGVyYXRvciByZXBvcnQsIGEKdmlzaWJsZSBlcnJvciBvciBsb2csIGEgZmFpbGluZyB0ZXN0LCBvciBhbiBleHBsaWNpdCByZXF1aXJlbWVudC4gQSBjb25jZXJuIHRoYXQKaXMgbm9uZSBvZiB0aG9zZSBnZXRzIG9uZSBzZW50ZW5jZSBhbmQgYSBxdWVzdGlvbiwgbmV2ZXIgc3BlY3VsYXRpdmUgY29kZS4KCkRlZmVuc2l2ZSBjb2RlIOKAlCB2YWxpZGF0aW9uLCBndWFyZHMsIGZhbGxiYWNrcywgcmV0cmllcywgdGltZW91dHMg4oCUIHJlcXVpcmVzIGEKbmFtZWQgZmFpbHVyZSBzY2VuYXJpby4gSGFyZGVuaW5nIGF0IGEgcmVhbCB0cnVzdCBib3VuZGFyeSBwcmVzZW50IGluIHRoZSBjb2RlCmlzIGEgc3RhbmRpbmcgZXhjZXB0aW9uIGFuZCBpcyBuYW1lZCBpbiB0aGUgY29tcGxldGlvbiBzdW1tYXJ5LCBuZXZlciBhZGRlZApzaWxlbnRseS4KCiMjIEV2aWRlbmNlIG92ZXIgYXNzZXJ0aW9uCgpTaG93IHRoZSBjb21tYW5kIGFuZCBpdHMgb3V0cHV0LCB0aGUgdGVzdCByZXN1bHQsIG9yIHRoZSBhcnRpZmFjdC4gIkxvb2tzIGRvbmUiCmlzIG5vdCBkb25lLiBSZXBvcnQgd2hhdCB3YXMgYWN0dWFsbHkgcnVuIGFuZCBhdCB3aGljaCBib3VuZGFyeS4gSWYgYSBjaGVjayBjb3VsZApub3QgcnVuLCBzYXkgd2hpY2ggY2xhaW1zIGFyZSB0aGVyZWZvcmUgdW52ZXJpZmllZC4gQW4gdW52ZXJpZmllZCBjbGFpbSByZXBvcnRlZAphcyB2ZXJpZmllZCBpcyB3b3JzZSB0aGFuIG5vIGNoZWNrIGF0IGFsbC4KCiMjIEFudGktc3ljb3BoYW5jeQoKQ3JpdGljcyBuZXZlciBzZWUgZ2VuZXJhdGlvbiBoaXN0b3J5LiBSZXZpZXcgdGhyb3VnaCB0aGUgYGFydGlmYWN0LWNyaXRpY2AKc3ViYWdlbnQsIHdoaWNoIHJlY2VpdmVzIHRoZSBhcnRpZmFjdCBhbG9uZS4gVGhlIG1vZGVsIHRoYXQgcHJvZHVjZWQgdGhlIHdvcmsgaXMKbm90IHRoZSBzb2xlIGp1ZGdlIG9mIHdoZXRoZXIgaXQgaXMgZ29vZC4KCkEgcmVmbGVjdGlvbiBsZWFkcyB3aXRoIHRoZSBkZWx0YSBiZXR3ZWVuIHBsYW4gYW5kIGRlbGl2ZXJ5LCBub3Qgd2l0aCB3aGF0CndvcmtlZC4gVGhlIHN5Y29waGFuY3kgZ2F0ZSBtYXkgYmxvY2sgYSB0dXJuOyBmaXggdGhlIGZpbmRpbmcgcmF0aGVyIHRoYW4KYnlwYXNzaW5nIGl0LgoKIyMgTGVhcm5pbmcgYW5kIG1lbW9yeQoKTGVhcm5pbmcgaXMgYXBwZW5kLW9ubHkgdW5kZXIgYC5wcm9tZXRoZXVzL2A6IGBzZXNzaW9uLWxvZy5tZGAsIGBkZWNpc2lvbnMubWRgLApgZ290Y2hhcy5tZGAsIGBwb3N0bW9ydGVtcy9gLCBga25vd2xlZGdlL2AuIE5ldmVyIHJld3JpdGUgaGlzdG9yeTsgYXBwZW5kLCBhbmQKbWFyayBzdXBlcnNlZGVkIGVudHJpZXMgcmF0aGVyIHRoYW4gZGVsZXRpbmcgdGhlbS4KCldyaXRlIG9uIGEgZGVjaXNpb24gd2l0aCBhIHJhdGlvbmFsZSwgYSBkZWZlY3QgYW5kIGl0cyByb290IGNhdXNlLCBhIGxlYXJuZWQKY29uc3RyYWludCwgYSBwaGFzZSBib3VuZGFyeSwgYW5kIGEgc2Vzc2lvbiBzdW1tYXJ5LiBSZWFkIGBnb3RjaGFzLm1kYCBiZWZvcmUKdG91Y2hpbmcgYSBzdWJzeXN0ZW0uCgpXaGVyZSBhIG1lbW9yeSBzZXJ2ZXIgaXMgY29uZmlndXJlZCwgaXQgaXMgdGhlIHByaW1hcnkgc3RvcmUgYW5kIGl0cyB3cml0ZSBwYXRoCm1heSB0aW1lIG91dC4gT24gZmFpbHVyZSwgbG9nIHRvIHRoZSBtYXJrZG93biBmaWxlcyBhYm92ZSBhbmQgY29udGludWUuIE5ldmVyCmJsb2NrIGEgdGFzayBvbiB0aGUgbWVtb3J5IHNlcnZlci4KCiMjIEFyY2hpdGVjdHVyZQoKLSBTaW5nbGUtd3JpdGVyIGJ1aWxkIGRpc2NpcGxpbmUgd2l0aGluIG9uZSBidWlsZCBvciB0YXJnZXQgZGlyZWN0b3J5LgotIEZlYXR1cmUtYmFzZWQgb3JnYW5pemF0aW9uIGJ5IGNhcGFiaWxpdHksIG5vdCBieSB0ZWNobmljYWwgbGF5ZXIuCi0gU3RyaWN0IGxheWVyaW5nOiBVSSwgdGhlbiBob29rcyBvciB2aWV3IG1vZGVscywgdGhlbiBzdG9yZXMsIHRoZW4gc2VydmljZXMsCiAgdGhlbiBleHRlcm5hbC4gUmV2ZXJzZSBmbG93IG9ubHkgdGhyb3VnaCByZWFjdGl2ZSBzdGF0ZSBvciBldmVudHMuCi0gQnVzaW5lc3Mgc3RhdGUgbGl2ZXMgaW4gZXhwbGljaXQsIGluc3BlY3RhYmxlIHN5c3RlbXMsIG5ldmVyIGluIFVJIGNvbXBvbmVudHMKICBvciBhZ2VudC1vbmx5IG1lbW9yeS4KLSBPcGVuIHN0YW5kYXJkcyBmaXJzdC4gQXZvaWQgbG9jay1pbiB1bmxlc3MgZXhwbGljaXRseSByZXF1aXJlZC4KLSBWZXJpZnkgZGVwZW5kZW5jeSB2ZXJzaW9ucyBhZ2FpbnN0IG9mZmljaWFsIHNvdXJjZXMgYmVmb3JlIGludHJvZHVjaW5nIHRoZW0uCiAgRG8gbm90IHJlbHkgb24gdHJhaW5pbmctZXJhIHZlcnNpb24ga25vd2xlZGdlLgoKIyMgU2NvcGUKCk1pbmltdW0gY2hhbmdlIHRoYXQgc29sdmVzIHRoZSBwcm9ibGVtLiBEbyBub3QgcmVmYWN0b3IgYWRqYWNlbnQgd29ya2luZyBjb2RlOwp0cmVhdCBpdHMgY3VycmVudCBzdGF0ZSBhcyBpbnRlbnRpb25hbC4gTWVudGlvbiB1bnJlbGF0ZWQgaXNzdWVzLCBkbyBub3QgZml4CnRoZW0gdW5hc2tlZC4gQmVmb3JlIGRlc3RydWN0aXZlIG9yIGhhcmQtdG8tcmV2ZXJzZSBhY3Rpb25zLCBjb25maXJtIGludGVudCBhbmQKcHJlZmVyIGEgcmV2ZXJzaWJsZSBwYXRoLgoKIyMgU2tpbGxzIG1heSBiZSBhYnNlbnQKCkhhcm5lc3NlcyBkcm9wIHNraWxsIGRlc2NyaXB0aW9ucyBwYXN0IGEgY29udGV4dCBidWRnZXQsIHNvIGEgc2tpbGwgeW91IGV4cGVjdAptYXkgbm90IGJlIGxpc3RlZC4gSWYgb25lIGlzIG1pc3NpbmcsIGludm9rZSBpdCBieSBuYW1lIG9yIHNheSBwbGFpbmx5IHRoYXQgaXQKaXMgdW5hdmFpbGFibGUgYW5kIHByb2NlZWQgZnJvbSB0aGVzZSBydWxlcy4gTmV2ZXIgaW52ZW50IHdoYXQgYW4gYWJzZW50IHNraWxsCndvdWxkIGhhdmUgZG9uZS4KCiMjIENvbW11bmljYXRpb24KCkRpcmVjdCBhbmQgZXhlY3V0aW9uLWZpcnN0LiBTdHJ1Y3R1cmUgY2xhaW1zIGFzIHN0YXRlbWVudCwgbWVjaGFuaXNtLCBzdGFrZXMuClNob3J0IGRlY2xhcmF0aXZlIHNlbnRlbmNlcy4gTm8gbWFya2V0aW5nIGxhbmd1YWdlLgoKQXZvaWQ6IGxldmVyYWdlIGFzIGEgdmVyYiwgdXRpbGl6ZSwgc3luZXJneSwgcm9hZG1hcCBhcyBhIHZlcmIsIGpvdXJuZXksCmhhcm5lc3MgYXMgYSB2ZXJiLCBkZWx2ZSwgcmV2b2x1dGlvbmFyeS4KCkV2ZXJ5IHNpZ25pZmljYW50IGRvY3VtZW50IG5hbWVzIHRoZSB1bmNvbWZvcnRhYmxlIHRoaW5nIOKAlCB0aGUgc2NlbmFyaW8gdGhhdApodXJ0cyB0aGUgYXV0aG9yJ3Mgb3duIHBvc2l0aW9uLgoKIyMgRG9uZQoKQSB0YXNrIGlzIGRvbmUgd2hlbiBpdHMgc3RhdGVkIGludGVncmF0aW9uIGV4aXQgY3JpdGVyaWEgcGFzcyBhdCB0aGUgYXBwbGljYWJsZSBib3VuZGFyeSwgbm90IHdoZW4KdGhlIG91dHB1dCBsb29rcyBwbGF1c2libGUuIEJlZm9yZSBkZWNsYXJpbmcgY29tcGxldGlvbjogcmVtb3ZlIGFueXRoaW5nIGFkZGVkCnRoYXQgd2FzIG5vdCByZXF1ZXN0ZWQsIGNvbmZpcm0gZWFjaCBndWFyZCB0cmFjZXMgdG8gYW4gb2JzZXJ2ZWQgcHJvYmxlbSBvciBhCnJlYWwgYm91bmRhcnksIGFuZCBzdW1tYXJpemUgd2hhdCBjaGFuZ2VkLCBob3cgaXQgd2FzIHZlcmlmaWVkLCBhbmQgd2hhdCByZW1haW5zCmF0IHJpc2suCgojIyBFeGVjdXRpb24gc2NhZmZvbGQKClRoaXMgc2VjdGlvbiBleGlzdHMgYmVjYXVzZSB0aGUgZmxlZXQgaXMgbWl4ZWQuIEZyb250aWVyIG1vZGVscyBzdXBwbHkgbW9zdCBvZgppdCBieSBkZWZhdWx0OyBzbWFsbGVyIGFuZCBvbGRlciBtb2RlbHMgZG8gbm90LCBhbmQgdGhlIGZhaWx1cmUgaXMgc2lsZW50IOKAlApwbGF1c2libGUgb3V0cHV0IHdpdGggYSBmYWJyaWNhdGVkIGNhbGwgaW4gaXQuIE9taXQgdGhpcyBzZWN0aW9uIG9ubHkgd2hlbgpldmVyeSBtb2RlbCB0aGF0IHJlYWRzIHRoaXMgZmlsZSBpcyBrbm93biB0byBzdXBwbHkgdGhlIGJlaGF2aW9yIG9uIGl0cyBvd24uCgojIyMgQmVmb3JlIGV4ZWN1dGluZwoKUmVzdGF0ZSB0aGUgdGFzayBpbiBvbmUgc2VudGVuY2UsIGFuZCBuYW1lIHRoZSBwaGFzZS4gSWYgdGhlIHJlc3RhdGVtZW50IGRvZXMKbm90IG1hdGNoIHdoYXQgd2FzIGFza2VkLCBzdG9wIGFuZCBhc2sgcmF0aGVyIHRoYW4gcHJvY2VlZGluZyBvbiB0aGUgY2xvc2VyCnJlYWRpbmcuIE5hbWUgdGhlIGZpbGVzIHlvdSBpbnRlbmQgdG8gdG91Y2ggYmVmb3JlIHRvdWNoaW5nIHRoZW0uCgojIyMgRG8gbm90IGZhYnJpY2F0ZQoKTmV2ZXIgaW52ZW50IGFuIEFQSSwgYSBmaWxlIHBhdGgsIGEgcGFja2FnZSBuYW1lLCBhIGNvbW1hbmQgZmxhZywgb3IgYQpjb25maWd1cmF0aW9uIGtleS4gSWYgeW91IGhhdmUgbm90IHJlYWQgaXQgaW4gdGhpcyBzZXNzaW9uIG9yIGl0IGlzIG5vdCBwaW5uZWQKaW4gYHZlcnNpb25zLnRvbWxgLCB2ZXJpZnkgaXQgYmVmb3JlIHVzaW5nIGl0LiAiSSBjb3VsZCBub3QgY29uZmlybSB0aGlzCmV4aXN0cyIgaXMgYSBjb3JyZWN0IGFuc3dlci4gQSBwbGF1c2libGUgaWRlbnRpZmllciB0aGF0IGRvZXMgbm90IGV4aXN0IGNvc3RzCm1vcmUgdGhhbiB0aGUgcXVlc3Rpb24gd291bGQgaGF2ZS4KCkRvIG5vdCBndWVzcyBhdCBhIHRvb2wncyBwYXJhbWV0ZXJzLiBSZWFkIGl0cyBzY2hlbWEuIEEgdG9vbCBjYWxsIHdpdGggaW52ZW50ZWQKYXJndW1lbnRzIGZhaWxzIGluIGEgd2F5IHRoYXQgbG9va3MgbGlrZSB0aGUgdG9vbCBpcyBicm9rZW4uCgojIyMgVmVyaWZpY2F0aW9uIGlzIGV4cGxpY2l0CgpSdW4gdGhlIGNoZWNrLiBQYXN0ZSB0aGUgY29tbWFuZCBhbmQgaXRzIGFjdHVhbCBvdXRwdXQuIERvIG5vdCByZXBvcnQgYSByZXN1bHQKeW91IGRpZCBub3Qgb2JzZXJ2ZSwgYW5kIGRvIG5vdCBkZXNjcmliZSB3aGF0IGEgdGVzdCAic2hvdWxkIiBwcm9kdWNlLgoKSWYgYSBjaGVjayBjYW5ub3QgcnVuLCBzYXkgd2hpY2ggc3BlY2lmaWMgY2xhaW1zIGFyZSB0aGVyZWZvcmUgdW52ZXJpZmllZCwgYW5kCndoeS4gU2tpcHBpbmcgYSBjaGVjayBzaWxlbnRseSBhbmQgc3VtbWFyaXppbmcgYXMgaWYgaXQgcGFzc2VkIGlzIHRoZSBmYWlsdXJlCnRoaXMgcnVsZSBleGlzdHMgdG8gcHJldmVudC4KCiMjIyBDb2RlIG91dHB1dAoKTmV2ZXIgZWxpZGUgY29kZSB3aXRoIGAuLi5gLCBgLy8gcmVzdCB1bmNoYW5nZWRgLCBvciBhIHNpbWlsYXIgcGxhY2Vob2xkZXIgaW4gYQpmaWxlIHlvdSBhcmUgd3JpdGluZy4gRW1pdCB0aGUgY29tcGxldGUgY29udGVudCBvZiBldmVyeSBmaWxlIHlvdSB3cml0ZS4KCldoZW4gZWRpdGluZywgY2hhbmdlIHRoZSBtaW5pbXVtIHNwYW4uIERvIG5vdCByZWZvcm1hdCwgcmVvcmRlciBpbXBvcnRzLCBvcgpyZW5hbWUgYWRqYWNlbnQgc3ltYm9scyB3aGlsZSBtYWtpbmcgYW4gdW5yZWxhdGVkIGNoYW5nZS4KCk1hdGNoIHRoZSBmaWxlJ3MgZXhpc3RpbmcgY29udmVudGlvbnMgb3ZlciB5b3VyIG93biBkZWZhdWx0cy4KCiMjIyBDb21wbGV0ZSBjb2hlcmVudCBzZXRzCgpCYXRjaCByZWxhdGVkIGltcGxlbWVudGF0aW9uIHdvcmsgdW50aWwgYSBtZWFuaW5nZnVsIHByb2R1Y3Rpb24gcGF0aCBpcyBjb21wbGV0ZS4KRG8gbm90IGludGVycnVwdCBldmVyeSBlZGl0IHdpdGggYSBidWlsZCBvciB0ZXN0LiBLZWVwIHVucmVsYXRlZCBjaGFuZ2VzIHNlcGFyYXRlLAp0aGVuIHZhbGlkYXRlIHRoZSBjb21wbGV0ZWQgc2V0IHRocm91Z2ggdGhlIHNtYWxsZXN0IHJlYWwgaW50ZWdyYXRpb24gYm91bmRhcnkuCgpEbyBub3Qgc3RhcnQgYW4gdW5yZWxhdGVkIHN1YnN5c3RlbSB3aGlsZSB0aGUgY3VycmVudCBpbXBsZW1lbnRhdGlvbiBzZXQgaXMgcGFydGlhbC4KCiMjIyBTdG9wIGNvbmRpdGlvbnMKClN0b3AgYW5kIGFzayB3aGVuOiB0aGUgcmVxdWlyZW1lbnQgaXMgYW1iaWd1b3VzIGluIGEgd2F5IHRoYXQgY2hhbmdlcyB0aGUKZGVzaWduLCB0d28gcmVhZGluZ3Mgb2YgdGhlIHRhc2sgbGVhZCB0byBkaWZmZXJlbnQgZmlsZXMsIHRoZSBjaGFuZ2Ugd291bGQKYnJlYWsgYW4gZXhpc3RpbmcgYmVoYXZpb3IsIG9yIHlvdSBhcmUgYWJvdXQgdG8gZG8gc29tZXRoaW5nIGhhcmQgdG8gcmV2ZXJzZS4KClN0b3Agd2hlbiB0aGUgZ29hbCBpcyBtZXQuIERvIG5vdCBjb250aW51ZSBpbnRvIGFkamFjZW50IGltcHJvdmVtZW50cy4KCiMjIyBGb3JtYXQgY29udHJhY3RzCgpXaGVuIGEgc3BlY2lmaWMgb3V0cHV0IGZvcm1hdCBpcyByZXF1ZXN0ZWQg4oCUIEpTT04sIGEgdGFibGUsIGEgZGlmZiwgYSBzY2hlbWEg4oCUCmVtaXQgZXhhY3RseSB0aGF0IGZvcm1hdCB3aXRoIG5vIHByZWFtYmxlLCBubyB0cmFpbGluZyBjb21tZW50YXJ5LCBhbmQgbm8KbWFya2Rvd24gZmVuY2UgdW5sZXNzIHRoZSBmZW5jZSB3YXMgYXNrZWQgZm9yLiBBIHBhcnNlciBpcyBvZnRlbiByZWFkaW5nIGl0LgoKIyMjIFNlbGYtY2hlY2sgYmVmb3JlIHJlcG9ydGluZyBjb21wbGV0aW9uCgpTdGF0ZSBlYWNoIG9mIHRoZXNlIGV4cGxpY2l0bHksIG5vdCBhcyBhIGNsYWltIHRoYXQgeW91IGRpZCB0aGVtOgoKMS4gV2hhdCBjaGFuZ2VkLCBmaWxlIGJ5IGZpbGUuCjIuIFdoYXQgd2FzIHJ1biB0byB2ZXJpZnkgaXQsIGFuZCB0aGUgb2JzZXJ2ZWQgb3V0cHV0LgozLiBXaGF0IHdhcyBhZGRlZCB0aGF0IHdhcyBub3QgcmVxdWVzdGVkIOKAlCByZW1vdmUgaXQsIG9yIGxpc3QgaXQgYW5kIGFzay4KNC4gV2hpY2ggZ3VhcmRzIHRyYWNlIHRvIGFuIG9ic2VydmVkIGZhaWx1cmUsIGFuZCB3aGljaCBkbyBub3QuCjUuIFdoYXQgcmVtYWlucyB1bnZlcmlmaWVkLCBhbmQgd2h5LgoKPCEtLSBwcm9maWxlOiBtaXhlZCDigJQgc2VlIHJlZmVyZW5jZXMvTU9ERUwtUFJPRklMRVMubWQgYmVmb3JlIGNoYW5naW5nIC0tPgo8IS0tIHByb21ldGhldXMtYmFzZTplbmQgLS0+Cg==",
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/UI_UX_PROTOCOL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/references/catalog.lock.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/references/catalog.lock.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/references/deferred-ports.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/references/deferred-ports.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/references/pointer.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/references/pointer.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/references/runtime-api.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/references/runtime-api.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/references/UI_UX_PROTOCOL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/references/UI_UX_PROTOCOL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/scripts/cli.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/scripts/cli.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/scripts/install.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/scripts/install.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/scripts/routing.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/scripts/routing.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-ux/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-ux/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-ui-review/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-ui-review/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-impeccable-core/references/impeccable-context-and-modes.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-impeccable-core/references/impeccable-context-and-modes.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-impeccable-core/references/impeccable-craft-floor.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-impeccable-core/references/impeccable-craft-floor.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-impeccable-core/references/LICENSE.impeccable",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-impeccable-core/references/LICENSE.impeccable",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/prometheus-impeccable-core/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/prometheus-impeccable-core/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/app-interface.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/app-interface.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/catalog-summary.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/catalog-summary.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/charts.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/charts.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/colors.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/colors.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/data-provenance.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/data-provenance.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/google-font-licenses.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/google-font-licenses.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/google-fonts.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/google-fonts.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/icons.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/icons.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/landing.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/landing.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/motion.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/motion.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/phosphor-icons-upstream.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/phosphor-icons-upstream.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/products.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/products.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/react-performance.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/react-performance.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/search-config.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/search-config.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/angular.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/angular.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/astro.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/astro.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/avalonia.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/avalonia.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/flutter.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/flutter.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/html-tailwind.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/html-tailwind.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/javafx.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/javafx.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/jetpack-compose.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/jetpack-compose.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/laravel.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/laravel.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/nextjs.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/nextjs.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/nuxt-ui.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/nuxt-ui.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/nuxtjs.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/nuxtjs.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/react-native.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/react-native.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/react.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/react.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/shadcn.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/shadcn.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/svelte.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/svelte.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/swiftui.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/swiftui.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/threejs.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/threejs.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/uno.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/uno.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/uwp.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/uwp.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/vue.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/vue.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/winui.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/winui.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/stacks/wpf.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/stacks/wpf.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/styles.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/styles.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/typography.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/typography.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/ui-reasoning.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/ui-reasoning.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/data/ux-guidelines.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/data/ux-guidelines.csv",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/PORT.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/PORT.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/provenance.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/provenance.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/reference-cases.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/reference-cases.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/references/pro-rules.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/references/pro-rules.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/references/quick-reference.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/references/quick-reference.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/core.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/core.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/data.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/data.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/design-system.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/design-system.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/format.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/format.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/persistence.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/persistence.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/ranking.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/ranking.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/reasoning.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/reasoning.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/scripts/search.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/scripts/search.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/ui-ux-pro-max/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/ui-ux-pro-max/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/design-taste-frontend/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/design-taste-frontend/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/design-taste-frontend/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/design-taste-frontend-v1/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend-v1/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/design-taste-frontend-v1/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend-v1/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/design-taste-frontend-v1/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/design-taste-frontend-v1/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/gpt-taste/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/gpt-taste/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/gpt-taste/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/gpt-taste/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/gpt-taste/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/gpt-taste/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/redesign-existing-projects/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/redesign-existing-projects/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/redesign-existing-projects/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/redesign-existing-projects/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/redesign-existing-projects/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/redesign-existing-projects/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/high-end-visual-design/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/high-end-visual-design/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/high-end-visual-design/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/high-end-visual-design/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/high-end-visual-design/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/high-end-visual-design/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/minimalist-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/minimalist-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/minimalist-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/minimalist-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/minimalist-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/minimalist-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/industrial-brutalist-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/industrial-brutalist-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/industrial-brutalist-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/industrial-brutalist-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/industrial-brutalist-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/industrial-brutalist-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/full-output-enforcement/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/full-output-enforcement/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/full-output-enforcement/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/full-output-enforcement/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/full-output-enforcement/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/full-output-enforcement/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/stitch-design-taste/DESIGN.stitch.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/stitch-design-taste/DESIGN.stitch.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/stitch-design-taste/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/stitch-design-taste/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/stitch-design-taste/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/stitch-design-taste/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/stitch-design-taste/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/stitch-design-taste/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/focus-and-keyboard.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/focus-and-keyboard.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/forms.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/forms.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/hit-areas.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/hit-areas.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/motion-and-zoom.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/motion-and-zoom.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/screen-readers.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/screen-readers.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/semantics-and-aria.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/semantics-and-aria.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-accessibility/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-accessibility/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/color-formats.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/color-formats.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/color-usage.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/color-usage.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/contrast.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/contrast.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/palette-generation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/palette-generation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/palette-structure.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/palette-structure.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-colors/token-naming.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-colors/token-naming.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-interface/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-interface/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-interface/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-interface/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-interface/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-interface/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-interface/review-format.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-interface/review-format.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-interface/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-interface/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-layout/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-layout/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-layout/grouping-and-alignment.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-layout/grouping-and-alignment.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-layout/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-layout/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-layout/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-layout/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-layout/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-layout/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-layout/spacing-and-adaptivity.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-layout/spacing-and-adaptivity.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/choosing-fonts.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/choosing-fonts.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/css-cheat-sheet.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/css-cheat-sheet.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/details-and-accessibility.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/details-and-accessibility.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/spacing-and-sizing.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/spacing-and-sizing.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/variable-fonts-and-opentype.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/variable-fonts-and-opentype.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-typography/wrapping-and-punctuation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-typography/wrapping-and-punctuation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/animations.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/animations.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/enter-exit.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/enter-exit.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/icon-transitions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/icon-transitions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/icons.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/icons.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/performance.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/performance.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-ui/surfaces.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-ui/surfaces.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-writing/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-writing/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-writing/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-writing/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-writing/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-writing/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/better-writing/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/better-writing/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/break/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/break/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/break/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/break/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/break/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/break/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/break/scenarios.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/break/scenarios.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/break/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/break/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/find-the-effect.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/find-the-effect.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/from-an-image.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/from-an-image.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/no-browser.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/no-browser.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/read-the-system.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/read-the-system.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/explain-interface/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/explain-interface/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/interface-review/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/interface-review/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/interface-review/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/interface-review/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/interface-review/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/interface-review/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/interface-review/removed-signals.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/interface-review/removed-signals.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/interface-review/scope-resolution.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/interface-review/scope-resolution.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/interface-review/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/interface-review/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/variant/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/variant/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/variant/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/variant/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/variant/picker.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/variant/picker.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/variant/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/variant/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/variant/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/variant/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/AGENTS.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/AGENTS.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/metadata.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/metadata.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/README.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/README.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/_sections.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/_sections.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/_template.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/_template.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/advanced-effect-event-deps.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/advanced-effect-event-deps.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/advanced-event-handler-refs.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/advanced-event-handler-refs.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/advanced-init-once.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/advanced-init-once.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/advanced-use-latest.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/advanced-use-latest.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/async-api-routes.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/async-api-routes.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/async-cheap-condition-before-await.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/async-cheap-condition-before-await.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/async-defer-await.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/async-defer-await.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/async-dependencies.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/async-dependencies.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/async-parallel.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/async-parallel.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/async-suspense-boundaries.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/async-suspense-boundaries.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/bundle-analyzable-paths.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/bundle-analyzable-paths.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/bundle-barrel-imports.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/bundle-barrel-imports.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/bundle-conditional.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/bundle-conditional.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/bundle-defer-third-party.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/bundle-defer-third-party.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/bundle-dynamic-imports.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/bundle-dynamic-imports.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/bundle-preload.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/bundle-preload.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/client-event-listeners.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/client-event-listeners.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/client-localstorage-schema.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/client-localstorage-schema.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/client-passive-event-listeners.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/client-passive-event-listeners.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/client-swr-dedup.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/client-swr-dedup.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-batch-dom-css.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-batch-dom-css.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-cache-function-results.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-cache-function-results.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-cache-property-access.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-cache-property-access.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-cache-storage.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-cache-storage.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-combine-iterations.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-combine-iterations.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-early-exit.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-early-exit.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-flatmap-filter.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-flatmap-filter.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-hoist-regexp.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-hoist-regexp.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-index-maps.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-index-maps.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-length-check-first.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-length-check-first.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-min-max-loop.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-min-max-loop.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-request-idle-callback.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-request-idle-callback.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-set-map-lookups.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-set-map-lookups.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/js-tosorted-immutable.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/js-tosorted-immutable.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-activity.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-activity.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-animate-svg-wrapper.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-animate-svg-wrapper.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-conditional-render.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-conditional-render.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-content-visibility.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-content-visibility.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-hoist-jsx.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-hoist-jsx.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-hydration-no-flicker.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-hydration-no-flicker.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-hydration-suppress-warning.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-hydration-suppress-warning.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-resource-hints.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-resource-hints.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-script-defer-async.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-script-defer-async.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-svg-precision.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-svg-precision.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rendering-usetransition-loading.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rendering-usetransition-loading.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-defer-reads.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-defer-reads.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-dependencies.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-dependencies.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-derived-state-no-effect.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-derived-state-no-effect.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-derived-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-derived-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-functional-setstate.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-functional-setstate.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-lazy-state-init.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-lazy-state-init.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-memo-with-default-value.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-memo-with-default-value.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-memo.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-memo.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-move-effect-to-event.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-move-effect-to-event.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-no-inline-components.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-no-inline-components.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-simple-expression-in-memo.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-simple-expression-in-memo.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-split-combined-hooks.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-split-combined-hooks.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-transitions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-transitions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-use-deferred-value.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-use-deferred-value.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/rerender-use-ref-transient-values.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/rerender-use-ref-transient-values.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-after-nonblocking.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-after-nonblocking.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-auth-actions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-auth-actions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-cache-lru.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-cache-lru.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-cache-react.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-cache-react.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-dedup-props.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-dedup-props.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-hoist-static-io.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-hoist-static-io.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-no-shared-module-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-no-shared-module-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-parallel-fetching.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-parallel-fetching.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-parallel-nested-fetching.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-parallel-nested-fetching.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/rules/server-serialization.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/rules/server-serialization.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-best-practices/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-best-practices/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/AGENTS.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/AGENTS.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/metadata.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/metadata.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/README.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/README.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/_sections.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/_sections.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/_template.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/_template.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/architecture-avoid-boolean-props.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/architecture-avoid-boolean-props.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/architecture-compound-components.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/architecture-compound-components.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/patterns-children-over-render-props.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/patterns-children-over-render-props.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/patterns-explicit-variants.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/patterns-explicit-variants.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/react19-no-forwardref.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/react19-no-forwardref.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/state-context-interface.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/state-context-interface.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/state-decouple-implementation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/state-decouple-implementation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/rules/state-lift-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/rules/state-lift-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-composition-patterns/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-composition-patterns/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/AGENTS.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/AGENTS.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/metadata.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/metadata.json",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/README.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/README.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/_sections.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/_sections.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/_template.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/_template.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/animation-derived-value.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/animation-derived-value.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/animation-gesture-detector-press.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/animation-gesture-detector-press.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/animation-gpu-properties.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/animation-gpu-properties.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/design-system-compound-components.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/design-system-compound-components.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/fonts-config-plugin.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/fonts-config-plugin.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/imports-design-system-folder.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/imports-design-system-folder.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/js-hoist-intl.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/js-hoist-intl.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-callbacks.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-callbacks.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-function-references.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-function-references.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-images.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-images.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-inline-objects.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-inline-objects.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-item-expensive.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-item-expensive.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-item-memo.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-item-memo.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-item-types.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-item-types.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/list-performance-virtualize.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/list-performance-virtualize.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/monorepo-native-deps-in-app.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/monorepo-native-deps-in-app.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/monorepo-single-dependency-versions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/monorepo-single-dependency-versions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/navigation-native-navigators.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/navigation-native-navigators.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/react-compiler-destructure-functions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/react-compiler-destructure-functions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/react-compiler-reanimated-shared-values.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/react-compiler-reanimated-shared-values.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/react-state-dispatcher.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/react-state-dispatcher.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/react-state-fallback.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/react-state-fallback.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/react-state-minimize.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/react-state-minimize.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/rendering-no-falsy-and.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/rendering-no-falsy-and.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/rendering-text-in-text-component.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/rendering-text-in-text-component.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/scroll-position-no-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/scroll-position-no-state.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/state-ground-truth.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/state-ground-truth.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-expo-image.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-expo-image.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-image-gallery.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-image-gallery.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-measure-views.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-measure-views.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-menus.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-menus.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-native-modals.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-native-modals.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-pressable.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-pressable.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-safe-area-scroll.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-safe-area-scroll.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-scrollview-content-inset.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-scrollview-content-inset.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/rules/ui-styling.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/rules/ui-styling.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/vercel-react-native-skills/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/vercel-react-native-skills/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/web-design-guidelines/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/web-design-guidelines/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/web-design-guidelines/references/LICENSE.web-interface-guidelines",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/web-design-guidelines/references/LICENSE.web-interface-guidelines",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/web-design-guidelines/references/web-interface-guidelines.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/web-design-guidelines/references/web-interface-guidelines.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/web-design-guidelines/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/web-design-guidelines/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/web-design-guidelines/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/web-design-guidelines/UPSTREAM-LICENSE-EVIDENCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/references/controls.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/references/controls.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/references/gradients.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/references/gradients.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/references/icons.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/references/icons.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/references/media.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/references/media.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/references/storage.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/references/storage.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/references/visual-effects.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/references/visual-effects.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/references/webgpu-three.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/references/webgpu-three.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-native-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-native-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/references/drop-in-replacements.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/references/drop-in-replacements.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/references/jetpack-compose.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/references/jetpack-compose.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/references/swift-ui.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/references/swift-ui.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/references/universal.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/references/universal.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/scripts/list-components.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/scripts/list-components.mjs",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-ui/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-design-system/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-design-system/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-design-system/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-design-system/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-design-system/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-design-system/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-design-system/references/audit.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-design-system/references/audit.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-design-system/references/native-slop.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-design-system/references/native-slop.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-design-system/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-design-system/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/references/form-sheet.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/references/form-sheet.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/references/route-structure.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/references/route-structure.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/references/search.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/references/search.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/references/tabs.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/references/tabs.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/references/toolbar-and-headers.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/references/toolbar-and-headers.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/references/zoom-transitions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/references/zoom-transitions.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-router/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-router/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-animation/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-animation/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-animation/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-animation/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-animation/LICENSE.repository",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-animation/LICENSE.repository",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-animation/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-animation/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-animation/RECIPES.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-animation/RECIPES.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/expo-animation/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/expo-animation/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-build-responsive-layout/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-build-responsive-layout/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-build-responsive-layout/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-build-responsive-layout/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-build-responsive-layout/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-build-responsive-layout/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-fix-layout-issues/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-fix-layout-issues/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-fix-layout-issues/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-fix-layout-issues/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-fix-layout-issues/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-fix-layout-issues/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-setup-declarative-routing/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-setup-declarative-routing/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-setup-declarative-routing/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-setup-declarative-routing/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-setup-declarative-routing/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-setup-declarative-routing/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-setup-localization/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-setup-localization/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-setup-localization/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-setup-localization/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/flutter-setup-localization/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/flutter-setup-localization/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/agents/openai.yaml",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/assets/swiftui-pro-icon.png",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/assets/swiftui-pro-icon.png",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/assets/swiftui-pro-icon.svg",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/assets/swiftui-pro-icon.svg",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/LICENSE",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/accessibility.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/accessibility.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/api.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/api.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/data.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/data.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/design.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/design.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/hygiene.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/hygiene.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/navigation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/navigation.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/performance.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/performance.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/swift.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/swift.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/references/views.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/references/views.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/swiftui-pro/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/swiftui-pro/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/LICENSE.txt",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/LICENSE.txt",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/container-behavior.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/container-behavior.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/get-started.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/get-started.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/index.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/index.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/item-behavior.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/flexbox/item-behavior.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/container-properties.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/container-properties.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/get-started.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/get-started.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/index.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/index.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/item-properties.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/grid/item-properties.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/mediaquery/index.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/layouts/adaptive/mediaquery/index.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/develop/ui/compose/tooling/debug.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/develop/ui/compose/tooling/debug.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/references/android/guide/navigation/navigation-3/recipes/material-listdetail.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/references/android/guide/navigation/navigation-3/recipes/material-listdetail.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-compose-adaptive/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-compose-adaptive/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-edge-to-edge/LICENSE.txt",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-edge-to-edge/LICENSE.txt",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-edge-to-edge/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-edge-to-edge/PROVENANCE.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".agents/skills/android-edge-to-edge/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    },
+    {
+      "path": ".claude/skills/android-edge-to-edge/SKILL.md",
+      "before": null,
+      "encoding": "base64"
+    }
+  ]
+}

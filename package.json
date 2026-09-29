@@ -12,6 +12,6 @@
     "builtin-modules": "^4.0.0",
     "esbuild": "^0.25.0",
     "obsidian": "^1.9.9",
-    "typescript": "^5.8.0"
+    "typescript": "^7.0.2"
   }
 }

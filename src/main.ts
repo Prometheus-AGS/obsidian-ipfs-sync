@@ -44,7 +44,7 @@ interface PublishResult {
 }
 
 export default class IpfsSyncPlugin extends Plugin {
-  settings: IpfsSyncSettings;
+  declare settings: IpfsSyncSettings;
   private timer: number | null = null;
 
   async onload() {
@@ -268,11 +268,11 @@ export default class IpfsSyncPlugin extends Plugin {
         // replaces this with real merging.
         const stamp = new Date().toISOString().slice(0, 10);
         const conflictPath = `${rel} (ipfs conflict ${stamp})`;
-        await this.app.vault.create(conflictPath, local);
-        await this.app.vault.modify(existing, entry.data);
+        await this.app.vault.createBinary(conflictPath, local);
+        await this.app.vault.modifyBinary(existing, entry.data);
         conflicts++;
       } else {
-        await this.app.vault.create(rel, entry.data);
+        await this.app.vault.createBinary(rel, entry.data);
         written++;
       }
     }
