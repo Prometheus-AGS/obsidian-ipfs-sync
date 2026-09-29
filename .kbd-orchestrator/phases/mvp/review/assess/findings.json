@@ -1,0 +1,50 @@
+{
+  "mode": "artifact",
+  "verdict": "PASS",
+  "judge_model": "kbd-judge",
+  "producer_model": "kimi-k2.5",
+  "isolation_mode": "rest-gateway:http://localhost:8181/v1",
+  "cross_model_check": "verified-distinct",
+  "findings": [
+    {
+      "severity": "WARNING",
+      "file": "assessment.md",
+      "line": 0,
+      "claim": "The assessment falsely states that existing constraints already block Python in scripts.",
+      "evidence": "Assessment says: \"`.kbd-orchestrator/constraints.md` already blocks: WebView-unsafe bundles, python in scripts, destructive node ops.\" The provided constraints include `webview-safe-bundle`, `bash-32-compatible-scripts`, and `no-destructive-node-ops`, but no constraint blocking Python usage in scripts.",
+      "suggested_fix": "Change the constraints check to say Python is not yet blocked and must be added for spec 004, without implying it already exists."
+    },
+    {
+      "severity": "WARNING",
+      "file": "assessment.md",
+      "line": 0,
+      "claim": "The assessment claims installed built plugin state that is unsupported by the packet file tree.",
+      "evidence": "Inventory says: \"`manifest.json` + built plugin | Installed in vault `.obsidian/plugins/ipfs-sync/` | v0.1.0\". The file tree contains `manifest.json` but no `.obsidian/plugins/ipfs-sync/` path and no built plugin artifact such as `main.js`.",
+      "suggested_fix": "Either remove the installed-vault/built-plugin claim or cite evidence available in the repository packet."
+    },
+    {
+      "severity": "WARNING",
+      "file": "assessment.md",
+      "line": 0,
+      "claim": "The assessment presents shell scripts as working and tested E2E without packet evidence.",
+      "evidence": "Inventory says: \"`scripts/publish.sh` / `pull.sh` ... Working, tested E2E\". The packet includes only the file tree and constraints; it contains no test logs, prior handoff, CI output, or test harness evidence, and the inventory later says \"Test suite | **None**\".",
+      "suggested_fix": "Rephrase to the verifiable state, such as \"scripts exist and were intended for snapshot sync,\" unless test evidence is included."
+    },
+    {
+      "severity": "WARNING",
+      "file": "assessment.md",
+      "line": 0,
+      "claim": "The assessment relies on an external security research package that is not present in the packet.",
+      "evidence": "Security section says: \"Deep-research package `decentralized-security-for-an-agentic-20260929-4a2f` ... 10 sources, 50 verified claims, 21/21 contradictions resolved\" and points to `~/.prometheus/research/.../report.md`; neither the report nor provenance appears in the packet or file tree.",
+      "suggested_fix": "Move unsupported research conclusions out of the assessment or attach the research artifacts/provenance needed to justify them."
+    },
+    {
+      "severity": "WARNING",
+      "file": "assessment.md",
+      "line": 0,
+      "claim": "The assessment asserts remote MFS state that is unsupported by the packet.",
+      "evidence": "Goal 6 says: \"partial MFS staging at `/obsidian-vault-sync/publish-real-20260929` on the node \u2014 resumable or disposable.\" The packet contains no node listing, command output, prior handoff, or other evidence for this remote path.",
+      "suggested_fix": "Mark this as an unverified note or provide the node inspection evidence before planning resumable/disposable behavior around it."
+    }
+  ]
+}

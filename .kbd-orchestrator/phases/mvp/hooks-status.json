@@ -1,1 +1,1 @@
-{"totalRuns":5,"failedRuns":0,"lastRun":{"ts":"2026-09-29T22:59:48Z","kind":"assess","edge":"before","name":"mvp","hookId":"auto-memory-recall","layer":"builtin","mode":"augment","status":0},"lastFailure":null}
+{"totalRuns":8,"failedRuns":0,"lastRun":{"ts":"2026-09-29T23:27:21Z","kind":"assess","edge":"after","name":"mvp","hookId":"legacy-assessment-complete","layer":"builtin","mode":"augment","status":0},"lastFailure":null}
