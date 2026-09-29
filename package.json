@@ -1,0 +1,17 @@
+{
+  "name": "obsidian-ipfs-sync",
+  "version": "0.1.0",
+  "description": "Sync your Obsidian vault over IPFS via your own kubo node.",
+  "main": "main.js",
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.25.0",
+    "obsidian": "^1.9.9",
+    "typescript": "^5.8.0"
+  }
+}

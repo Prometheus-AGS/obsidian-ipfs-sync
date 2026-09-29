@@ -1,0 +1,10 @@
+.trash/
+.ipfs-sync/
+.DS_Store
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/workspace.json.bak
+.obsidian/graph.json
+.obsidian/cache
+node_modules/
+.git/
