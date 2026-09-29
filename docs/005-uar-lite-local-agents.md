@@ -122,6 +122,9 @@ phone (UAR-lite) ◄─A2A/AG-UI─► UAR (heavy peer) ◄─A2A─► other ag
 4. Embedding index format + update policy when offline edits diverge from the
    pinned index (re-embed changed files locally — confirms spec 003's
    Rust/WASM unixfs+hash lane for content-keyed index entries).
+   → **RESOLVED in `docs/006-embedded-stores.md`:** dual-store decision —
+   PGlite for vectors + metadata, SurrealDB WASM for the relations graph;
+   both rebuildable caches keyed by `file_sha256`.
 5. A2A AgentCard on a device with no inbound connectivity: announce-on-LAN
    only, or skip discovery and use address-book manifests?
 6. ONNX lane choice (onnxruntime-web vs tract-in-WASM) — benchmark spike.
