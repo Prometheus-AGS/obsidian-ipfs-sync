@@ -1,0 +1,5 @@
+{
+  "name": "ipfs-sync",
+  "version": "1.0.0",
+  "description": "Build obsidian-ipfs-sync per docs/001-009: decentralized vault sync over IPFS with agentic capabilities across desktop and mobile"
+}

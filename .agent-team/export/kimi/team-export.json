@@ -1,0 +1,128 @@
+{
+  "target": "kimi",
+  "verification": {
+    "level": "source-verified",
+    "source": "https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/agents.md",
+    "version": "main documentation inspected 2026-09-24",
+    "live": "unverified"
+  },
+  "diagnostics": [
+    "Source-verified serialization only; installed native validation and live execution are unverified.",
+    "Only explicit model IDs are translated. Resolve tier, skill, capability and price policies with agent-team-models before native invocation.",
+    "Role overrides are preserved without native schema certification. Skill IDs refer to separately installed skills; prompt mentions do not install or authorize them."
+  ],
+  "instructions": [
+    "Review staged artifacts before installation. Export grants no execution or registration authority.",
+    "Choose project .kimi-code/agents or the staged Kimi v2 marketplace/plugin. Literal ${base_prompt} in supplied prompts remains unchanged."
+  ],
+  "files": [
+    {
+      "file": ".kimi-code/agents/product-manager.md",
+      "sha256": "b5efd9f1554ab54e368f8fb588cc10145fd746abdee6a9e0d1d81175b0079a53"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/product-manager.md",
+      "sha256": "b5efd9f1554ab54e368f8fb588cc10145fd746abdee6a9e0d1d81175b0079a53"
+    },
+    {
+      "file": ".kimi-code/agents/ipfs-engineer.md",
+      "sha256": "58817ff4e2521ee2202e64c3bb626c959ba16879733c5339fefa99da8f961100"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/ipfs-engineer.md",
+      "sha256": "58817ff4e2521ee2202e64c3bb626c959ba16879733c5339fefa99da8f961100"
+    },
+    {
+      "file": ".kimi-code/agents/p2p-engineer.md",
+      "sha256": "5290d7bff5addd1f5a334824b6001b6bb265b183014a769b6e3bd8a061e494fa"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/p2p-engineer.md",
+      "sha256": "5290d7bff5addd1f5a334824b6001b6bb265b183014a769b6e3bd8a061e494fa"
+    },
+    {
+      "file": ".kimi-code/agents/identity-security-engineer.md",
+      "sha256": "7ae7ba38d9c18ca8eb797a2626e2fbc37a7ed46350d27cea7b41bb99cf607672"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/identity-security-engineer.md",
+      "sha256": "7ae7ba38d9c18ca8eb797a2626e2fbc37a7ed46350d27cea7b41bb99cf607672"
+    },
+    {
+      "file": ".kimi-code/agents/uiux-lead.md",
+      "sha256": "da9c0d203bbc16e6c2a2afdfc452f9ce959d618b80d0a8060d34d91184962dc0"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/uiux-lead.md",
+      "sha256": "da9c0d203bbc16e6c2a2afdfc452f9ce959d618b80d0a8060d34d91184962dc0"
+    },
+    {
+      "file": ".kimi-code/agents/data-engineer.md",
+      "sha256": "701d53348707a307d1495b300f8535accb31f260ee2af786b6ff7ff0b53b6dd8"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/data-engineer.md",
+      "sha256": "701d53348707a307d1495b300f8535accb31f260ee2af786b6ff7ff0b53b6dd8"
+    },
+    {
+      "file": ".kimi-code/agents/uar-engineer.md",
+      "sha256": "844cedbc63c775bd9a4e14e01eb095af710c20d85effe642d831fea21e49816f"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/uar-engineer.md",
+      "sha256": "844cedbc63c775bd9a4e14e01eb095af710c20d85effe642d831fea21e49816f"
+    },
+    {
+      "file": ".kimi-code/agents/workflow-lead.md",
+      "sha256": "b792056c471220783eec7d0e299ff97dc9fff97b042087b9ffdfb9e083e2aed1"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/workflow-lead.md",
+      "sha256": "b792056c471220783eec7d0e299ff97dc9fff97b042087b9ffdfb9e083e2aed1"
+    },
+    {
+      "file": ".kimi-code/agents/release-deployment-lead.md",
+      "sha256": "72c936cf61b943de42c105d53df277b473b379c663846b3aad822f8350c7bb49"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/release-deployment-lead.md",
+      "sha256": "72c936cf61b943de42c105d53df277b473b379c663846b3aad822f8350c7bb49"
+    },
+    {
+      "file": ".kimi-code/agents/bdd-engineer.md",
+      "sha256": "e1d94ec693bf580b2e0e74823e521c3db550211adb850ba1ad3b69570c652db9"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/bdd-engineer.md",
+      "sha256": "e1d94ec693bf580b2e0e74823e521c3db550211adb850ba1ad3b69570c652db9"
+    },
+    {
+      "file": ".kimi-code/agents/security-reviewer.md",
+      "sha256": "0885541814f5d83f3aba6d7a658da934a2e990d08ec3d1975bd351128155ae6f"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/security-reviewer.md",
+      "sha256": "0885541814f5d83f3aba6d7a658da934a2e990d08ec3d1975bd351128155ae6f"
+    },
+    {
+      "file": ".kimi-code/agents/documentation-specialist.md",
+      "sha256": "309770e0ad64ad2ca7105e777dadb6d68cc920714cedba8776e23b31263e6d61"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/documentation-specialist.md",
+      "sha256": "309770e0ad64ad2ca7105e777dadb6d68cc920714cedba8776e23b31263e6d61"
+    },
+    {
+      "file": "plugins/ipfs-sync/kimi.plugin.json",
+      "sha256": "713ccae10312ac917083574a89c0c999870bac800b422ad745a64c7fb281d152"
+    },
+    {
+      "file": "marketplace.json",
+      "sha256": "008ca633a7b9c54d38bfe1e2b23392f587774263bc48c9f9e93ccbddfd21ef0f"
+    },
+    {
+      "file": "export-receipt.json",
+      "sha256": "5ae9161cf047dc1d242e7c43a08704bc7fc0aaac049c5a94632b4da49c8ace3a"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "ipfs-sync",
+  "outcome": "Build obsidian-ipfs-sync: decentralized Obsidian vault sync over IPFS (kubo RPC, MFS, delta sync) with agentic capabilities (AG-UI/A2A client, UAR-lite local WASM agents, popup chat) across desktop and mobile (iOS/Android WebView, Windows, macOS, Linux), per specs in docs/001-009",
+  "complexity": "complex",
+  "areas": ["code", "design", "mobile", "security", "docs", "product"],
+  "deliverables": [
+    "Node 24 CLI + Obsidian plugin with delta sync over IPFS (MVP, KBD phase 'mvp')",
+    "AG-UI/A2A client UI for agent management and vault search (specs 002/009)",
+    "UAR-lite WASM agent runtime with SurrealDB-WASM graph + PGlite vectors (specs 003/005/006)",
+    "WebRTC mobile-to-desktop direct sync links (spec 008)",
+    "Decentralized security layer: UCAN + SPAKE2 pairing + client-side encryption (research-merged assessment)",
+    "BDD test suite + deployment/registration workflow"
+  ],
+  "budget": "balanced",
+  "review": true,
+  "harness": "claude",
+  "scope": "project"
+}

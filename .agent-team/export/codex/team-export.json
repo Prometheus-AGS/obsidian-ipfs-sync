@@ -1,0 +1,73 @@
+{
+  "target": "codex",
+  "verification": {
+    "level": "source-verified",
+    "source": "https://learn.chatgpt.com/docs/agent-configuration/subagents",
+    "version": "documentation inspected 2026-09-24",
+    "live": "unverified"
+  },
+  "diagnostics": [
+    "Source-verified serialization only; installed native validation and live execution are unverified.",
+    "Only explicit model IDs are translated. Resolve tier, skill, capability and price policies with agent-team-models before native invocation.",
+    "Standalone agent files are supported. A Codex plugin agents manifest field is not verified; no such field is emitted.",
+    "Role overrides are preserved without native schema certification. Skill IDs refer to separately installed skills; prompt mentions do not install or authorize them."
+  ],
+  "instructions": [
+    "Review staged artifacts before installation. Export grants no execution or registration authority.",
+    "Review and merge .codex/agents and optional .codex/config.toml into the project; config values are native Codex options."
+  ],
+  "files": [
+    {
+      "file": ".codex/agents/product-manager.toml",
+      "sha256": "7feab56d16d01587451db42ddf892641465cd1a94fb9df0e37566d377d469d2b"
+    },
+    {
+      "file": ".codex/agents/ipfs-engineer.toml",
+      "sha256": "9dad22aafd480736bd26734eac9ec419f995bd451a5264dd30195e41bc93e4d3"
+    },
+    {
+      "file": ".codex/agents/p2p-engineer.toml",
+      "sha256": "4cbd55b4ef4c3c1905937d1da53336f561a9963219cd9f2a0ec8c0b10d79dad9"
+    },
+    {
+      "file": ".codex/agents/identity-security-engineer.toml",
+      "sha256": "f792e217d4fc24f9d300a60c0d8c68d65b5eb333d2226841daa54da632cde656"
+    },
+    {
+      "file": ".codex/agents/uiux-lead.toml",
+      "sha256": "9c84231a4b5ba6e5bef550514c4032dabc9bb7385779a004ee16358d5b049fb7"
+    },
+    {
+      "file": ".codex/agents/data-engineer.toml",
+      "sha256": "093f383692b67a831706d8385c6f9fe5fb87d01e4d2a2b6cae150476ee5bef52"
+    },
+    {
+      "file": ".codex/agents/uar-engineer.toml",
+      "sha256": "9bda248a6af116c11d254cd023e4e24c1a400ef72231ec7f7556b547353e1911"
+    },
+    {
+      "file": ".codex/agents/workflow-lead.toml",
+      "sha256": "70b8c9f7ae972f42d7bc7b6750d7995e286d0e8fec50e9bb1864b0f114f05ecf"
+    },
+    {
+      "file": ".codex/agents/release-deployment-lead.toml",
+      "sha256": "eb65519d40c0c15efc3fbc960a3a41b77857439626ec74d48bf2395e93502278"
+    },
+    {
+      "file": ".codex/agents/bdd-engineer.toml",
+      "sha256": "382160ba501672082283829bf0bcd8701bd66fa19510dfcab0ad21b7ff2aee68"
+    },
+    {
+      "file": ".codex/agents/security-reviewer.toml",
+      "sha256": "6145a34e4ac8d6f4ccf0aa9fc5d98a5273e70f250a3dd12f9d008034044b8f9e"
+    },
+    {
+      "file": ".codex/agents/documentation-specialist.toml",
+      "sha256": "5e4838b26208e91a502052e9603cacea8a7289e82597c95d7c330679f06308fe"
+    },
+    {
+      "file": "export-receipt.json",
+      "sha256": "fa3d430e2344f301f5a645ba2eebb82be61e103a6db966218afc08de6c04cf5e"
+    }
+  ]
+}

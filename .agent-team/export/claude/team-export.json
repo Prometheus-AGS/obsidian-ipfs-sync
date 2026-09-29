@@ -1,0 +1,129 @@
+{
+  "target": "claude",
+  "verification": {
+    "level": "source-verified",
+    "source": "https://code.claude.com/docs/en/sub-agents",
+    "version": "documentation inspected 2026-09-24",
+    "live": "unverified"
+  },
+  "diagnostics": [
+    "Source-verified serialization only; installed native validation and live execution are unverified.",
+    "Only explicit model IDs are translated. Resolve tier, skill, capability and price policies with agent-team-models before native invocation.",
+    "These are native subagents; installing them does not create an experimental Claude agent team or enable that feature.",
+    "Role overrides are preserved without native schema certification. Skill IDs refer to separately installed skills; prompt mentions do not install or authorize them."
+  ],
+  "instructions": [
+    "Review staged artifacts before installation. Export grants no execution or registration authority.",
+    "Choose project .claude/agents or the staged local marketplace/plugin. Do not install both copies. Settings options are a proposed project .claude/settings.json."
+  ],
+  "files": [
+    {
+      "file": ".claude/agents/product-manager.md",
+      "sha256": "d8f91f34df3d27dfe2e900de502762b349f7c084f87fd11b93f3042c2261bc8a"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/product-manager.md",
+      "sha256": "d8f91f34df3d27dfe2e900de502762b349f7c084f87fd11b93f3042c2261bc8a"
+    },
+    {
+      "file": ".claude/agents/ipfs-engineer.md",
+      "sha256": "f0a6032ec581d64cbfa643144b02cd858be1ccda88f308c2846814656b42d6d6"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/ipfs-engineer.md",
+      "sha256": "f0a6032ec581d64cbfa643144b02cd858be1ccda88f308c2846814656b42d6d6"
+    },
+    {
+      "file": ".claude/agents/p2p-engineer.md",
+      "sha256": "52716aeb450c31da83bdac0195d28a88fd35864ad1b32e36451b04c287903dfd"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/p2p-engineer.md",
+      "sha256": "52716aeb450c31da83bdac0195d28a88fd35864ad1b32e36451b04c287903dfd"
+    },
+    {
+      "file": ".claude/agents/identity-security-engineer.md",
+      "sha256": "fd034853205cd23a6442c4ea36088075b1988655d2d260d9c2f89fabfe906afc"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/identity-security-engineer.md",
+      "sha256": "fd034853205cd23a6442c4ea36088075b1988655d2d260d9c2f89fabfe906afc"
+    },
+    {
+      "file": ".claude/agents/uiux-lead.md",
+      "sha256": "be7ded6e9d680425ba33638bac46d0140524240c91024ea485fe458b29f67074"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/uiux-lead.md",
+      "sha256": "be7ded6e9d680425ba33638bac46d0140524240c91024ea485fe458b29f67074"
+    },
+    {
+      "file": ".claude/agents/data-engineer.md",
+      "sha256": "982ea92485137c5ac7336f80c2cb5c14d7ffb7d43afb3de3dfeab801ba94c6d9"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/data-engineer.md",
+      "sha256": "982ea92485137c5ac7336f80c2cb5c14d7ffb7d43afb3de3dfeab801ba94c6d9"
+    },
+    {
+      "file": ".claude/agents/uar-engineer.md",
+      "sha256": "e6e7a14747097fd20f62c4d349e4291f7e5d85e4474a83a49ab417e3c7364ea1"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/uar-engineer.md",
+      "sha256": "e6e7a14747097fd20f62c4d349e4291f7e5d85e4474a83a49ab417e3c7364ea1"
+    },
+    {
+      "file": ".claude/agents/workflow-lead.md",
+      "sha256": "26000bbede17e6cca108bc77691a6f89b4e450ea0e27b885d05b72972b3ddce6"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/workflow-lead.md",
+      "sha256": "26000bbede17e6cca108bc77691a6f89b4e450ea0e27b885d05b72972b3ddce6"
+    },
+    {
+      "file": ".claude/agents/release-deployment-lead.md",
+      "sha256": "db185774c3564e4e94148788df229db5172cbf83c33f62a984c05eee59dc6e0b"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/release-deployment-lead.md",
+      "sha256": "db185774c3564e4e94148788df229db5172cbf83c33f62a984c05eee59dc6e0b"
+    },
+    {
+      "file": ".claude/agents/bdd-engineer.md",
+      "sha256": "f8521b81bccd135c3155bf2e26a0b4fef2c7881c6542c71775424f162346e4d5"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/bdd-engineer.md",
+      "sha256": "f8521b81bccd135c3155bf2e26a0b4fef2c7881c6542c71775424f162346e4d5"
+    },
+    {
+      "file": ".claude/agents/security-reviewer.md",
+      "sha256": "b3f63e24dd9df4ed07dfdbcb3e92e9c609dfc92960ba173c13498701452d1f71"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/security-reviewer.md",
+      "sha256": "b3f63e24dd9df4ed07dfdbcb3e92e9c609dfc92960ba173c13498701452d1f71"
+    },
+    {
+      "file": ".claude/agents/documentation-specialist.md",
+      "sha256": "39e2a7f97964c44286ba07e983ab8b2558686fab258731e42106c3e20ea00b76"
+    },
+    {
+      "file": "plugins/ipfs-sync/agents/documentation-specialist.md",
+      "sha256": "39e2a7f97964c44286ba07e983ab8b2558686fab258731e42106c3e20ea00b76"
+    },
+    {
+      "file": "plugins/ipfs-sync/.claude-plugin/plugin.json",
+      "sha256": "dc7ba8dc58b508c6d3843a83595fd2447b4728d7f478015a79700245dd881341"
+    },
+    {
+      "file": ".claude-plugin/marketplace.json",
+      "sha256": "d3197ac710fdc1f8ff083bdfb0932e72f027c972ffa3b0e49986658f72dd9bcf"
+    },
+    {
+      "file": "export-receipt.json",
+      "sha256": "6a7b46e9661483c13b3b1749a7c5fd20bb10d75d2b9a6ce6e00d727400162b1e"
+    }
+  ]
+}

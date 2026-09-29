@@ -1,0 +1,10 @@
+{
+  "version": "2",
+  "plugins": [
+    {
+      "id": "ipfs-sync",
+      "displayName": "ipfs-sync",
+      "source": "./plugins/ipfs-sync"
+    }
+  ]
+}

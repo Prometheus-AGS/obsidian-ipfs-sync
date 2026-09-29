@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "skills": {
+    "a2a-protocol": {
+      "source": "terminalskills/skills",
+      "sourceType": "github",
+      "skillPath": "skills/a2a-protocol/SKILL.md",
+      "computedHash": "b9c0cd73dbe9a546754ffda1d430c95fb7771b98ff0f1a3561f0adc396a1a16b"
+    },
+    "ag-ui-a2ui-integration": {
+      "source": "ag-ui-protocol/ag-ui",
+      "sourceType": "github",
+      "skillPath": "skills/ag-ui-a2ui-integration/SKILL.md",
+      "computedHash": "701d9257e1c21f4a7f14b772e207df412dfb2153fb74ed760b63642d1961eca3"
+    },
+    "capacitor-best-practices": {
+      "source": "cap-go/capgo-skills",
+      "sourceType": "github",
+      "skillPath": "skills/capacitor-best-practices/SKILL.md",
+      "computedHash": "5070b60d829a8bfab87c5a51db0543174d1b9be4a990e305a9b56a06054770a3"
+    },
+    "capacitor-plugins": {
+      "source": "cap-go/capgo-skills",
+      "sourceType": "github",
+      "skillPath": "skills/capacitor-plugins/SKILL.md",
+      "computedHash": "562ff249ba5f53d4aae96373a2bc8ae21984b992062ac127cc809aa6358dc87f"
+    },
+    "capacitor-testing": {
+      "source": "cap-go/capgo-skills",
+      "sourceType": "github",
+      "skillPath": "skills/capacitor-testing/SKILL.md",
+      "computedHash": "d4ecb92a8a34ebc6975aca358dcbeb14363f41b9ba46e1a909bde373039e05f5"
+    },
+    "desktop-framework-electron": {
+      "source": "agents-inc/skills",
+      "sourceType": "github",
+      "skillPath": "src/skills/desktop-framework-electron/SKILL.md",
+      "computedHash": "4a361d23b9f3e1e7b5dc1f166e8b07969e850af5252f14ad271ace930c48d4e1"
+    },
+    "obsidian-bases": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/obsidian-bases/SKILL.md",
+      "computedHash": "65db029661f38daadc8b8eb755bd7b96011336f49bdc11e966ec7fd157d8f125"
+    },
+    "obsidian-cli": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/obsidian-cli/SKILL.md",
+      "computedHash": "f46ae626875f7e47c410c2ee93896c4526024ebe127719e8fb430261b5677edc"
+    },
+    "obsidian-markdown": {
+      "source": "kepano/obsidian-skills",
+      "sourceType": "github",
+      "skillPath": "skills/obsidian-markdown/SKILL.md",
+      "computedHash": "0f47297035d7824e7bf0f1984e8145a59a123e2258b5d54c9ac9642f9f77e177"
+    },
+    "pglite": {
+      "source": "oakoss/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pglite/SKILL.md",
+      "computedHash": "8bc3d49c7d94c09fd575615830b6556941771bb22202f9b0fb0a938821bd9671"
+    },
+    "pgvector-semantic-search": {
+      "source": "timescale/pg-aiguide",
+      "sourceType": "github",
+      "skillPath": "skills/pgvector-semantic-search/SKILL.md",
+      "computedHash": "ea00b6af03fd3565dca37b282de9b786bd00711db190b671e6e729d9d9972622"
+    },
+    "playwright-bdd": {
+      "source": "vitalets/playwright-bdd",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-bdd/SKILL.md",
+      "computedHash": "db55c68596e2f328b4c08a85c50304a5ff941ad950922582dbf5ea316bc46f08"
+    },
+    "surrealdb-cli": {
+      "source": "surrealdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/surrealdb-cli/SKILL.md",
+      "computedHash": "0d19ca9d68fbe2bbc6532e837d84c7751f3011a84835815f06cb30dcf5781fba"
+    },
+    "surrealdb-js": {
+      "source": "surrealdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/surrealdb-js/SKILL.md",
+      "computedHash": "14626a1ba6130fadb63b65e70e3a70448405f8091a491faa479a90e9d5806b6f"
+    },
+    "surrealdb-vector": {
+      "source": "surrealdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/surrealdb-vector/SKILL.md",
+      "computedHash": "6983f571753cb8fb3888bf68fe7a9991815fa2b68e00d564af07e3b4599d65df"
+    },
+    "surrealql": {
+      "source": "surrealdb/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/surrealql/SKILL.md",
+      "computedHash": "9e8e63c25b72b69b323c6248ba1d710aed8a578df6252013d45fd8cbc4d3ca39"
+    },
+    "wasm-wasmtime": {
+      "source": "mohitmishra786/low-level-dev-skills",
+      "sourceType": "github",
+      "skillPath": "skills/runtimes/wasm-wasmtime/SKILL.md",
+      "computedHash": "8ad36cd05ec6c058f1b00362335ae64ec731a03627df9a278b6eae242cb3dba4"
+    },
+    "webrtc": {
+      "source": "claude-dev-suite/claude-dev-suite",
+      "sourceType": "github",
+      "skillPath": "skills/real-time/webrtc/SKILL.md",
+      "computedHash": "1c2df238384d868b71800b7be3fda47f5111c296aadab1e8894ec6069eac0129"
+    }
+  }
+}

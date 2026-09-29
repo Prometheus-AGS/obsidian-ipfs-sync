@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "activeTeam": "ipfs-sync",
+  "manifest": ".agent-team/ipfs-sync/team.json",
+  "target": "claude",
+  "nativeDefinitions": [
+    ".claude/agents/product-manager.md",
+    ".claude/agents/ipfs-engineer.md",
+    ".claude/agents/p2p-engineer.md",
+    ".claude/agents/identity-security-engineer.md",
+    ".claude/agents/uiux-lead.md",
+    ".claude/agents/data-engineer.md",
+    ".claude/agents/uar-engineer.md",
+    ".claude/agents/workflow-lead.md",
+    ".claude/agents/release-deployment-lead.md",
+    ".claude/agents/bdd-engineer.md",
+    ".claude/agents/security-reviewer.md",
+    ".claude/agents/documentation-specialist.md"
+  ],
+  "instructionFiles": [
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "delegation": "native-definitions",
+  "limitations": [
+    "Native definition presence is not live invocation evidence. The active harness owns permissions, models, concurrency and delegation.",
+    "When delegation is unavailable, use selected role instructions sequentially and report it; builder-context review is not independent.",
+    "Zed external ACP agents use their native configuration; Zed parallel threads are not an automatic delegation API."
+  ]
+}
