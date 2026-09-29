@@ -1,1 +1,1 @@
-{"totalRuns":2,"failedRuns":0,"lastRun":{"ts":"2026-09-29T22:55:37Z","kind":"phase","edge":"before","name":"mvp","hookId":"kbd-memory-log","layer":"builtin","mode":"augment","status":0},"lastFailure":null}
+{"totalRuns":5,"failedRuns":0,"lastRun":{"ts":"2026-09-29T22:59:48Z","kind":"assess","edge":"before","name":"mvp","hookId":"auto-memory-recall","layer":"builtin","mode":"augment","status":0},"lastFailure":null}
