@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "5",
+  "phase": "mvp",
+  "previousPhase": null,
+  "change": null,
+  "status": "assessment_ready",
+  "currentTask": "run kbd-assess for mvp",
+  "nextPendingChange": null,
+  "sourceTool": "unknown",
+  "exactNextCommand": "/kbd-assess mvp",
+  "parentPhase": null,
+  "childPhases": [],
+  "childPointer": null,
+  "path": [
+    "mvp"
+  ],
+  "completionMetric": "implementation",
+  "implementationCompleted": 0,
+  "implementationTotal": 0,
+  "certificationStatus": "NOT_TRACKED",
+  "publicationStatus": "NOT_TRACKED",
+  "planRevision": 1,
+  "revision": 0,
+  "updatedAt": "2026-09-29T22:55:36Z"
+}
