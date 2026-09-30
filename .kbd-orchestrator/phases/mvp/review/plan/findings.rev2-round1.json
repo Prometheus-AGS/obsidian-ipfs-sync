@@ -1,0 +1,39 @@
+{
+  "mode": "artifact",
+  "verdict": "BLOCK",
+  "judge_model": "gpt-5.5",
+  "producer_model": "claude-opus-5-5",
+  "isolation_mode": "rest-gateway:http://localhost:4000/v1",
+  "cross_model_check": "verified-distinct",
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "plan.md",
+      "line": 0,
+      "claim": "The plan gives contradictory implementation instructions for the `files/write` multipart field, which can break every publish path built on the shared Kubo client.",
+      "evidence": "Plan-time verification says: \"kubo-rpc-client `files/write` field name vs proxy (`data`) ... Field is `file` / `file-N`, **not** `data` | The `files/write` wrapper is **required**.\" But change 1 then instructs: \"`src/kubo/` wraps kubo-rpc-client with every arg in the query string and the `files/write` field sent as `data`.\"",
+      "suggested_fix": "Resolve the verified required multipart field name in one place and make change 1 state the exact wrapper behavior; add a feature/checkpoint probe that proves `files/write` succeeds through the prometheusags proxy."
+    },
+    {
+      "severity": "WARNING",
+      "file": "plan.md",
+      "line": 0,
+      "claim": "Change 1 has an acceptance criterion that is not testable against the stated staging node because the node is unauthenticated.",
+      "evidence": "Project constraints state: \"The RPC endpoint is unauthenticated as of init; treat all published content as public until DESIGN.md \u00a75 server hardening lands.\" Change 1's feature operation says: \"against the staging node ... A wrong token yields a clear 401/403 message, not a stack trace.\" An unauthenticated staging node will not reject a wrong bearer token with 401/403.",
+      "suggested_fix": "Make the wrong-token check conditional on an authenticated test endpoint, add a local/mock auth proxy for the acceptance test, or change the criterion to verify header construction without expecting staging-node rejection."
+    },
+    {
+      "severity": "WARNING",
+      "file": "plan.md",
+      "line": 0,
+      "claim": "The plan deletes `scripts/excludes.txt` without updating the existing `never-sync-workspace-state` constraint that still checks that file.",
+      "evidence": "The constraint defines `never-sync-workspace-state` with check: `grep -c 'workspace.json' scripts/excludes.txt`. Change 3 says: \"Deletes `scripts/publish.sh`, `pull.sh` and `excludes.txt` ... and drops the `bash-32-compatible-scripts` constraint and the `bash -n` trigger.\" It does not say the `never-sync-workspace-state` check is moved to the new exclusion module or removed.",
+      "suggested_fix": "Before deleting `scripts/excludes.txt`, update the constraint to check the new exclusion defaults location and include `.trash/`, `workspace.json`, and the dev folder there."
+    }
+  ],
+  "sycophancy_screen": {
+    "reject_cap": 2,
+    "cap_overridden": false,
+    "cap_default": 2
+  }
+}

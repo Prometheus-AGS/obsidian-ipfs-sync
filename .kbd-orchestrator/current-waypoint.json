@@ -1,25 +1,39 @@
 {
   "schemaVersion": "5",
-  "phase": "mvp",
-  "previousPhase": null,
-  "change": null,
-  "status": "assessment_ready",
-  "currentTask": "run kbd-assess for mvp",
-  "nextPendingChange": null,
-  "sourceTool": "unknown",
-  "exactNextCommand": "/kbd-assess mvp",
-  "parentPhase": null,
-  "childPhases": [],
-  "childPointer": null,
+  "generatedBy": "kbd-runtime",
+  "projectionContractVersion": 2,
+  "sourceRevision": 21,
+  "derivedRevision": 21,
+  "frontier": {
+    "a92f5905-c918-468c-a89d-ee22138e2183": 21
+  },
+  "conflictCount": 0,
+  "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
+  "runId": "mvp-20260930T010010Z",
   "path": [
     "mvp"
   ],
+  "phaseIds": [
+    "mvp"
+  ],
+  "activePhaseId": "mvp",
+  "activePhase": "mvp",
+  "phase": "mvp",
+  "parentPhase": null,
+  "childPointer": null,
+  "change": "mvp-01-config-auth-shared-client-cli",
+  "currentTask": null,
+  "status": "ready",
+  "lifecycle": "ready",
+  "stageId": "plan",
+  "stageStatus": "COMPLETE",
   "completionMetric": "implementation",
   "implementationCompleted": 0,
-  "implementationTotal": 0,
-  "certificationStatus": "NOT_TRACKED",
-  "publicationStatus": "NOT_TRACKED",
-  "planRevision": 1,
-  "revision": 0,
-  "updatedAt": "2026-09-29T22:55:36Z"
+  "implementationTotal": 15,
+  "planRevision": 2,
+  "revision": 21,
+  "exactNextCommand": "change mvp-01-config-auth-shared-client-cli",
+  "nextChange": "mvp-01-config-auth-shared-client-cli",
+  "nextTask": null,
+  "updatedAt": "2026-09-30T01:00:44.352183Z"
 }

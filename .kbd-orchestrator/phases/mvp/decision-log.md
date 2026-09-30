@@ -52,3 +52,22 @@ Findings + resolutions:
 3. PGlite vector claim — verdict split: metadata + sync-state adopt confirmed
    for MVP; vector columns conditional on pgvector availability in the 0.5.8
    contrib set verified at plan time. No interface change when vectors land.
+
+## 2026-09-29 — kbd-plan decisions (adversarial review: round 1 BLOCK → round 2 PASS)
+
+- **8 changes, one delivery-cadence increment each** (2h, build → launch → feature operation). Analyze's I1/I3/I9 were not usable increments under the cadence rules, so they were merged into operable slices.
+- **`files/write` wrapper is required**: verified that kubo-rpc-client 7.1.0 sends multipart field `file`/`file-N`, not `data`.
+- **pgvector absent from PGlite 0.5.8 core** (separate `@electric-sql/pglite-pgvector` 0.0.9) → the MVP store is metadata + sync-state only, with the vector port declared.
+- **CLI lives in `cli/`, outside `src/`**, so Node built-ins and native deps never reach the WebView bundle; the Obsidian HostBridge impl lives in `src/plugin/`.
+- **PGlite in the CLI only (T2)**; the plugin is not wired to a store in MVP.
+- **Cut/deferred**: UCAN, SPAKE2, DIDComm, keychain, settings control center, CAR/@ipld/car, the pure-TS tar reader, pgvector, and the graph adapter.
+- **T1 (uncomfortable)**: MVP publishes plaintext to an open-write node, so change 8 is operator-gated behind a secret scan.
+
+## 2026-09-29 — kbd-plan revision 2 (operator decisions; review: BLOCK → BLOCK → round cap, fixes carried to mvp-01 diff review)
+
+- **KBD state now in the prometheus kbd runtime** (waypoint `generatedBy: kbd-runtime`). Plan revision 2 is recorded via `kbd revise`. The legacy migration had imported the rev-1 change list, so 5 renamed rev-1 changes are cancelled (immutable log) and 7 are registered.
+- **Client-side encryption in MVP (goal 7)**: a random VCK wrapped under Argon2id (@noble/hashes 2.4.0, m=19MiB t=2); per-file HKDF keys; 8MB-segment AES-256-GCM with AAD binding id/index/final; HMAC-named blobs; encrypted manifest v2. WNFS rejected (needs the deferred WASM toolchain, and the bundle is too large for mobile). No recovery without the passphrase.
+- **Release = functionality demonstrated inside Obsidian on ≥1 platform.** Releases: v0.2.0 at mvp-05 (basic sync, fixture vaults), v0.3.0 at mvp-07 (encrypted sync, after security review), v0.4.0 at mvp-10 (real vault). Cadence publication mode is `manual`.
+- **Config model**: separate RPC (write) and gateway (read) endpoints with URL + port; publication key; MFS root; auth none | basic | bearer (static/JWT) | custom header. Interpretation of "not the same" = distinct RPC and gateway endpoints; pending operator confirmation.
+- **Node-safety validators** (from review CRITICALs): the MFS root is confined to `/obsidian-vault-sync`; the publication key must match `^obsidian-vault(-…)?$` and be created or adopted by ID; refusal happens before any request.
+- **Pre-encryption rule**: until mvp-06, only synthetic fixture vaults (marker file) can be published. No real note reaches the node in plaintext.

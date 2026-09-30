@@ -1,1 +1,1 @@
-{"totalRuns":12,"failedRuns":0,"lastRun":{"ts":"2026-09-30T00:27:56Z","kind":"analyze","edge":"after","name":"mvp","hookId":"kbd-memory-log","layer":"builtin","mode":"augment","status":0},"lastFailure":null}
+{"totalRuns":17,"failedRuns":0,"lastRun":{"ts":"2026-09-30T00:49:17Z","kind":"plan","edge":"after","name":"mvp","hookId":"legacy-plan-complete","layer":"builtin","mode":"augment","status":0},"lastFailure":null}

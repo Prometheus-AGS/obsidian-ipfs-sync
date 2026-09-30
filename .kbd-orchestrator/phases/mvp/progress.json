@@ -1,22 +1,27 @@
 {
   "schemaVersion": "2",
+  "generatedBy": "kbd-runtime",
+  "projectionContractVersion": 2,
+  "sourceRevision": 21,
+  "derivedRevision": 21,
+  "frontier": {
+    "a92f5905-c918-468c-a89d-ee22138e2183": 21
+  },
+  "conflictCount": 0,
   "phase": "mvp",
+  "phaseId": "mvp",
   "parentPhase": null,
-  "childPhases": [],
-  "childPointer": null,
-  "assessment_complete": false,
-  "plan_complete": false,
-  "execute_complete": false,
-  "reflect_complete": false,
-  "implementation_total": 0,
-  "implementation_completed": 0,
-  "changes_total": 0,
+  "last_updated": "2026-09-30T01:00:44.352183Z",
+  "last_updated_by": "kbd-runtime",
+  "changes_total": 15,
   "changes_completed": 0,
+  "implementation_total": 15,
+  "implementation_completed": 0,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
       "completed": 0,
-      "total": 0,
+      "total": 15,
       "status": "PENDING"
     },
     "evidence": {
@@ -35,13 +40,202 @@
       "blockers": []
     }
   },
-  "completed_changes": [],
-  "active_change": null,
-  "blocked_changes": [],
-  "changes": [],
-  "last_updated": "2026-09-29T22:55:36Z",
-  "last_updated_by": "kbd-new-phase",
-  "sourceTool": "unknown",
-  "createdBy": "kbd-new-phase",
-  "updatedAt": "2026-09-29T22:55:36Z"
+  "completionScopes": {
+    "completion": "phase",
+    "runCompletion": "run"
+  },
+  "runCompletion": {
+    "scope": "run",
+    "runId": "mvp-20260930T010010Z",
+    "primaryCounter": "implementation",
+    "implementation": {
+      "completed": 0,
+      "total": 15,
+      "status": "PENDING"
+    },
+    "evidence": {
+      "status": "PENDING",
+      "summary": null,
+      "blockers": []
+    },
+    "certification": {
+      "status": "PENDING",
+      "summary": null,
+      "blockers": []
+    },
+    "publication": {
+      "status": "PENDING",
+      "summary": null,
+      "blockers": []
+    }
+  },
+  "changes": [
+    {
+      "id": "mvp-01-node-cli-and-shared-kubo-client",
+      "title": "mvp-01-node-cli-and-shared-kubo-client",
+      "status": "SKIPPED",
+      "implementation_status": "SKIPPED",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-01-config-auth-shared-client-cli",
+      "title": "Config/auth model + shared kubo client + ipfs-sync status",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-02-manifest-delta-publish-cli",
+      "title": "mvp-02-manifest-delta-publish-cli",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-03-delta-pull-conflict-cli-retire-scripts",
+      "title": "mvp-03-delta-pull-conflict-cli-retire-scripts",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-04-plugin-publish-via-shared-core",
+      "title": "mvp-04-plugin-publish-via-shared-core",
+      "status": "SKIPPED",
+      "implementation_status": "SKIPPED",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-04-plugin-publish-and-settings",
+      "title": "Plugin publish via shared core + settings",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-05-plugin-delta-pull-conflict",
+      "title": "mvp-05-plugin-delta-pull-conflict",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-06-sync-history-store",
+      "title": "mvp-06-sync-history-store",
+      "status": "SKIPPED",
+      "implementation_status": "SKIPPED",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-06-encrypted-vault-publish",
+      "title": "Client-side encrypted publish",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-07-e2e-sync-fixture",
+      "title": "mvp-07-e2e-sync-fixture",
+      "status": "SKIPPED",
+      "implementation_status": "SKIPPED",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-07-encrypted-pull-second-device",
+      "title": "Encrypted pull on a second vault — Release 2 v0.3.0",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-08-real-vault-publish-and-release",
+      "title": "mvp-08-real-vault-publish-and-release",
+      "status": "SKIPPED",
+      "implementation_status": "SKIPPED",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-08-sync-history-store",
+      "title": "PGlite sync history (CLI)",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-09-e2e-sync-fixture",
+      "title": "E2E encrypted sync fixture",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    },
+    {
+      "id": "mvp-10-real-vault-publish-and-release",
+      "title": "Real 1GB vault, encrypted — Release 3 v0.4.0",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 0,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": null,
+      "blockers": []
+    }
+  ],
+  "children": {},
+  "migrationStatus": null
 }

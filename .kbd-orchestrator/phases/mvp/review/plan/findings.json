@@ -1,0 +1,36 @@
+{
+  "mode": "artifact",
+  "verdict": "BLOCK",
+  "judge_model": "gpt-5.5",
+  "producer_model": "claude-opus-5-5",
+  "isolation_mode": "rest-gateway:http://localhost:4000/v1",
+  "cross_model_check": "verified-distinct",
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "plan.md",
+      "claim": "The plan schedules plaintext node publishes and a plaintext Obsidian release even though the phase goal requires client-side encryption before content reaches the node.",
+      "evidence": "Goal: \"client-side encryption before content reaches the node: content, paths and manifest encrypted\". Plan change 5 says: \"Release 1 scope note: plaintext format on test vaults only. The release notes state that content is public by CID until release 2.\" The trade-off section also says: \"T1 (revised): release 1 is plaintext. It ships before encryption\".",
+      "suggested_fix": "Move encryption before any publish/release that writes vault content to the shared node, or constrain all pre-encryption operations to a local/mock Kubo node and make the first shared-node Obsidian release encrypted."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "plan.md",
+      "claim": "The configurable publication key can cause name/publish to an existing key not created by this project, violating the shared-node constraint.",
+      "evidence": "Constraint: \"Never key/rm, pin/rm, or name/publish to keys you did not create\" and \"All node mutations must target paths/keys created by this project\". Plan mvp-01 defines \"publicationKey, the IPNS key name, created with `key/gen` only when absent\" and later mvp-02 performs \"name/publish ... to `publicationKey`\". If the configured name already exists but belongs to another project, the plan would publish to it rather than creating a project-owned key.",
+      "suggested_fix": "Require publication keys to be created and recorded by this project before use, enforce a project-specific prefix/registry, and refuse name/publish when the key exists but lacks project ownership metadata."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "plan.md",
+      "claim": "The configurable MFS root allows destructive writes/removes outside `/obsidian-vault-sync/*`, violating the node safety constraint.",
+      "evidence": "Constraint: \"No key/rm, pin/rm, or files/rm outside /obsidian-vault-sync/* on the shared node\". Plan mvp-01 defines \"mfsRoot, default `/obsidian-vault-sync`\" but does not require validation, and its status operation performs \"files/write \u2192 files/stat \u2192 files/rm under `<mfsRoot>/.probe/`\". Later sync changes also write/remove under `<mfsRoot>/current/`.",
+      "suggested_fix": "Add an acceptance requirement that all shared-node mutations validate `mfsRoot` is under `/obsidian-vault-sync/<project-owned-name>/` before any `files/write`, `files/rm`, `pin/add`, or cleanup operation; fail closed otherwise."
+    }
+  ],
+  "sycophancy_screen": {
+    "reject_cap": 2,
+    "cap_overridden": false,
+    "cap_default": 2
+  }
+}
