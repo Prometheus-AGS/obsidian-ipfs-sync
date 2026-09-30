@@ -222,3 +222,20 @@ For every code task, read `.agent-team/project-routing.json`, then its active te
 For UI work, load the role-bound `prometheus-ui-ux` or `prometheus-ui-review` skill. Prefer `.agents/UI_UX_PROTOCOL.md` when present; otherwise use the installed `prometheus-ui-ux/references/UI_UX_PROTOCOL.md`. Backend work must not load UI guidance.
 Use native delegation when available. If unavailable, follow the selected role instructions sequentially and report that limitation. Review in the builder context is not independent review. Keep reviewers dormant until the complete implementation phase; allow one batched correction/confirmation cycle. Respect user-only skill invocation restrictions. Zed external ACP agents use their own native configuration; parallel UI threads are not an automatic delegation API.
 <!-- prometheus-team-routing:end -->
+
+## Project: agent team is the default (operator rule, 2026-09-29)
+
+This section is project prose outside the managed regions; re-running the bootstrap does not touch it.
+
+The `ipfs-sync` team (`.agent-team/project-routing.json` → `.agent-team/ipfs-sync/team.json`, definitions in `.claude/agents/`) does the work by default. Doing it in the lead session instead needs a stated reason.
+
+- **Assign by ownership.** Each role owns disjoint paths in `team.json`. Dispatch a change or task to the role whose `owns` matches the files touched. Work that spans roles is split by path and run in sequence, or in parallel only when the paths are disjoint.
+- **Specs and acceptance go to `product-manager`**: OpenSpec proposal, specs and tasks, acceptance criteria, backlog.
+- **Docs go to `documentation-specialist`**: README, CHANGELOG, `docs/operator/`, DESIGN.md sync.
+- **Plan and integration coordination go to `workflow-lead`**: handoffs, integration review scheduling.
+- **Implementation goes to the owning engineer**: `ipfs-engineer` (sync core, kubo, CLI, plugin paths), `identity-security-engineer` (crypto, identity), `data-engineer` (stores), `uiux-lead` (UI, settings), `p2p-engineer`, `uar-engineer`, `bdd-engineer` (tests), `release-deployment-lead` (CI, packaging, releases; sole publisher).
+- **Reviewers stay dormant until the final phase gate**, then run once: `security-reviewer` (independent of the builder), `bdd-engineer` for the integration gate. Never review in the builder's own context and call it independent.
+- **The lead session orchestrates**: it selects roles, writes dispatch contracts, owns cadence and KBD state transitions, and integrates results. It does not implement work a role owns.
+- **One writer per shared build directory and per shared file** (package.json, lockfile, esbuild and tsconfig included). Parallel roles must have disjoint `owns` paths.
+- **Fallback.** If delegation is unavailable or blocked, run the selected role's instructions sequentially in the lead session, and say so in the dispatch record and the completion summary. A sequential fallback is not independent review.
+- **Record it.** Every dispatch names the role and the reason for any deviation in `execution.md`. Say which role actually did the work; never describe lead-session work as team work.

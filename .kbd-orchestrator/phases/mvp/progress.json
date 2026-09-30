@@ -2,27 +2,27 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 21,
-  "derivedRevision": 21,
+  "sourceRevision": 380,
+  "derivedRevision": 380,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 21
+    "a92f5905-c918-468c-a89d-ee22138e2183": 380
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-09-30T01:00:44.352183Z",
+  "last_updated": "2026-09-30T07:00:20.604312Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 15,
-  "changes_completed": 0,
+  "changes_completed": 4,
   "implementation_total": 15,
-  "implementation_completed": 0,
+  "implementation_completed": 4,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 0,
+      "completed": 4,
       "total": 15,
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     "evidence": {
       "status": "NOT_TRACKED",
@@ -49,9 +49,9 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 0,
+      "completed": 4,
       "total": 15,
-      "status": "PENDING"
+      "status": "IN_PROGRESS"
     },
     "evidence": {
       "status": "PENDING",
@@ -84,33 +84,33 @@
     {
       "id": "mvp-01-config-auth-shared-client-cli",
       "title": "Config/auth model + shared kubo client + ipfs-sync status",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 13,
+      "tasks_done": 13,
+      "last_task_completed": "4.3 Run the phase feature operation: `status` against the staging node with explicit RPC/gateway URL+port and bearer settings; record the output and the honest unverified 401/403 note; verify the plugin `main.js` still builds",
       "next_task_pending": null,
       "blockers": []
     },
     {
       "id": "mvp-02-manifest-delta-publish-cli",
       "title": "mvp-02-manifest-delta-publish-cli",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 30,
+      "tasks_done": 30,
+      "last_task_completed": "Feature operation",
       "next_task_pending": null,
       "blockers": []
     },
     {
       "id": "mvp-03-delta-pull-conflict-cli-retire-scripts",
       "title": "mvp-03-delta-pull-conflict-cli-retire-scripts",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 10,
+      "tasks_done": 10,
+      "last_task_completed": "5.2 (ipfs-engineer) Write `tools/feature-op-mvp-03.mjs` and run it as the single command `node tools/feature-op-mvp-03.mjs` with the built CLI, `--config` at `path.join(os.tmpdir(), 'ipfs-sync-feature-ops', 'config.json')` (the same file as mvp-02's feature operation, so the key is found owned; if the key exists on the node but is not recorded there, stop with a clear message, `--owned-key` is only the operator escape hatch), mfs root `/obsidian-vault-sync/mvp03-demo`. In one process it: publishes fixture vault A; pulls into absent B (`N fetched`, hashes equal, marker present); edits note X differently in A and B; publishes A (`1 written, 0 removed`); pulls into B and asserts `1 fetched, N-1 unchanged, 1 conflicts, 0 failed`, X holds the remote text, `X (ipfs conflict <today>).<ext>` holds B's local text byte for byte, and the other files' mtimes are unchanged; re-pulls with `0 fetched`; pulls a locally edited manifest (`--manifest-file`, one flipped sha256) into fresh directory C and asserts that file absent, no temp file left, `1 failed`, exit 1; pulls `--manifest <first currentCID>` into fresh directory D and asserts X holds its original text; audits the pull request traces for reads only; confirms afterwards with `files/ls /obsidian-vault-sync` and `key/list` that nothing outside the demo root changed. Verify: paste the script output; exit code 0; list what stays unverified (auth rejection on an authenticated endpoint, mobile, Range support if the fallback was used)",
       "next_task_pending": null,
       "blockers": []
     },
@@ -128,11 +128,11 @@
     {
       "id": "mvp-04-plugin-publish-and-settings",
       "title": "Plugin publish via shared core + settings",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 12,
+      "tasks_done": 12,
+      "last_task_completed": "6.1 (ipfs-engineer, with uiux-lead reviewing screenshots) Run `node tools/feature-op-mvp-04.mjs` against the shared node (mfs root `/obsidian-vault-sync/mvp04-demo`). First run: `--trigger=manual`, the operator opens the throwaway vault, enables the plugin (or the preflighted route A does), runs \"IPFS Sync: Publish vault\"; the notice text and settings-tab screenshots are recorded as evidence (paths in the output). Expected: notice reports 1 file written; the gateway manifest differs from the baseline in exactly the edited note; `ipfs-sync status` runs against the same endpoints; the marker-less directory refuses with no node request; nothing outside the demo root and the project key changed. Also record whether route A (`command id=ipfs-sync:publish-vault vault=<throwaway>`) worked, and if it did not, exactly what failed. Verify: paste the script output; list what stays unverified (mobile, `requestUrl` versus `fetch` CORS behaviour, authenticated endpoint, large single files)",
       "next_task_pending": null,
       "blockers": []
     },
@@ -141,10 +141,10 @@
       "title": "mvp-05-plugin-delta-pull-conflict",
       "status": "PENDING",
       "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
-      "next_task_pending": null,
+      "tasks_total": 13,
+      "tasks_done": 12,
+      "last_task_completed": "6.2 (release-deployment-lead) Produce the local release record for v0.2.0 only after tasks 1.1 to 5.2 are done and the feature operation passed: version 0.2.0 in `manifest.json` and `package.json`, `dist/release/v0.2.0/` (artifacts, CLI tarball with an explicit file list, `SHA256SUMS`, `release-notes.md` opening with the fixture-only statement, `evidence.json` with the paths of the feature-operation output and the screenshots or recording). Verify: `manifest.json` and `package.json` read 0.2.0; recomputed checksums match; every evidence path exists; release notes' first paragraph says the release must not be used on real notes and lists the limitations; the record marks its unverified claims",
+      "next_task_pending": "6.3 (release-deployment-lead; each step needs the operator's explicit yes for that exact action) Outward steps, optional: show the operator the exact commit, tag name, repository, asset list with checksums and release text; on separate approvals, commit the version bump, create tag `v0.2.0`, push, and create a GitHub pre-release on `Prometheus-AGS/obsidian-ipfs-sync` with the fixture-only text; then run the cadence `publication-receipt.mjs` against the public asset URLs and a page that advertises them. If any approval is absent or declined, stop and record \"not published; publication receipt not produced\". Verify: the session shows the operator's approval text for each action performed and none for actions not performed; for a published release, the receipt shows checksums equal to the downloaded bytes; otherwise the report states the publication receipt is pending",
       "blockers": []
     },
     {

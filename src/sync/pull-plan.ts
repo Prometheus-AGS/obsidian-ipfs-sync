@@ -1,0 +1,172 @@
+import type { HostFs } from "../core/host-bridge";
+import { isExcluded } from "./exclusions";
+import { hashFile } from "./hash";
+import { HostReadCapError } from "./host-errors";
+import type { Manifest, ManifestFile } from "./manifest";
+import type { LocalState } from "./state";
+import { findSymlink, type SymlinkCache } from "./symlink-guard";
+
+/** Vault-relative folder that holds the sync record and temporary files. Manifest paths may never point into it. */
+export const STATE_FOLDER = ".ipfs-sync";
+
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const DRIVE_LETTER = /^[A-Za-z]:/;
+
+/**
+ * Why a manifest path must not be written, or `undefined` when it is acceptable. Manifest paths come from
+ * the network: absolute paths, empty, `.` or `..` segments, backslashes, control characters and anything
+ * inside the state folder (compared case-insensitively, because macOS and Windows volumes are) are refused.
+ */
+export function untrustedPathReason(path: string): string | undefined {
+  if (path === "") return "empty path";
+  if (path.startsWith("/") || DRIVE_LETTER.test(path)) return "absolute path";
+  if (path.includes("\\")) return "backslash in path";
+  if (CONTROL_CHARACTERS.test(path)) return "control character in path";
+  const segments = path.split("/");
+  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return "empty, . or .. path segment";
+  if (segments[0]?.toLowerCase() === STATE_FOLDER) return `inside the ${STATE_FOLDER} state folder`;
+  return undefined;
+}
+
+/** Plugin code and data are device-local. Refused whatever the local exclusion list says (case-insensitive volumes). */
+const DEVICE_LOCAL_PREFIX = ".obsidian/plugins";
+
+/**
+ * Why a manifest path must not be written although it is well formed: it matches the effective exclusion list
+ * (defaults plus this device's additions), or it lies under `.obsidian/plugins/`. A legitimate manifest never
+ * contains such paths, because publish applies the same list; one that does is forged or from a divergent build.
+ */
+export function excludedPathReason(path: string, extraExclusions: readonly string[]): string | undefined {
+  const lower = path.toLowerCase();
+  if (lower === DEVICE_LOCAL_PREFIX || lower.startsWith(`${DEVICE_LOCAL_PREFIX}/`)) return "device-local plugin path (.obsidian/plugins/)";
+  return isExcluded(path, extraExclusions) ? "matches the exclusion list; a legitimate manifest never contains it" : undefined;
+}
+
+export type ThreeWayOutcome = "fetch" | "unchanged" | "replace" | "locally-modified" | "conflict";
+
+/**
+ * The decision table. `local` (L) is undefined when the file is missing, `base` (B) when the path is
+ * untracked, `remote` (R) is the manifest sha256.
+ * - L missing: fetch.  - L = R: unchanged.  - L = B: replace (no local edit).
+ * - B = R (and L differs): locally modified, leave it.  - otherwise (including B absent): conflict.
+ */
+export function decideThreeWay(local: string | undefined, base: string | undefined, remote: string): ThreeWayOutcome {
+  if (local === undefined) return "fetch";
+  if (local === remote) return "unchanged";
+  if (base !== undefined && local === base) return "replace";
+  if (base !== undefined && base === remote) return "locally-modified";
+  return "conflict";
+}
+
+export type PullDecision =
+  | { readonly kind: "unchanged"; readonly path: string; readonly entry: ManifestFile; readonly mtimeMs: number }
+  | { readonly kind: "fetch"; readonly path: string; readonly entry: ManifestFile }
+  | { readonly kind: "replace"; readonly path: string; readonly entry: ManifestFile }
+  | { readonly kind: "conflict"; readonly path: string; readonly entry: ManifestFile; readonly localSha256: string }
+  | { readonly kind: "locally-modified"; readonly path: string; readonly entry: ManifestFile }
+  | { readonly kind: "refused"; readonly path: string; readonly reason: string };
+
+export interface PullPlan {
+  /** One decision per manifest path, sorted by path. */
+  readonly decisions: readonly PullDecision[];
+  /** Paths in the previous record that the manifest no longer lists (reported, never deleted). */
+  readonly remoteDeleted: readonly string[];
+  /** How many local files had to be hashed. */
+  readonly hashed: number;
+}
+
+export interface PlanInput {
+  readonly fs: Pick<HostFs, "stat" | "lstat" | "read" | "readRange">;
+  readonly manifest: Manifest;
+  /** The applicable local record (already checked against the destination), or undefined. */
+  readonly previous: LocalState | undefined;
+  /** Ignore the record's mtime shortcut and hash every local file (exclusion-list divergence). */
+  readonly forceVerify: boolean;
+  /** This device's additions to the default exclusions; manifest paths matching the effective list are refused. */
+  readonly extraExclusions?: readonly string[];
+}
+
+/** Own-property lookup, so a manifest path such as `constructor` cannot match an inherited member. */
+function lookup<T>(record: Readonly<Record<string, T>> | undefined, key: string): T | undefined {
+  return record !== undefined && Object.hasOwn(record, key) ? record[key] : undefined;
+}
+
+interface Local {
+  readonly sha256: string | undefined;
+  readonly mtimeMs: number;
+  readonly hashed: boolean;
+}
+
+/** The local sha256 of `path`, or undefined when missing; trusts the record when size and mtime still match. */
+async function inspectLocal(
+  input: PlanInput,
+  path: string,
+  base: ManifestFile | undefined,
+): Promise<Local | { readonly refusal: string }> {
+  const info = await input.fs.stat(path);
+  if (info === undefined) return { sha256: undefined, mtimeMs: 0, hashed: false };
+  if (info.kind !== "file") return { refusal: "a directory exists at this path" };
+  const recorded = lookup(input.previous?.mtimes, path);
+  if (!input.forceVerify && base !== undefined && base.size === info.size && recorded === info.mtimeMs) {
+    return { sha256: base.sha256, mtimeMs: info.mtimeMs, hashed: false };
+  }
+  try {
+    return { sha256: await hashFile(input.fs, path, info.size), mtimeMs: info.mtimeMs, hashed: true };
+  } catch (error) {
+    // A host with a read cap (Obsidian) refuses a file it cannot load: that file fails, the others go on.
+    if (error instanceof HostReadCapError) return { refusal: error.message };
+    throw error;
+  }
+}
+
+async function decideFile(
+  input: PlanInput,
+  path: string,
+  entry: ManifestFile,
+  cache: SymlinkCache,
+): Promise<{ readonly decision: PullDecision; readonly hashed: boolean }> {
+  const untrusted = untrustedPathReason(path) ?? excludedPathReason(path, input.extraExclusions ?? []);
+  if (untrusted !== undefined) return { decision: { kind: "refused", path, reason: untrusted }, hashed: false };
+  const link = await findSymlink(input.fs, path, cache);
+  if (link !== undefined) return { decision: { kind: "refused", path, reason: `symlink at "${link}"` }, hashed: false };
+
+  const base = lookup(input.previous?.manifest.files, path);
+  const local = await inspectLocal(input, path, base);
+  if ("refusal" in local) return { decision: { kind: "refused", path, reason: local.refusal }, hashed: false };
+
+  const outcome = decideThreeWay(local.sha256, base?.sha256, entry.sha256);
+  return { decision: toDecision(outcome, path, entry, local), hashed: local.hashed };
+}
+
+function toDecision(outcome: ThreeWayOutcome, path: string, entry: ManifestFile, local: Local): PullDecision {
+  switch (outcome) {
+    case "unchanged":
+      return { kind: "unchanged", path, entry, mtimeMs: local.mtimeMs };
+    case "conflict":
+      // A conflict needs a local file, so `sha256` is set; the table returns "fetch" for a missing one.
+      return { kind: "conflict", path, entry, localSha256: local.sha256 ?? "" };
+    default:
+      return { kind: outcome, path, entry };
+  }
+}
+
+/**
+ * Decide, for every manifest path, what pull does with it. Files are inspected one at a time so memory
+ * stays bounded. Nothing is written; refusals (untrusted path, symlink) are decisions, not exceptions.
+ */
+export async function planPull(input: PlanInput): Promise<PullPlan> {
+  const cache: SymlinkCache = new Map();
+  const paths = Object.keys(input.manifest.files).sort();
+  const decisions: PullDecision[] = [];
+  let hashed = 0;
+  for (const path of paths) {
+    const entry = input.manifest.files[path] as ManifestFile;
+    const result = await decideFile(input, path, entry, cache);
+    decisions.push(result.decision);
+    if (result.hashed) hashed += 1;
+  }
+  const remoteDeleted = Object.keys(input.previous?.manifest.files ?? {})
+    .filter((path) => !Object.hasOwn(input.manifest.files, path))
+    .sort();
+  return { decisions, remoteDeleted, hashed };
+}

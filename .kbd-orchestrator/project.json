@@ -10,7 +10,7 @@
   ],
   "openspec_available": true,
   "constraint_file": ".kbd-orchestrator/constraints.md",
-  "build_health_command": "npm run build",
+  "build_health_command": "pnpm build",
   "test_command": null,
   "lint_command": null,
   "preferred_planning_agent": "antigravity",
@@ -107,7 +107,7 @@
     }
   },
   "focus_project_path": "/Users/gqadonis/obsidian/.ipfs-sync",
-  "dev_command": "npm run dev",
+  "dev_command": "pnpm dev",
   "workspace": {
     "workspace_file": null,
     "folders": [

@@ -1,7 +1,7 @@
 # KBD Constraint Configuration — IPFS Sync for Obsidian
 
 Project-specific rules derived from the stack (TypeScript Obsidian plugin, esbuild,
-bash CLI scripts) and `DESIGN.md`. KBD and all executing tools read this file
+Node 24 CLI) and `DESIGN.md`. KBD and all executing tools read this file
 during verification.
 
 ---
@@ -15,32 +15,32 @@ constraints:
   - id: no-console-log-in-commits
     severity: blocking
     description: 'No console.log statements in committed TypeScript/JavaScript'
-    check: "grep -r 'console\\.log' src/ --include='*.ts' --include='*.tsx' --include='*.js'"
+    check: "grep -r 'console\\.log' src/ cli/ --include='*.ts' --include='*.tsx' --include='*.js' --include='*.mjs'"
 
   - id: no-any-type
     severity: blocking
     description: 'No `any` type usage in TypeScript source (tsconfig strict is on)'
-    check: "grep -rn ': any' src/ --include='*.ts' --include='*.tsx'"
+    check: "grep -rn ': any\\|as any\\|<any>' src/ cli/ --include='*.ts' --include='*.tsx'"
 
   - id: no-hardcoded-secrets
     severity: blocking
-    description: 'No hardcoded API keys, tokens, or passwords in source or scripts'
-    check: "grep -rn 'sk-\\|api_key\\|API_KEY\\|secret.*=.*[\"\\x27][A-Za-z0-9]' src/ scripts/"
+    description: 'No hardcoded API keys, tokens, or passwords in source'
+    check: "grep -rn 'sk-\\|api_key\\|API_KEY\\|secret.*=.*[\"\\x27][A-Za-z0-9]' src/ cli/"
 
   - id: build-passes
     severity: blocking
     description: 'Plugin bundle must build without errors'
-    command: 'npm run build'
+    command: 'pnpm build'
 
   - id: webview-safe-bundle
     severity: blocking
     description: 'Plugin must run in Obsidian mobile WebView — no Node built-ins, no child_process, no native modules in src/'
     check: "grep -rn \"require('child_process')\\|require('fs')\\|require('path')\\|from 'node:\\|from 'fs'\\|from 'child_process'\" src/"
 
-  - id: bash-32-compatible-scripts
+  - id: no-python
     severity: blocking
-    description: 'scripts/*.sh must run on macOS stock bash 3.2 (no mapfile; empty arrays guarded under set -u)'
-    check: "grep -n 'mapfile' scripts/*.sh; grep -n '\\"\\${[A-Z_]*\\[@\\]}\\"' scripts/*.sh"
+    description: 'No Python in this project: no *.py files, no python invocations in scripts, hooks or package scripts (spec 004)'
+    check: "git ls-files '*.py' | grep . ; grep -rIn 'python' package.json cli/ tools/ .github/ 2>/dev/null"
 
   - id: kubo-args-in-query-string
     severity: blocking
@@ -61,7 +61,7 @@ constraints:
 - id: no-stub-comments
   severity: warning
   description: 'No TODO/FIXME/STUB/HACK comments in committed code'
-  check: "grep -rn 'TODO\\|FIXME\\|STUB\\|HACK' src/ scripts/"
+  check: "grep -rn 'TODO\\|FIXME\\|STUB\\|HACK' src/"
 
 - id: design-doc-sync
   severity: warning
@@ -70,8 +70,9 @@ constraints:
 
 - id: never-sync-workspace-state
   severity: warning
-  description: 'Default exclusions keep .trash/, workspace.json churn, and this dev folder out of sync payloads'
-  check: "grep -c 'workspace.json' scripts/excludes.txt"
+  description: 'The exclusion definition (src/sync/exclusions.ts) keeps .trash/, workspace.json churn, and this dev folder out of sync payloads'
+  check: "test \"$(grep -ohE '\"\\.trash/\"|\"\\.ipfs-sync/\"|\"\\.obsidian/workspace\\.json\"' src/sync/exclusions.ts | sort -u | wc -l | tr -d ' ')\" = 3"
+  note: 'Moved from scripts/excludes.txt in mvp-02 (task 2.2); passes whether or not scripts/excludes.txt exists'
 ```
 
 ---
@@ -85,12 +86,7 @@ workflow_triggers:
   - event: on_iteration_complete
     action:
       type: command
-      target: 'npm run build'
-
-  - event: on_change_complete
-    action:
-      type: command
-      target: 'bash -n scripts/publish.sh && bash -n scripts/pull.sh'
+      target: 'pnpm build'
 
   - event: on_refinement_complete
     action:

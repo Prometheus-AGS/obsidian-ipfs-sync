@@ -1,4 +1,6 @@
 import esbuild from "esbuild";
+import { chmod, copyFile, mkdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import process from "process";
 import builtins from "builtin-modules";
 
@@ -10,7 +12,12 @@ if you want to view the source, please visit the github repository of this plugi
 
 const prod = process.argv[2] === "production";
 
-const context = await esbuild.context({
+// Where the plugin bundle goes. A production build always writes dist/plugin/ and never touches a vault.
+// The dev loop writes there too unless OBSIDIAN_PLUGIN_DIR (a vault's .obsidian/plugins/ipfs-sync) is set.
+const PLUGIN_OUT_DIR = prod || !process.env.OBSIDIAN_PLUGIN_DIR ? "dist/plugin" : resolve(process.env.OBSIDIAN_PLUGIN_DIR);
+
+// Obsidian plugin bundle: WebView target (desktop and mobile).
+const pluginOptions = {
   banner: { js: banner },
   entryPoints: ["src/main.ts"],
   bundle: true,
@@ -20,12 +27,41 @@ const context = await esbuild.context({
   logLevel: "info",
   sourcemap: prod ? false : "inline",
   treeShaking: true,
-  outfile: "../.obsidian/plugins/ipfs-sync/main.js",
-});
+  outfile: join(PLUGIN_OUT_DIR, "main.js"),
+};
+
+// Node 24 CLI: a single ESM file, `bin: ipfs-sync`. CommonJS dependencies that
+// call require() get a createRequire shim.
+const CLI_OUT = "dist/cli/ipfs-sync.mjs";
+const cliOptions = {
+  banner: {
+    js: [
+      "#!/usr/bin/env node",
+      'import { createRequire as __createRequire } from "node:module";',
+      "const require = __createRequire(import.meta.url);",
+    ].join("\n"),
+  },
+  entryPoints: ["cli/main.ts"],
+  bundle: true,
+  platform: "node",
+  format: "esm",
+  target: "node24",
+  logLevel: "info",
+  sourcemap: prod ? false : "inline",
+  treeShaking: true,
+  outfile: CLI_OUT,
+};
+
+// Obsidian loads the plugin only when manifest.json sits next to main.js.
+await mkdir(PLUGIN_OUT_DIR, { recursive: true });
+await copyFile("manifest.json", join(PLUGIN_OUT_DIR, "manifest.json"));
+
+const contexts = await Promise.all([esbuild.context(pluginOptions), esbuild.context(cliOptions)]);
 
 if (prod) {
-  await context.rebuild();
-  await context.dispose();
+  await Promise.all(contexts.map((context) => context.rebuild()));
+  await chmod(CLI_OUT, 0o755);
+  await Promise.all(contexts.map((context) => context.dispose()));
 } else {
-  await context.watch();
+  await Promise.all(contexts.map((context) => context.watch()));
 }

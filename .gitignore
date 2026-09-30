@@ -9,3 +9,17 @@ dist/
 .prometheus/.writer.lock
 .prometheus/.review-pending
 .claude/settings.json.bak.*
+
+# machine-local state (absolute paths, hostnames, temp paths): never published
+.prometheus/cadence/
+.prometheus/progress-memory-receipts/
+.kbd-orchestrator/model-preflight.json
+.kbd-orchestrator/position.json
+.kbd-orchestrator/position-reminder.txt
+.kbd-orchestrator/phases/*/hooks.log.jsonl
+.kbd-orchestrator/phases/*/hooks.log.jsonl.lock
+# delivery-cadence is linked from the local skill pack by absolute path
+.agents/skills/delivery-cadence
+.claude/skills/delivery-cadence
+.minimax/skills/delivery-cadence
+.prometheus/cadence-input/

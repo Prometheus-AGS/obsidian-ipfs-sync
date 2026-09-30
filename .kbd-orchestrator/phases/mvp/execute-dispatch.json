@@ -1,0 +1,11 @@
+{
+  "phase": "mvp",
+  "dispatchedAt": "2026-09-30T01:05:49Z",
+  "backend": "openspec",
+  "driver": "kbd-apply",
+  "assignedChanges": ["mvp-01-config-auth-shared-client-cli"],
+  "pendingChanges": ["mvp-02-manifest-delta-publish-cli","mvp-03-delta-pull-conflict-cli-retire-scripts","mvp-04-plugin-publish-and-settings","mvp-05-plugin-delta-pull-conflict","mvp-06-encrypted-vault-publish","mvp-07-encrypted-pull-second-device","mvp-08-sync-history-store","mvp-09-e2e-sync-fixture","mvp-10-real-vault-publish-and-release"],
+  "cadenceRoot": ".prometheus/cadence",
+  "cadenceIterationId": "16d0ebdf-3487-4652-851d-d12573e6b898",
+  "note": "Dispatch receipt only. Execute remains active until all changes, the final gates, and verify/archive complete."
+}

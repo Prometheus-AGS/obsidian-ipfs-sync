@@ -1,17 +1,34 @@
 {
   "name": "obsidian-ipfs-sync",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sync your Obsidian vault over IPFS via your own kubo node.",
   "main": "main.js",
+  "bin": {
+    "ipfs-sync": "dist/cli/ipfs-sync.mjs"
+  },
   "scripts": {
     "build": "node esbuild.config.mjs production",
-    "dev": "node esbuild.config.mjs"
+    "dev": "node esbuild.config.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.src.json && tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "probe:webview": "node tools/webview-import-probe.mjs",
+    "fixture:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON fixtures/generate-fixture-vault.ts"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "packageManager": "pnpm@12.8.1",
+  "dependencies": {
+    "@noble/hashes": "2.4.0"
+  },
   "devDependencies": {
-    "builtin-modules": "^4.0.0",
-    "esbuild": "^0.25.0",
-    "obsidian": "^1.9.9",
-    "typescript": "^7.0.2"
+    "@types/node": "24.19.0",
+    "builtin-modules": "4.0.0",
+    "esbuild": "0.28.2",
+    "obsidian": "1.13.1",
+    "typescript": "7.0.2",
+    "vite": "7.3.6",
+    "vitest": "5.0.2"
   }
 }
