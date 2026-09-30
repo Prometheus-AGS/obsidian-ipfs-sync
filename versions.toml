@@ -7,6 +7,7 @@ created = "2026-09-29"
 
 [pins]
 # name = "x.y.z"
+"@noble/hashes" = "2.4.0"
 typescript = "7.0.2"
 node = "24.15.0"
 
