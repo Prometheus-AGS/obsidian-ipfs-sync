@@ -1,0 +1,43 @@
+{
+  "hooks": [
+    {
+      "event": "SubagentStop",
+      "match_agent": "*-specify",
+      "steps": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/state-checkpoint.sh ${SKILL_NAME} specify" },
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/workflow-dispatch.sh on_phase_complete specify" }
+      ]
+    },
+    {
+      "event": "SubagentStop",
+      "match_agent": "*-plan",
+      "steps": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/state-checkpoint.sh ${SKILL_NAME} plan" },
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/workflow-dispatch.sh on_phase_complete plan" }
+      ]
+    },
+    {
+      "event": "SubagentStop",
+      "match_agent": "*-execute",
+      "steps": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/state-checkpoint.sh ${SKILL_NAME} execute" },
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/workflow-dispatch.sh on_phase_complete execute" }
+      ]
+    },
+    {
+      "event": "SubagentStop",
+      "match_agent": "*-reflect",
+      "steps": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/state-checkpoint.sh ${SKILL_NAME} reflect" },
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/workflow-dispatch.sh on_phase_complete reflect" }
+      ]
+    },
+    {
+      "event": "Stop",
+      "steps": [
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/state-finalize.sh ${SKILL_NAME}" },
+        { "type": "command", "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/workflow-dispatch.sh on_creation_complete ${SKILL_NAME}" }
+      ]
+    }
+  ]
+}

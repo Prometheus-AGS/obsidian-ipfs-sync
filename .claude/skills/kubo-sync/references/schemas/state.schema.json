@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "kubo-sync skill state",
+  "type": "object",
+  "required": ["skill", "phase", "phases"],
+  "properties": {
+    "skill": { "const": "kubo-sync" },
+    "mode": { "type": "string", "enum": ["create", "clone", "extend"] },
+    "phase": { "type": "string", "enum": ["specify", "plan", "execute", "reflect", "finalized"] },
+    "created": { "type": "string", "format": "date-time" },
+    "finalizedAt": { "type": "string", "format": "date-time" },
+    "phases": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "completedAt": { "type": "string", "format": "date-time" },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}

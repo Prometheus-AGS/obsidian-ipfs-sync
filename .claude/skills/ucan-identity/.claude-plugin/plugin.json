@@ -1,0 +1,7 @@
+{
+  "name": "ucan-identity",
+  "description": " Decentralized identity and authorization for the vault network: per-device did:key keys, UCAN capability chains (short-lived, attenuated), SPAKE2 device pairin",
+  "version": "1.0.0",
+  "author": "prometheus-ags",
+  "license": "MIT"
+}

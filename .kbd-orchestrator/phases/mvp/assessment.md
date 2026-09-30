@@ -164,6 +164,10 @@ Still true from before research:
 
 ## Open questions for analyze/plan
 
+> **RESOLVED 2026-09-29** — see docs/011-mvp-decisions.md (answers to all six
+> questions, operator-directed) and docs/010-agentic-ui-rendering.md (UI contract).
+
+
 1. Exact Node CLI surface: `npm run` scripts vs `bin` entry vs `npx` package?
 2. node:test vs vitest for the E2E fixture harness?
 3. Should the MVP plugin publish path move to per-file `files/write`

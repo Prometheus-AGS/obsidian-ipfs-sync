@@ -23,3 +23,16 @@ Append-only. Dated entries. Mark superseded entries; do not delete them.
   invariants, CLAUDE.md symlink, 4 hooks, artifact-critic, .prometheus/
   learning store. verify.sh: 11 PASS, 2 WARN (machine-wide skill budget
   56x over — repo cannot fix alone; 10 skills with empty descriptions).
+
+## 2026-09-29 — Four project skills authored + MVP open questions resolved
+
+- Created agentskills.io skills (PMPO lifecycle): kubo-sync, iroh-p2p,
+  ucan-identity, ui-markdown-agents — installed to .agents/skills,
+  .claude/skills, .minimax/skills (codex/opencode/kimi read .agents).
+- spec 010: agentic UI rendering contract (markdown everywhere, full AG-UI
+  chunk coverage, mermaid/SVG/image/video, message+block copy, collapsible
+  thinking/citations/memory/errors, always-visible skill activations).
+- spec 011: MVP decisions — pnpm (corepack), vitest, per-file files/write,
+  per-platform KeyStore (keychain/Keystore/Capacitor), keep excludesHash,
+  ucanto + @noble/curves SPAKE2 + didcomm-node, searchable settings center
+  with first-class security section.

@@ -1,0 +1,7 @@
+{
+  "name": "ui-markdown-agents",
+  "description": " Rendering contract for the agentic chat UI (specs 002/009/010): markdown for user and assistant messages, every AG-UI event/chunk type, markdown extensions (co",
+  "version": "1.0.0",
+  "author": "prometheus-ags",
+  "license": "MIT"
+}

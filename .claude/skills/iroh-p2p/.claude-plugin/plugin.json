@@ -1,0 +1,7 @@
+{
+  "name": "iroh-p2p",
+  "description": " Direct device-to-device sync links for the vault: WebRTC data channels (v1, shipping) and the iroh upgrade path (v2, designed not built). Covers pairing flow i",
+  "version": "1.0.0",
+  "author": "prometheus-ags",
+  "license": "MIT"
+}

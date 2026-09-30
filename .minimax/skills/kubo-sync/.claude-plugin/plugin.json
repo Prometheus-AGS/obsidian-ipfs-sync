@@ -1,0 +1,7 @@
+{
+  "name": "kubo-sync",
+  "description": "kubo (IPFS) RPC vault sync: MFS layout, delta manifest, IPNS, proxy quirks for ipfs.prometheusags.ai",
+  "version": "1.0.0",
+  "author": "prometheus-ags",
+  "license": "MIT"
+}
