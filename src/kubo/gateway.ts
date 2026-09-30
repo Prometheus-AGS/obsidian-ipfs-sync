@@ -32,7 +32,7 @@ function encodeGatewayPath(endpoint: ResolvedEndpoint, cid: string, path: string
 
 function gatewayUrl(endpoint: ResolvedEndpoint, cid: string, path: string): string {
   if (!CID_SHAPE.test(cid)) {
-    throw new KuboError(endpoint.name, endpoint.baseUrl, `"${cid}" is not a valid CID`);
+    throw new KuboError(endpoint.name, endpoint.baseUrl, `"${cid.replace(/[^A-Za-z0-9]/g, "?").slice(0, 64)}" is not a valid CID`);
   }
   return `${endpoint.baseUrl}/ipfs/${encodeGatewayPath(endpoint, cid, path)}`;
 }

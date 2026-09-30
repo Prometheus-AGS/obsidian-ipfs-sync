@@ -3,7 +3,17 @@ import { hashFile } from "./hash";
 import { HostReadCapError } from "./host-errors";
 import type { ManifestFile } from "./manifest";
 import type { ScannedFile } from "./scan";
-import type { LocalState } from "./state";
+
+/** What change detection needs of the last published record: the plaintext hash and size per path, and the mtimes. */
+export interface DeltaEntry {
+  readonly sha256: string;
+  readonly size: number;
+}
+
+export interface DeltaBaseline<E extends DeltaEntry = ManifestFile> {
+  readonly manifest: { readonly files: Readonly<Record<string, E>> };
+  readonly mtimes: Readonly<Record<string, number>>;
+}
 
 /** A file that must be written to the node. */
 export interface PendingWrite {
@@ -13,11 +23,11 @@ export interface PendingWrite {
   readonly size: number;
 }
 
-export interface DeltaPlan {
+export interface DeltaPlan<E extends DeltaEntry = ManifestFile> {
   /** New or changed files, in path order. */
   readonly writes: readonly PendingWrite[];
   /** Files already on the node with the same content, as their manifest entries. */
-  readonly unchanged: Readonly<Record<string, ManifestFile>>;
+  readonly unchanged: Readonly<Record<string, E>>;
   /** Paths in the last manifest that are gone locally or now excluded. */
   readonly removed: readonly string[];
   /** Modification time of every current file, for the next run's pre-filter. */
@@ -36,28 +46,29 @@ export interface SkippedFile {
   readonly reason: string;
 }
 
-type Classified =
-  | { readonly kind: "unchanged"; readonly file: ScannedFile; readonly entry: ManifestFile; readonly hashed: boolean }
+type Classified<E extends DeltaEntry> =
+  | { readonly kind: "unchanged"; readonly file: ScannedFile; readonly entry: E; readonly hashed: boolean }
   | { readonly kind: "write"; readonly file: ScannedFile; readonly write: PendingWrite }
-  | { readonly kind: "skipped"; readonly file: ScannedFile; readonly reason: string; readonly entry: ManifestFile | undefined };
+  | { readonly kind: "skipped"; readonly file: ScannedFile; readonly reason: string; readonly entry: E | undefined };
 
 /** Own-property lookup, so a vault file named `constructor` cannot match an inherited member. */
 function lookup<T>(record: Readonly<Record<string, T>> | undefined, key: string): T | undefined {
   return record !== undefined && Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
-async function classify(
+async function classify<E extends DeltaEntry>(
   fs: Pick<HostFs, "read" | "readRange">,
   file: ScannedFile,
-  previous: LocalState | undefined,
-): Promise<Classified> {
+  previous: DeltaBaseline<E> | undefined,
+  singleReadLimit: number | undefined,
+): Promise<Classified<E>> {
   const entry = lookup(previous?.manifest.files, file.path);
   if (entry !== undefined && entry.size === file.size && lookup(previous?.mtimes, file.path) === file.mtimeMs) {
     return { kind: "unchanged", file, entry, hashed: false };
   }
   let sha256: string;
   try {
-    sha256 = await hashFile(fs, file.path, file.size);
+    sha256 = await hashFile(fs, file.path, file.size, singleReadLimit);
   } catch (error) {
     if (error instanceof HostReadCapError) return { kind: "skipped", file, reason: error.message, entry };
     throw error;
@@ -72,13 +83,14 @@ async function classify(
  * transfers only if the sha256 differs. Files are hashed one at a time so memory
  * stays bounded on mobile.
  */
-export async function planDelta(
+export async function planDelta<E extends DeltaEntry = ManifestFile>(
   fs: Pick<HostFs, "read" | "readRange">,
   scanned: readonly ScannedFile[],
-  previous: LocalState | undefined,
-): Promise<DeltaPlan> {
-  const classified: Classified[] = [];
-  for (const file of scanned) classified.push(await classify(fs, file, previous));
+  previous: DeltaBaseline<E> | undefined,
+  options: { readonly singleReadLimit?: number } = {},
+): Promise<DeltaPlan<E>> {
+  const classified: Classified<E>[] = [];
+  for (const file of scanned) classified.push(await classify(fs, file, previous, options.singleReadLimit));
 
   const present = new Set(scanned.map((file) => file.path));
   const removed = Object.keys(previous?.manifest.files ?? {})

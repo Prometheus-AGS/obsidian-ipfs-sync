@@ -1,6 +1,6 @@
 import { classifyKey, ConfigError, describeAuth, type KeyState, type SyncConfig } from "../core/config";
 import { createKuboClient, KuboError, type KuboClient, type Transport } from "../kubo";
-import { readState } from "../sync/state";
+import { readRootState } from "../sync/root-state";
 import { requestUrlTransport } from "./request-url-transport";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
@@ -33,9 +33,10 @@ export interface StatusDeps {
 
 async function lastPublished(deps: StatusDeps, config: SyncConfig): Promise<Pick<StatusReport, "lastRootCid" | "lastPublishedAt">> {
   const host = createObsidianHostBridge({ adapter: deps.adapter });
-  const state = await readState(host.kv);
-  // The record describes one destination; another key or MFS root is a different publication.
-  if (state === undefined || state.mfsRoot !== config.mfsRoot || state.key !== config.publicationKey) return {};
+  // The record is kept per MFS root; an unreadable one reads as "nothing published yet" here (publish names the fix).
+  const state = await readRootState(host.kv, config.mfsRoot).catch(() => undefined);
+  // The record describes one publication; another key is a different one.
+  if (state === undefined || state.key !== config.publicationKey || state.rootCid === null) return {};
   return { lastRootCid: state.rootCid, lastPublishedAt: state.manifest.publishedAt };
 }
 

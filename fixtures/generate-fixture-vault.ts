@@ -1,7 +1,7 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { FIXTURE_MARKER } from "../src/core/config/defaults.ts";
+import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE } from "../src/core/config/defaults.ts";
 
 /**
  * Synthetic vault generator (spec fixture-vault). Everything written here is
@@ -64,7 +64,7 @@ export function fixtureFiles(seed: number = DEFAULT_SEED): readonly FixtureFile[
     { path: ".obsidian/app.json", data: new TextEncoder().encode('{"promptDelete":false}\n') },
     { path: ".obsidian/workspace.json", data: new TextEncoder().encode('{"main":{"id":"fixture"}}\n') },
     text(".trash/old-note.md", "Deleted note", 1),
-    { path: FIXTURE_MARKER, data: new TextEncoder().encode("synthetic fixture vault: generated data only\n") },
+    { path: FIXTURE_MARKER, data: new TextEncoder().encode(`${FIXTURE_MARKER_VALUE}\n`) },
   ];
 }
 

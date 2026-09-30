@@ -19,8 +19,11 @@ import {
   SECRETS_WARNING_TITLE,
   SECTIONS,
 } from "./settings-tab-copy";
+import { EncryptionSection } from "./encryption-settings";
+import type { EncryptionStatusSource } from "./encryption-settings-model";
 import { ExclusionsSection } from "./settings-tab-exclusions";
 import { KeysSection } from "./settings-tab-keys";
+import { StaleLockSection, type StaleLockSource } from "./settings-tab-lock";
 import { PullSections } from "./settings-tab-pull";
 import { errorKeyOf, type EditableFieldId, type SettingsViewModel, type SettingsViewState } from "./settings-view-model";
 
@@ -33,7 +36,7 @@ const KEY_STATE_FIELDS: ReadonlySet<EditableFieldId> = new Set(["rpcUrl", "rpcPo
 const SCHEME_OPTIONS: Readonly<Record<string, string>> = Object.fromEntries(AUTH_SCHEMES.map((scheme) => [scheme, AUTH_SCHEME_LABELS[scheme]]));
 
 /**
- * The plugin's plain settings tab: a fixture-only notice, then Endpoints, Publication, Authentication,
+ * The plugin's plain settings tab: a fixture-only notice, then Endpoints, Publication, Encryption (when a status source is given), Publish lock (when a lock source is given), Authentication,
  * Exclusions, Owned keys, Pull, Memory and Last activity, in that order (which is also the keyboard order). It renders the view model and
  * forwards input to it; validation, saving and key rules all live there.
  */
@@ -42,6 +45,8 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
   private readonly exclusions: ExclusionsSection;
   private readonly keys: KeysSection;
   private readonly pull: PullSections;
+  private readonly encryption: EncryptionSection | undefined;
+  private readonly staleLock: StaleLockSection | undefined;
   private authFieldsEl: HTMLElement | undefined;
   private authStatusEl: HTMLElement | undefined;
   private schemeSelect: HTMLSelectElement | undefined;
@@ -51,11 +56,17 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     app: App,
     plugin: Plugin,
     private readonly vm: SettingsViewModel,
+    /** The vault's encryption state and its Lock action. When absent the Encryption section is not shown. */
+    encryption?: EncryptionStatusSource,
+    /** The publish lock's state and the Clear stale lock action. When absent the Publish lock section is not shown. */
+    staleLock?: StaleLockSource,
   ) {
     super(app, plugin);
     this.exclusions = new ExclusionsSection(vm);
     this.keys = new KeysSection(app, vm);
     this.pull = new PullSections();
+    this.encryption = encryption === undefined ? undefined : new EncryptionSection(encryption);
+    this.staleLock = staleLock === undefined ? undefined : new StaleLockSection(staleLock);
     this.ctx = {
       value: (field) => this.vm.state().values[field],
       commit: (field, text) => void this.commit(field, text),
@@ -72,6 +83,8 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     addNote(root, FIXTURE_NOTE_ID, FIXTURE_NOTICE_TITLE, FIXTURE_NOTICE);
     this.renderEndpoints(root);
     this.renderPublication(root);
+    this.encryption?.render(root);
+    this.staleLock?.render(root);
     this.renderAuthentication(root);
     this.exclusions.render(root);
     this.keys.render(root);
@@ -80,6 +93,7 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
   }
 
   hide(): void {
+    this.encryption?.dispose();
     this.vm.reset();
   }
 

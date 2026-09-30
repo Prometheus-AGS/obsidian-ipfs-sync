@@ -1,5 +1,6 @@
-import { appendFile, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { appendFile, chmod, lstat, mkdir, open, readFile, readdir, rename, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { basename, dirname, join } from "node:path";
 import type { Bytes, HostBridge, HostFs, HostFsEntry, HostFsLstat, HostFsStat, HostKv } from "../src/core/host-bridge";
 import { HostNotImplementedError, HostPathError } from "../src/sync/host-errors";
 
@@ -86,8 +87,8 @@ function createFs(root: string): HostFs {
     readRange: async (path, offset, length) => readSlice(at(path), offset, length),
     write: async (path, data) => {
       const target = at(path);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, data);
+      await mkdir(dirname(target), { recursive: true, mode: KV_DIRECTORY_MODE });
+      await replaceAtomically(target, data);
     },
     mkdir: async (path) => {
       await mkdir(at(path), { recursive: true });
@@ -112,6 +113,37 @@ function kvPath(root: string, key: string): string {
   return join(root, KV_DIRECTORY, key);
 }
 
+/** State, journal and key slots hold every vault path: owner-only. */
+const KV_FILE_MODE = 0o600;
+const KV_DIRECTORY_MODE = 0o700;
+
+/** Create the file 0600 (replacing a stale temp of another mode), write, flush to disk, close. */
+async function writeDurably(path: string, value: Bytes): Promise<void> {
+  await rm(path, { force: true });
+  const handle = await open(path, "wx", KV_FILE_MODE);
+  try {
+    await handle.writeFile(value);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Write `value` to a same-directory temp file (0600, fsynced), then rename it over `target`. A crash or a failed
+ * write leaves the previous content of `target` intact; the temp file is removed on every path.
+ */
+async function replaceAtomically(target: string, value: Bytes): Promise<void> {
+  const temp = join(dirname(target), `.${basename(target)}.${process.pid}.${randomUUID()}.tmp`);
+  try {
+    await writeDurably(temp, value);
+    await rename(temp, target);
+  } catch (error) {
+    await rm(temp, { force: true });
+    throw error;
+  }
+}
+
 /** Key-value storage as files under `<root>/.ipfs-sync/`. Writes go to a temp file and are renamed into place. */
 function createKv(root: string): HostKv {
   return {
@@ -125,9 +157,10 @@ function createKv(root: string): HostKv {
     },
     set: async (key, value) => {
       const target = kvPath(root, key);
-      const temp = join(dirname(target), `.${key}.tmp`);
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(temp, value);
+      const temp = join(dirname(target), `.${key}.${process.pid}.tmp`);
+      await mkdir(dirname(target), { recursive: true, mode: KV_DIRECTORY_MODE });
+      await chmod(dirname(target), KV_DIRECTORY_MODE);
+      await writeDurably(temp, value);
       await rename(temp, target);
     },
     delete: async (key) => rm(kvPath(root, key), { force: true }),

@@ -34,9 +34,9 @@ describe("plugin entry", () => {
     vi.unstubAllGlobals();
   });
 
-  it("registers the Publish, Pull and Status commands and one ribbon icon for each of Publish and Pull", async () => {
+  it("registers the Publish, Pull, Status, Abandon and Clear stale lock commands and one ribbon icon for each of Publish and Pull", async () => {
     const { stub } = await loadPlugin(null);
-    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual(["publish-vault:Publish vault", "pull-vault:Pull vault", "show-status:Show status"]);
+    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual(["publish-vault:Publish vault", "pull-vault:Pull vault", "show-status:Show status", "abandon-vault:Abandon this vault", "clear-stale-lock:Clear stale publish lock"]);
     expect(stub.ribbonIcons).toHaveLength(2);
     expect(stub.statusBarItems).toHaveLength(1);
   });
@@ -50,7 +50,7 @@ describe("plugin entry", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(requestUrlCalls).toEqual([]);
     const messages = Notice.shown.map((n) => n.message);
-    expect(messages.some((m) => m.includes("only synthetic fixture vaults"))).toBe(true);
+    expect(messages.some((m) => m.includes("not yet independently reviewed or verified in Obsidian"))).toBe(true);
     // The progress notice was dismissed and the status bar cleared.
     expect(Notice.shown.filter((n) => n.message === "IPFS Sync: publishing...").every((n) => n.hidden)).toBe(true);
     expect(stub.statusBarItems[0]?.text).toBe("");
@@ -83,7 +83,7 @@ describe("plugin entry", () => {
     await flush();
     tick();
     await flush();
-    expect(Notice.shown.filter((n) => n.message.includes("only synthetic fixture vaults"))).toHaveLength(1);
+    expect(Notice.shown.filter((n) => n.message.includes("not yet independently reviewed or verified in Obsidian"))).toHaveLength(1);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

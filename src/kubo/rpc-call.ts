@@ -1,5 +1,6 @@
 import type { ResolvedEndpoint } from "../core/config";
 import { authHeaders } from "./auth-headers";
+import { KuboResponseTooLargeError } from "./errors";
 import { buildRpcUrl, requestEndpoint, type QueryArgs, type Transport } from "./http";
 import type { MultipartBody } from "./multipart";
 import { isJsonObject, malformed, type JsonObject } from "./rpc-fields";
@@ -19,6 +20,46 @@ export interface RpcCallInput {
   readonly body?: MultipartBody;
   /** Defaults to the platform `fetch`. */
   readonly transport?: Transport;
+  /**
+   * Refuse a response body larger than this many bytes, checked against `Content-Length` first and again while the
+   * body streams, so a node that understates its length is still cut off. Unset means `RPC_RESPONSE_MAX_BYTES`.
+   */
+  readonly maxResponseBytes?: number;
+}
+
+/** Default cap for every RPC answer except the discarded `files/write` reply: they are all a few hundred bytes. */
+export const RPC_RESPONSE_MAX_BYTES = 64 * 1024;
+
+function tooLarge(input: RpcCallInput, limit: number): KuboResponseTooLargeError {
+  return new KuboResponseTooLargeError(input.endpoint.name, input.endpoint.baseUrl, `the ${input.command} response`, `${limit} bytes`);
+}
+
+/** The body as text, abandoning the read as soon as it passes `limit` bytes. */
+async function readBoundedText(input: RpcCallInput, response: Response, limit: number): Promise<string> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) throw tooLarge(input, limit);
+  if (response.body === null) return "";
+  const reader = response.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > limit) throw tooLarge(input, limit);
+      parts.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+  const whole = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    whole.set(part, offset);
+    offset += part.length;
+  }
+  return new TextDecoder().decode(whole);
 }
 
 /**
@@ -65,7 +106,7 @@ export async function rpcCall(
     await response.arrayBuffer();
     return undefined;
   }
-  const text = await response.text();
+  const text = await readBoundedText(input, response, input.maxResponseBytes ?? RPC_RESPONSE_MAX_BYTES);
   switch (mode) {
     case "text":
       return text;

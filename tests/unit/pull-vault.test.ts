@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ManifestError } from "../../src/sync/manifest";
 import { PullGuardError, PullSourceError, PullTargetError } from "../../src/sync/pull-errors";
 import { readState } from "../../src/sync/state";
-import { FILES_V1, KEY, ROOT1, ROOT2, TREE1, TREE2, harness, leftovers, text } from "../helpers/pull-harness";
+import { FILES_V1, KEY, ROOT1, ROOT2, TREE1, TREE2, harness, leftovers, text, type Harness } from "../helpers/pull-harness";
 import { IPNS_NAME, seedRemote, sha } from "../helpers/pull-fixtures";
 
 describe("pullVault: first pull into an absent destination", () => {
@@ -47,7 +47,7 @@ describe("pullVault: destination guard", () => {
     await seedRemote(h.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
     h.host.put("private.md", "a real note");
     await expect(h.run()).rejects.toThrowError(PullGuardError);
-    await expect(h.run()).rejects.toThrowError(/encryption is not available yet/);
+    await expect(h.run()).rejects.toThrowError(/decrypting pull arrives in a later release/);
     expect(h.gateway.requests).toEqual([]);
     expect(h.host.mutations).toEqual([]);
     expect(h.completed).toEqual([]);
@@ -60,7 +60,7 @@ describe("pullVault: destination guard", () => {
 
     const marked = harness();
     await seedRemote(marked.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
-    marked.host.put(".ipfs-sync-fixture", "marker");
+    marked.host.put(".ipfs-sync-fixture", "fixture");
     marked.host.put("other.md", "existing but marked");
     const result = await marked.run();
     expect(result.fetched).toBe(3);
@@ -137,18 +137,21 @@ describe("pullVault: manifest selection", () => {
   });
 });
 
+/** Whole-file reads of vault files; the marker read of the destination guard is not a note read. */
+const noteReads = (h: Harness): number => h.host.reads.wholeReads.filter((path) => path !== ".ipfs-sync-fixture").length;
+
 describe("pullVault: delta behaviour", () => {
   it("fetches nothing and rewrites nothing on an already synced vault", async () => {
     const h = harness();
     await seedRemote(h.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
     await h.run();
     const writes = h.host.mutations.length;
-    const reads = h.host.reads.count;
+    const reads = noteReads(h);
     h.gateway.requests.length = 0;
     const again = await h.run();
     expect(again).toMatchObject({ fetched: 0, unchanged: 3, conflicted: 0, failed: 0 });
     expect(h.host.mutations.length).toBe(writes);
-    expect(h.host.reads.count).toBe(reads);
+    expect(noteReads(h)).toBe(reads);
     expect(h.gateway.requests.filter((r) => r.includes("notes/") || r.endsWith("c.md"))).toEqual([]);
     expect(h.completed).toHaveLength(2);
   });

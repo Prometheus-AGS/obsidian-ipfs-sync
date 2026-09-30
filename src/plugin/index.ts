@@ -1,18 +1,29 @@
 import { Notice, Plugin } from "obsidian";
 import { createSyncEventBus, type SyncEventBus } from "../core/events";
 import { createKuboClient } from "../kubo";
+import { createAdapterLockFile } from "./adapter-lock-file";
+import { createAbandonFlow, type AbandonFlow } from "./abandon-flow";
+import { AbandonVaultDialog, type AbandonOutcome } from "./abandon-vault-dialog";
+import { ClearStaleLockDialog } from "./clear-stale-lock-dialog";
 import { scheduleCatchUp } from "./catch-up";
 import { flushOpenEditors } from "./editor-flush";
 import { createPublishRunner, type PublishOutcome, type PublishProgress, type PublishRunner } from "./publish-runner";
+import { readPluginSeams } from "./plugin-seams";
 import { createPullPresenter, type PullPresenter } from "./pull-presenter";
 import { createPullRunner, type PullOutcome, type PullRunner } from "./pull-runner";
+import { createSessionDialogs, describeDialogError, obsidianDialogFactories, type SessionDialogs } from "./session-dialogs";
+import { createSessionKeys, type SessionKeys } from "./session-keys";
+import { observed } from "./session-status";
 import { IpfsSyncSettingTab } from "./settings-tab";
 import { requestUrlTransport } from "./request-url-transport";
+import { createStaleLockControl } from "./stale-lock";
+import { createStaleLockFlow, type StaleLockFlow } from "./stale-lock-flow";
 import { openSettingsStore, type SettingsStore } from "./settings-store";
 import { settingsToConfig } from "./settings-to-config";
 import { createSettingsViewModel as buildSettingsViewModel, type SettingsViewModel } from "./settings-view-model";
 import { collectStatus, formatStatus } from "./sync-status";
-import { createSyncLock } from "./sync-lock";
+import { busyNotice, createSyncLock } from "./sync-lock";
+import { createVaultOpener, createVaultProbe } from "./vault-opener";
 
 const NOTICE_MS = 10_000;
 const STATUS_NOTICE_MS = 20_000;
@@ -29,20 +40,66 @@ export default class IpfsSyncPlugin extends Plugin {
   private declare runner: PublishRunner;
   private declare pullRunner: PullRunner;
   private declare presenter: PullPresenter;
+  private declare session: SessionKeys;
+  private declare dialogs: SessionDialogs;
+  private declare abandonFlow: AbandonFlow;
+  private declare staleLockFlow: StaleLockFlow;
   private declare statusEl: HTMLElement;
   private readonly bus: SyncEventBus = createSyncEventBus();
   private timer: number | undefined;
+  /** The MFS root the session's keys belong to; a settings change to another root drops them. */
+  private sessionRoot = "";
   /** Reasons already explained by an unattended (auto-publish) run, so it never repeats itself. */
   private readonly explained = new Set<string>();
-
   async onload(): Promise<void> {
     const { store, load } = await openSettingsStore(this);
     this.store = store;
     for (const message of load.notices) new Notice(message, NOTICE_MS);
     const adapter = this.app.vault.adapter;
     const lock = createSyncLock();
-    this.runner = createPublishRunner({ store, adapter, bus: this.bus, lock });
-    this.pullRunner = createPullRunner({ store, adapter, bus: this.bus, lock, flushEditors: () => flushOpenEditors(this.app.workspace, adapter) });
+    const now = (): Date => new Date();
+    this.dialogs = createSessionDialogs(obsidianDialogFactories(this.app));
+    const observer = observed(
+      this.dialogs.settling(
+        createSessionKeys({
+          dialogs: this.dialogs.callbacks,
+          open: createVaultOpener({ store, adapter, transport: requestUrlTransport, now }),
+          vaultExists: createVaultProbe({ store, adapter, now }),
+        }),
+      ),
+    );
+    this.session = observer.session;
+    this.sessionRoot = store.get().mfsRoot;
+    await this.refreshSession();
+    this.abandonFlow = createAbandonFlow({
+      store,
+      adapter,
+      lock,
+      session: this.session,
+      now,
+      openDialog: (request, onFinish) => {
+        const dialog = new AbandonVaultDialog(this.app, request, onFinish);
+        dialog.open();
+        return dialog;
+      },
+    });
+    this.staleLockFlow = createStaleLockFlow({
+      control: createStaleLockControl({ lockFile: createAdapterLockFile(adapter), now: () => now().getTime(), syncLock: lock }),
+      openDialog: (request, onFinish) => {
+        const dialog = new ClearStaleLockDialog(this.app, request, onFinish);
+        dialog.open();
+        return dialog;
+      },
+    });
+    this.runner = createPublishRunner({ store, adapter, bus: this.bus, lock, session: this.session });
+    this.pullRunner = createPullRunner({
+      store,
+      adapter,
+      bus: this.bus,
+      lock,
+      flushEditors: () => flushOpenEditors(this.app.workspace, adapter),
+      allowPlaintextV1: () => readPluginSeams(this).allowPlaintextV1 === true,
+    });
     this.statusEl = this.addStatusBarItem();
     this.presenter = createPullPresenter({
       createNotice: (text, durationMs) => new Notice(text, durationMs),
@@ -54,9 +111,17 @@ export default class IpfsSyncPlugin extends Plugin {
     this.addCommand({ id: "publish-vault", name: "Publish vault", callback: () => void this.publishVault() });
     this.addCommand({ id: "pull-vault", name: "Pull vault", callback: () => void this.pullVault() });
     this.addCommand({ id: "show-status", name: "Show status", callback: () => void this.showStatus() });
+    this.addCommand({ id: "abandon-vault", name: "Abandon this vault", callback: () => void this.abandonVault() });
+    this.addCommand({ id: "clear-stale-lock", name: "Clear stale publish lock", callback: () => void this.clearStaleLock() });
     this.addRibbonIcon("network", "IPFS Sync: publish vault", () => void this.publishVault());
     this.addRibbonIcon("download", "IPFS Sync: pull vault", () => void this.pullVault());
-    this.addSettingTab(new IpfsSyncSettingTab(this.app, this, this.createSettingsViewModel()));
+    const encryption = observer.status({
+      openSetup: () => void this.showDialogOutcome(() => this.session.setup()),
+      openUnlock: () => void this.showDialogOutcome(() => this.session.unlock()),
+      openAbandon: () => void this.abandonVault(),
+    });
+    const staleLock = { inspect: () => this.staleLockFlow.inspect(), open: async () => void (await this.clearStaleLock()) };
+    this.addSettingTab(new IpfsSyncSettingTab(this.app, this, this.createSettingsViewModel(), encryption, staleLock));
     this.rearmAutoPublish();
     scheduleCatchUp({
       enabled: store.get().catchUpOnLoad,
@@ -64,6 +129,14 @@ export default class IpfsSyncPlugin extends Plugin {
       pull: () => this.pullVault({ quiet: true }),
       onError: (error) => new Notice(`IPFS Sync: catch-up failed: ${error instanceof Error ? error.message : "unknown error"}`, NOTICE_MS),
     });
+  }
+
+  /** Lock the session and close its dialogs when the plugin unloads: no key outlives the plugin. */
+  onunload(): void {
+    this.abandonFlow.dispose();
+    this.staleLockFlow.dispose();
+    this.session.dispose();
+    this.dialogs.dispose();
   }
 
   /** (Re)start the auto-publish timer from the stored interval; 0 turns it off. Call after the interval changes. */
@@ -84,7 +157,10 @@ export default class IpfsSyncPlugin extends Plugin {
         const config = settingsToConfig(this.store.get(), new Date());
         return createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: requestUrlTransport }).keyList();
       },
-      onSaved: () => this.rearmAutoPublish(),
+      onSaved: () => {
+        this.rearmAutoPublish();
+        void this.followMfsRoot();
+      },
     });
   }
 
@@ -95,7 +171,7 @@ export default class IpfsSyncPlugin extends Plugin {
     const progress = quiet || alreadyRunning ? undefined : new Notice(PUBLISHING, 0);
     if (!alreadyRunning) this.statusEl.setText(PUBLISHING);
     try {
-      const outcome = await this.runner.run({ onProgress: (update) => this.showProgress(progress, update) });
+      const outcome = await this.runner.run({ unattended: quiet, onProgress: (update) => this.showProgress(progress, update) });
       this.report(outcome, quiet);
       return outcome;
     } finally {
@@ -122,12 +198,67 @@ export default class IpfsSyncPlugin extends Plugin {
     return outcome;
   }
 
+  /**
+   * Open the abandon-vault confirmation. The word is typed in the dialog; on success the local key-slot copy, state and
+   * journal for the configured MFS root are moved into a backup folder and the node is not contacted. A request made
+   * while publish or pull runs shows a notice and opens nothing.
+   */
+  async abandonVault(): Promise<AbandonOutcome | "busy"> {
+    const outcome = await this.abandonFlow.open();
+    if (outcome === "busy") new Notice(busyNotice(undefined), NOTICE_MS);
+    else if (outcome.abandoned) new Notice(`IPFS Sync: vault abandoned. ${outcome.backupNote ?? ""}`.trim(), NOTICE_MS);
+    return outcome;
+  }
+
+  /**
+   * Open the confirmation for clearing a stale publish lock. Offered only when the lock's last heartbeat is older than
+   * 15 minutes; otherwise a notice says why nothing happened. Resolves with the notice text shown, if any.
+   */
+  async clearStaleLock(): Promise<string> {
+    try {
+      const { notice } = await this.staleLockFlow.open();
+      if (notice !== "") new Notice(notice, NOTICE_MS);
+      return notice;
+    } catch (error) {
+      const notice = `IPFS Sync: cannot check the publish lock: ${error instanceof Error ? error.message : "unknown error"}`;
+      new Notice(notice, NOTICE_MS);
+      return notice;
+    }
+  }
+
   async showStatus(): Promise<void> {
     try {
       const report = await collectStatus({ store: this.store, adapter: this.app.vault.adapter });
       new Notice(formatStatus(report), STATUS_NOTICE_MS);
     } catch (error) {
       new Notice(`IPFS Sync: cannot read the status: ${error instanceof Error ? error.message : "unknown error"}`, NOTICE_MS);
+    }
+  }
+
+  /** Whether this device has a vault, read from the local key-slot copy (no request). */
+  private async refreshSession(): Promise<void> {
+    try {
+      await this.session.refresh();
+    } catch (error) {
+      new Notice(`IPFS Sync: cannot check for an encrypted vault: ${error instanceof Error ? error.message : "unknown error"}`, NOTICE_MS);
+    }
+  }
+
+  /** Keys unlocked for one MFS root are not valid for another: a changed root locks the session and looks again. */
+  private async followMfsRoot(): Promise<void> {
+    const root = this.store.get().mfsRoot;
+    if (root === this.sessionRoot) return;
+    this.sessionRoot = root;
+    this.session.lock();
+    await this.refreshSession();
+  }
+
+  /** A dialog shows its own failure; this adds a notice for the case where the dialog is already gone. */
+  private async showDialogOutcome(run: () => Promise<unknown>): Promise<void> {
+    try {
+      await run();
+    } catch (error) {
+      new Notice(`IPFS Sync: ${describeDialogError(error)}`, NOTICE_MS);
     }
   }
 

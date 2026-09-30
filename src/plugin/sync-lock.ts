@@ -3,7 +3,14 @@
  * (`.ipfs-sync/state.json`), so they share one lock: the second request is refused, not queued.
  */
 
-export type SyncOperation = "publish" | "pull";
+export type SyncOperation = "publish" | "pull" | "abandon" | "clear-stale-lock";
+
+const OPERATION_LABEL: Readonly<Record<SyncOperation, string>> = {
+  publish: "a publish",
+  pull: "a pull",
+  abandon: "an abandon",
+  "clear-stale-lock": "a stale-lock clearing",
+};
 
 export interface SyncLock {
   /** The operation holding the lock, or undefined when it is free. */
@@ -34,6 +41,6 @@ export function createSyncLock(): SyncLock {
 
 /** The notice for a request made while `holder` runs. */
 export function busyNotice(holder: SyncOperation | undefined): string {
-  const running = holder === undefined ? "a sync operation" : `a ${holder}`;
+  const running = holder === undefined ? "a sync operation" : OPERATION_LABEL[holder];
   return `IPFS Sync: ${running} is already in progress. Wait for it to finish.`;
 }

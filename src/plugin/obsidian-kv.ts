@@ -1,5 +1,6 @@
 import type { HostFs, HostKv } from "../core/host-bridge";
 import { HostPathError } from "../sync/host-errors";
+import { ABANDONED_BACKUP } from "../sync/pull-latch";
 import { base64ToBytes, bytesToBase64 } from "./base64";
 import type { SettingsStore } from "./settings-store";
 
@@ -50,6 +51,14 @@ export function createPluginDataKv(store: SettingsStore): HostKv {
  * engine keeps its last-published record here (`state.json`), which is what lets the plugin and the CLI publish
  * the same vault and transfer only what changed. The record holds paths and hashes, never credentials.
  */
+/**
+ * What `list` reports: key-shaped files, and the `abandoned-<h>-<ms>` backup folders that `abandon` leaves (the pull
+ * latch counts them as evidence; the CLI host lists directory names too). No other folder is listed.
+ */
+function isKvEntry(entry: { readonly name: string; readonly kind: "file" | "directory" }): boolean {
+  return entry.kind === "file" ? KV_KEY.test(entry.name) : ABANDONED_BACKUP.test(entry.name);
+}
+
 export function createFolderKv(fs: HostFs): HostKv {
   const pathOf = (key: string): string => `${STATE_DIRECTORY}/${assertKey(key)}`;
   return {
@@ -60,7 +69,7 @@ export function createFolderKv(fs: HostFs): HostKv {
       if ((await fs.stat(STATE_DIRECTORY)) === undefined) return [];
       const entries = await fs.list(STATE_DIRECTORY);
       return entries
-        .filter((entry) => entry.kind === "file" && KV_KEY.test(entry.name) && entry.name.startsWith(prefix))
+        .filter((entry) => isKvEntry(entry) && entry.name.startsWith(prefix))
         .map((entry) => entry.name)
         .sort();
     },

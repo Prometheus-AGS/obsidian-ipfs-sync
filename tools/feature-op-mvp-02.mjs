@@ -154,7 +154,7 @@ async function refusalSteps(common, snap, work) {
   check("no marker: exit 2, no request sent", noMarker.code === 2 && requestsOf(noMarker.stdout).length === 0, noMarker.stderr.trim().split("\n")[0]);
 
   const vault = await mkdtemp(join(work, "refusal-vault-"));
-  await writeFile(join(vault, ".ipfs-sync-fixture"), "marker\n");
+  await writeFile(join(vault, ".ipfs-sync-fixture"), "fixture\n");
   await writeFile(join(vault, "a.md"), "a\n");
   const staging = await runCli(["publish", vault, "--mfs-root", STAGING_ROOT, "--show-request", ...common]);
   check("--mfs-root /obsidian-vault-staging: exit 2, no request sent", staging.code === 2 && requestsOf(staging.stdout).length === 0, staging.stderr.trim().split("\n")[0]);

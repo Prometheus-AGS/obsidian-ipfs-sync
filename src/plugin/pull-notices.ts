@@ -10,9 +10,21 @@ const PREFIX = "IPFS Sync:";
 const SHOWN = 3;
 
 export const FIXTURE_ONLY_PULL_NOTICE =
-  `${PREFIX} pull is off for this vault. Encryption is not available yet, so only fixture vaults ` +
-  `(marked with a ${FIXTURE_MARKER} file at the vault root) or vaults with no files outside .obsidian/ can be synced in this release. ` +
+  `${PREFIX} pull is off for this vault. Pull of a real vault is not available in this build: it refuses encrypted roots, and decrypting pull arrives in a later release. ` +
+  `Only fixture vaults (a ${FIXTURE_MARKER} file at the vault root holding the text "fixture" or "pulled-fixture") or vaults with no files outside .obsidian/ and .ipfs-sync/ can be pulled into. ` +
   "Nothing was sent to the node and no file changed.";
+
+export const ENCRYPTED_PULL_NOTICE =
+  `${PREFIX} this vault on the node is encrypted, and pulling encrypted vaults is not supported yet (it arrives with the next change). ` +
+  "Nothing was written to your vault. This device now remembers that the vault is encrypted, so plaintext reads of it are refused.";
+
+export const PLAINTEXT_V1_OFF_NOTICE =
+  `${PREFIX} pull refused: the node serves a plaintext (version 1) manifest, which anyone who can write to the node can forge, ` +
+  "and reading it is switched off. Nothing was written to your vault.";
+
+export const PLAINTEXT_DOWNGRADE_NOTICE =
+  `${PREFIX} pull refused: an encrypted vault was seen here before and the node now serves a plaintext manifest. That may be a downgrade ` +
+  "attack. Nothing was written to your vault.";
 
 export function unsafeDestinationNotice(reason: string): string {
   return `${PREFIX} pull refused: ${reason}. Nothing was sent to the node and no file changed.`;

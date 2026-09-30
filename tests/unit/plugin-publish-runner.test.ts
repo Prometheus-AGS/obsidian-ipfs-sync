@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createNodeHostBridge } from "../../cli/node-host-bridge";
 import { createSyncEventBus } from "../../src/core/events";
+import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import { loadSettings } from "../../src/plugin/settings-migration";
 import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
@@ -11,12 +12,16 @@ import { createPublishRunner, type PublishOutcome, type PublishRunner } from "..
 import { createSyncLock } from "../../src/plugin/sync-lock";
 import { publishVault } from "../../src/sync/publish";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
+import { initVault } from "../helpers/vault-init";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { createNodeFsAdapter } from "../support/node-fs-adapter";
+import { sessionRig } from "../helpers/plugin-session";
+import { referencePassphrase } from "../vectors/slot-helpers";
 
 const MFS_ROOT = "/obsidian-vault-sync/mvp04-test";
 const KEY = "obsidian-vault-sync";
 const SECRET = "tok-must-not-appear-Qw81";
+const MUTATING = /^(write|rm|pin|publish|keyGen) /;
 
 function port(failSave = false): PluginDataPort & { data: unknown } {
   const self: PluginDataPort & { data: unknown } = {
@@ -45,9 +50,20 @@ interface Rig {
   readonly progress: number[];
 }
 
-function rig(adapter: MemoryAdapter | ReturnType<typeof createNodeFsAdapter>, store: SettingsStore, node = createFakeNode()): Rig {
+type Adapter = MemoryAdapter | ReturnType<typeof createNodeFsAdapter>;
+
+/** The runner over a vault whose encrypted vault already exists (the setup dialog or `init` creates it before any publish). */
+async function rig(adapter: Adapter, store: SettingsStore, node = createFakeNode(), options: { readonly cancelUnlock?: boolean; readonly init?: boolean } = {}): Promise<Rig> {
   const progress: number[] = [];
-  const runner = createPublishRunner({ store, adapter, bus: createSyncEventBus(), createClient: () => node.client, now: () => new Date(1_800_000_000_000) });
+  if (options.init !== false) await initVault(createObsidianHostBridge({ adapter }).fs, node, MFS_ROOT);
+  const runner = createPublishRunner({
+    store,
+    adapter,
+    bus: createSyncEventBus(),
+    createClient: () => node.client,
+    session: sessionRig({ store, adapter, createClient: () => node.client, typed: options.cancelUnlock === true ? [undefined] : undefined }).session,
+    now: () => new Date(1_800_000_000_000),
+  });
   return { node, runner, store, progress };
 }
 
@@ -62,20 +78,22 @@ function fixtureVault(): MemoryAdapter {
   return adapter;
 }
 
+const blobCount = (node: FakeNode): number => [...node.files.keys()].filter((path) => /\/current\/[a-z2-7]{2}\/[a-z2-7]{52}$/.test(path)).length;
+
 describe("plugin publish runner", () => {
   it("sends no request at all when the vault has no fixture marker, and says why", async () => {
     const adapter = new MemoryAdapter();
     adapter.put("notes/real.md", "private");
-    const r = rig(adapter, storeWith());
+    const r = await rig(adapter, storeWith());
     const outcome = await publish(r);
     expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(outcome.notice).toContain("Encryption is not available yet");
+    expect(outcome.notice).toContain("not yet independently reviewed or verified in Obsidian");
     expect(outcome.notice).toContain(".ipfs-sync-fixture");
     expect(r.node.calls).toEqual([]);
   });
 
   it("refuses invalid settings before any request", async () => {
-    const r = rig(fixtureVault(), storeWith({ mfsRoot: "/obsidian-vault-staging" }));
+    const r = await rig(fixtureVault(), storeWith({ mfsRoot: "/obsidian-vault-staging" }));
     const outcome = await publish(r);
     expect(outcome).toMatchObject({ kind: "refused", reason: "invalid-settings" });
     expect(outcome.notice).toContain("/obsidian-vault-sync");
@@ -83,16 +101,16 @@ describe("plugin publish runner", () => {
   });
 
   it("refuses a foreign key: no name/publish, no write, and the notice points to the settings", async () => {
-    const r = rig(fixtureVault(), storeWith(), createFakeNode([{ name: KEY, id: "k51foreign" }]));
+    const r = await rig(fixtureVault(), storeWith(), createFakeNode([{ name: KEY, id: "k51foreign" }]));
     const outcome = await publish(r);
     expect(outcome).toMatchObject({ kind: "refused", reason: "foreign-key" });
     expect(outcome.notice).toContain("settings");
-    expect(r.node.calls).toEqual(["keyList"]);
+    expect(r.node.calls.filter((call) => MUTATING.test(call))).toEqual([]);
     expect(r.store.get().ownedKeys).toEqual([]);
   });
 
   it("creates the key once on the first publish and records its ID in the plugin data", async () => {
-    const r = rig(fixtureVault(), storeWith());
+    const r = await rig(fixtureVault(), storeWith());
     const first = await publish(r);
     expect(first).toMatchObject({ kind: "published" });
     const keyId = r.node.keys[0]?.id ?? "";
@@ -106,16 +124,24 @@ describe("plugin publish runner", () => {
   });
 
   it("stops before any write when the new key ID cannot be recorded, and shows the ID", async () => {
-    const r = rig(fixtureVault(), storeWith({}, true));
+    const r = await rig(fixtureVault(), storeWith({}, true));
     const outcome = await publish(r);
     const keyId = r.node.keys[0]?.id ?? "";
     expect(outcome).toMatchObject({ kind: "refused", reason: "key-not-recorded" });
     expect(outcome.notice).toContain(keyId);
-    expect(r.node.calls).toEqual(["keyList", `keyGen ${KEY}`]);
+    expect(r.node.calls.filter((call) => MUTATING.test(call))).toEqual([`keyGen ${KEY}`]);
+  });
+
+  it("refuses when the unlock dialog is cancelled, saying so and sending nothing", async () => {
+    const r = await rig(fixtureVault(), storeWith(), createFakeNode(), { cancelUnlock: true });
+    const outcome = await publish(r);
+    expect(outcome).toMatchObject({ kind: "refused", reason: "cancelled" });
+    expect(outcome.notice).toContain("not unlocked");
+    expect(r.node.calls).toEqual([]);
   });
 
   it("ignores a second publish while one is running, then allows the next", async () => {
-    const r = rig(fixtureVault(), storeWith());
+    const r = await rig(fixtureVault(), storeWith());
     const first = publish(r);
     const second = await publish(r);
     expect(second).toMatchObject({ kind: "refused", reason: "busy" });
@@ -127,35 +153,35 @@ describe("plugin publish runner", () => {
 
   it("releases the lock and names the failure when the node rejects a write, without partial-success wording", async () => {
     const node = createFakeNode();
-    node.failWriteFor = /hello\.md$/;
-    const r = rig(fixtureVault(), storeWith(), node);
+    node.failWriteFor = /\/current\//;
+    const r = await rig(fixtureVault(), storeWith(), node);
     const outcome = await publish(r);
     expect(outcome.kind).toBe("failed");
     expect(outcome.notice).toContain("publish failed");
-    expect(outcome.notice).toContain("hello.md");
+    expect(outcome.notice).not.toContain("hello.md");
     expect(outcome.notice).not.toMatch(/published|partial/i);
     expect(node.calls.some((c) => c.startsWith("publish "))).toBe(false);
     expect(r.runner.isRunning()).toBe(false);
   });
 
   it("never publishes the plugin data file or sends the token to the node", async () => {
-    const r = rig(fixtureVault(), storeWith());
+    const r = await rig(fixtureVault(), storeWith());
     await publish(r);
     expect([...r.node.files.keys()].some((path) => path.includes("data.json"))).toBe(false);
     for (const bytes of r.node.files.values()) expect(new TextDecoder().decode(bytes)).not.toContain(SECRET);
-    expect(r.node.calls.join("\n")).not.toContain(SECRET);
+    for (const request of r.node.requests) expect(`${request.line}${new TextDecoder().decode(request.body ?? new Uint8Array())}`).not.toContain(SECRET);
   });
 
   it("honours the user's extra exclusions", async () => {
     const adapter = fixtureVault();
     adapter.put("private/secret.md", "nope", 1000);
-    const r = rig(adapter, storeWith({ userExclusions: ["private/"] }));
-    await publish(r);
-    expect([...r.node.files.keys()].some((path) => path.includes("private"))).toBe(false);
+    const r = await rig(adapter, storeWith({ userExclusions: ["private/"] }));
+    const outcome = await publish(r);
+    expect(outcome.notice).toContain("2 written"); // hello and world; private/secret.md is excluded
   });
 
   it("reports the running change count through the event bus, ending with done", async () => {
-    const r = rig(fixtureVault(), storeWith());
+    const r = await rig(fixtureVault(), storeWith());
     await publish(r);
     expect(r.progress).toEqual([1, 2, 2]);
   });
@@ -167,7 +193,10 @@ describe("plugin publish runner: shared lock and read cap", () => {
   it("refuses a publish while a pull holds the shared lock and sends nothing", async () => {
     const lock = createSyncLock();
     const node = createFakeNode();
-    const runner = createPublishRunner({ store: storeWith(), adapter: fixtureVault(), bus: createSyncEventBus(), lock, createClient: () => node.client });
+    const adapter = fixtureVault();
+    await initVault(createObsidianHostBridge({ adapter }).fs, node, MFS_ROOT);
+    const store = storeWith();
+    const runner = createPublishRunner({ store, adapter, bus: createSyncEventBus(), lock, createClient: () => node.client, session: sessionRig({ store, adapter, createClient: () => node.client }).session });
     const release = lock.tryAcquire("pull");
     const outcome = await runner.run();
     expect(outcome).toMatchObject({ kind: "refused", reason: "busy" });
@@ -180,22 +209,22 @@ describe("plugin publish runner: shared lock and read cap", () => {
   it("skips a file above the read cap with a count, publishes the rest, and names the file", async () => {
     const adapter = fixtureVault();
     adapter.put("big.bin", new Uint8Array(9 * MB), 1000);
-    const r = rig(adapter, storeWith({ maxReadMb: 8 }));
+    const r = await rig(adapter, storeWith({ maxReadMb: 8 }));
     const outcome = await publish(r);
     expect(outcome.kind).toBe("published");
     expect(outcome.notice).toContain("2 written");
     expect(outcome.notice).toContain("1 skipped");
     expect(outcome.notice).toContain("big.bin");
-    expect([...r.node.files.keys()].some((path) => path.endsWith("big.bin"))).toBe(false);
+    expect(blobCount(r.node)).toBe(2); // the big file was not uploaded
     expect(r.store.get().lastPublish).toMatchObject({ written: 2, removed: 0, skipped: 1 });
   });
 
   it("keeps an already published file on the node when it becomes too large to read, and never removes it", async () => {
     const adapter = fixtureVault();
     adapter.put("big.bin", new Uint8Array(9 * MB), 1000);
-    const r = rig(adapter, storeWith({ maxReadMb: 16 }));
+    const r = await rig(adapter, storeWith({ maxReadMb: 16 }));
     expect((await publish(r)).notice).toContain("3 written");
-    expect([...r.node.files.keys()].some((path) => path.endsWith("big.bin"))).toBe(true);
+    expect(blobCount(r.node)).toBe(3);
 
     adapter.put("big.bin", new Uint8Array(10 * MB), 2000);
     await r.store.update((settings) => ({ ...settings, maxReadMb: 8 }));
@@ -204,7 +233,7 @@ describe("plugin publish runner: shared lock and read cap", () => {
     expect(outcome.kind).toBe("unchanged");
     expect(outcome.notice).toContain("1 skipped");
     expect(r.node.calls.some((call) => call.startsWith("rm "))).toBe(false);
-    expect([...r.node.files.keys()].some((path) => path.endsWith("big.bin"))).toBe(true);
+    expect(blobCount(r.node)).toBe(3); // the published big file stays on the node
   });
 });
 
@@ -224,20 +253,21 @@ describe("plugin publish runner over the CLI's state file", () => {
 
     const node = createFakeNode();
     const cliHost = createNodeHostBridge({ root: dir, env: { IPFS_SYNC_DEVICE: "cli" } });
+    await initVault(cliHost.fs, node, MFS_ROOT);
     const baseline = await publishVault(
       { client: node.client, host: cliHost, bus: createSyncEventBus() },
-      { mfsRoot: MFS_ROOT, keyName: KEY, ownedKeys: [], recordOwnedKey: async () => undefined, concurrency: 1 },
+      { mfsRoot: MFS_ROOT, keyName: KEY, ownedKeys: [], recordOwnedKey: async () => undefined, concurrency: 1, passphrase: referencePassphrase() },
     );
     expect(baseline).toMatchObject({ published: true, written: 2, keyCreated: true });
 
     await writeFile(join(dir, "b.md"), "beta edited");
     node.calls.length = 0;
 
-    const r = rig(createNodeFsAdapter(dir), storeWith({ ownedKeys: [baseline.keyId] }), node);
+    const r = await rig(createNodeFsAdapter(dir), storeWith({ ownedKeys: [baseline.keyId] }), node, { init: false });
     const outcome = await publish(r);
     expect(outcome.kind).toBe("published");
     expect(outcome.notice).toContain("1 written, 0 removed");
-    expect(node.calls.filter((c) => c.startsWith("write ") && !c.includes("manifest"))).toEqual([`write ${MFS_ROOT}/current/b.md`]);
+    expect(node.calls.filter((c) => c.startsWith("write ") && /\/current\/[a-z2-7]{2}\//.test(c))).toHaveLength(1);
     expect(node.calls.some((c) => c.startsWith("keyGen"))).toBe(false);
   });
 });

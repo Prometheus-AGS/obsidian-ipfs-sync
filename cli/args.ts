@@ -7,6 +7,16 @@ export interface ParsedArgs {
   readonly operands: readonly string[];
   readonly help: boolean;
   readonly showRequest: boolean;
+  /** `--break-lock`: remove a stale-looking publish lock after a confirmation (publish only). */
+  readonly breakLock: boolean;
+  /** `--repair`, `--recover-slots`, `--allow-full-reupload`: publish only. */
+  readonly repair: boolean;
+  readonly recoverSlots: boolean;
+  readonly allowFullReupload: boolean;
+  /** `--yes-abandon`: confirm the abandon command without typing the word (abandon only). */
+  readonly yesAbandon: boolean;
+  /** `--passphrase-file <path>`: where `init` writes the passphrase it generates (init only). */
+  readonly passphraseFile: string | undefined;
   readonly configPath: string | undefined;
   /** Highest-precedence configuration layer built from flags. */
   readonly flagsLayer: RawConfigLayer;
@@ -15,6 +25,8 @@ export interface ParsedArgs {
 }
 
 export interface PullFlags {
+  /** `--allow-plaintext-v1`: let the plaintext (version 1) reader run; refused anyway once an encrypted vault was seen. */
+  readonly allowPlaintextV1: boolean;
   readonly name: string | undefined;
   readonly manifest: string | undefined;
   readonly manifestFile: string | undefined;
@@ -43,6 +55,13 @@ const OPTIONS = {
   "auth-header-name": { type: "string" },
   "auth-header-value": { type: "string" },
   "show-request": { type: "boolean" },
+  "break-lock": { type: "boolean" },
+  repair: { type: "boolean" },
+  "recover-slots": { type: "boolean" },
+  "allow-full-reupload": { type: "boolean" },
+  "allow-plaintext-v1": { type: "boolean" },
+  "yes-abandon": { type: "boolean" },
+  "passphrase-file": { type: "string" },
   name: { type: "string" },
   manifest: { type: "string" },
   "manifest-file": { type: "string" },
@@ -92,7 +111,19 @@ function toLayer(values: FlagValues): RawConfigLayer {
   };
 }
 
+/** `--passphrase` (any spelling) is refused by name: the passphrase never travels on the command line, and its value is never echoed. */
+function rejectPassphraseFlag(argv: readonly string[]): void {
+  const end = argv.indexOf("--");
+  const flags = end === -1 ? argv : argv.slice(0, end);
+  if (flags.some((arg) => arg === "--passphrase" || arg.startsWith("--passphrase="))) {
+    throw new UsageError(
+      "unknown option --passphrase: the passphrase is never taken from the command line; it comes from the environment (IPFS_SYNC_PASSPHRASE), a file (IPFS_SYNC_PASSPHRASE_FILE) or a prompt",
+    );
+  }
+}
+
 function parseStrict(argv: readonly string[]) {
+  rejectPassphraseFlag(argv);
   try {
     return parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true, strict: true });
   } catch (error) {
@@ -109,8 +140,14 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     operands,
     help: parsed.values.help ?? false,
     showRequest: parsed.values["show-request"] ?? false,
+    breakLock: parsed.values["break-lock"] ?? false,
+    repair: parsed.values.repair ?? false,
+    recoverSlots: parsed.values["recover-slots"] ?? false,
+    allowFullReupload: parsed.values["allow-full-reupload"] ?? false,
+    yesAbandon: parsed.values["yes-abandon"] ?? false,
+    passphraseFile: parsed.values["passphrase-file"],
     configPath: parsed.values.config,
     flagsLayer: toLayer(parsed.values),
-    pull: { name: parsed.values.name, manifest: parsed.values.manifest, manifestFile: parsed.values["manifest-file"] },
+    pull: { allowPlaintextV1: parsed.values["allow-plaintext-v1"] ?? false, name: parsed.values.name, manifest: parsed.values.manifest, manifestFile: parsed.values["manifest-file"] },
   };
 }

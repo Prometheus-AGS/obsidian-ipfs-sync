@@ -9,7 +9,7 @@ export type ConfigErrorCode =
   | "foreign-key"
   | "secret-in-config-file"
   | "invalid-config-file"
-  | "plaintext-publish-refused";
+  | "fixture-marker-required";
 
 /** Thrown when configuration is invalid or unsafe. Never carries secret values. */
 export class ConfigError extends Error {

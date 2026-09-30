@@ -50,6 +50,11 @@ export interface KuboClient {
   version(): Promise<NodeVersion>;
   filesLs(path: string): Promise<readonly MfsEntry[]>;
   filesStat(path: string): Promise<MfsStat>;
+  /**
+   * Lists the children of an IPFS directory path (`/ipfs/<cid>/...`) with the `ls` command: name, kind, size and CID of each.
+   * Read-only and immutable, unlike `filesLs`, which lists the mutable MFS. The response is capped like `filesLs`.
+   */
+  ipfsLs(path: string): Promise<readonly MfsEntry[]>;
   /** Refuses paths outside `/obsidian-vault-sync/` before any request. */
   filesRm(path: string, options?: RemoveOptions): Promise<void>;
   /** Sends multipart field `data`. Refuses paths outside `/obsidian-vault-sync/`. */

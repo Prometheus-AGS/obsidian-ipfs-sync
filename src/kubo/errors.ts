@@ -26,10 +26,20 @@ export class KuboAuthError extends KuboError {
 /** The endpoint answered with a non-success status other than 401/403. */
 export class KuboHttpError extends KuboError {
   readonly status: number;
+  /** The `Message` of the node's own JSON error body, when the body was one. Proxy pages and raw text leave this unset. */
+  readonly nodeMessage: string | undefined;
 
-  constructor(endpoint: EndpointName, url: string, status: number, detail: string) {
+  constructor(endpoint: EndpointName, url: string, status: number, detail: string, nodeMessage?: string) {
     super(endpoint, url, `${endpoint} endpoint ${url} answered HTTP ${status}${detail === "" ? "" : `: ${detail}`}`);
     this.status = status;
+    this.nodeMessage = nodeMessage;
+  }
+}
+
+/** A response (or a listing in it) is larger than the caller allows. The node is untrusted, so the read is abandoned. */
+export class KuboResponseTooLargeError extends KuboError {
+  constructor(endpoint: EndpointName, url: string, what: string, limit: string) {
+    super(endpoint, url, `${what} is larger than the limit of ${limit}; the response was refused`);
   }
 }
 
@@ -48,9 +58,14 @@ function corsHint(cause: unknown): string {
     : "";
 }
 
-/** A `files/*` call failed because the MFS path does not exist. */
+const MISSING_PATH_MESSAGE = /does not exist|not found|no link named/i;
+
+/**
+ * A `files/*` or `ls` call failed because the path does not exist. Only the node's own JSON `Message` on an
+ * HTTP 500 counts: a proxy 404, an HTML error page or text in the URL must not read as "absent".
+ */
 export function isMissingPathError(error: unknown): boolean {
-  return error instanceof KuboHttpError && /does not exist|not found/i.test(error.message);
+  return error instanceof KuboHttpError && error.status === 500 && error.nodeMessage !== undefined && MISSING_PATH_MESSAGE.test(error.nodeMessage);
 }
 
 export function describeCause(cause: unknown): string {

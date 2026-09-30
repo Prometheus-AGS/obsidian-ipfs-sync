@@ -6,7 +6,7 @@ import { KuboError, type KuboClient } from "../src/kubo";
 import { HostNotImplementedError } from "../src/sync/host-errors";
 import { ManifestError } from "../src/sync/manifest";
 import { pullVault, type PullOptions, type PullResult } from "../src/sync/pull";
-import { PullGuardError, PullSourceError, PullTargetError } from "../src/sync/pull-errors";
+import { EncryptedVaultError, PlaintextV1RefusedError, PullGuardError, PullSourceError, PullTargetError } from "../src/sync/pull-errors";
 import { isCid, isIpnsName, type ManifestSelector } from "../src/sync/pull-target";
 import { StateError } from "../src/sync/state";
 import { UsageError, type PullFlags } from "./args";
@@ -27,7 +27,7 @@ export interface PullContext {
 const RUNTIME_FAILURES = [PullSourceError, ManifestError, StateError, HostPathError, HostNotImplementedError, KuboError] as const;
 
 /** Failures reported with exit code 2: the invocation or configuration cannot be honoured, and nothing was written. */
-const REFUSALS = [PullGuardError, PullTargetError] as const;
+const REFUSALS = [PullGuardError, PullTargetError, EncryptedVaultError, PlaintextV1RefusedError] as const;
 
 async function assertDirectoryOrAbsent(path: string): Promise<void> {
   const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
@@ -92,7 +92,14 @@ function printResult(io: CliIo, result: PullResult): void {
 
 function buildOptions(ctx: PullContext, selector: ManifestSelector): PullOptions {
   const { config, flags } = ctx;
-  return { mfsRoot: config.mfsRoot, keyName: config.publicationKey, ownedKeys: config.ownedKeys, name: flags.name, selector };
+  return {
+    mfsRoot: config.mfsRoot,
+    keyName: config.publicationKey,
+    ownedKeys: config.ownedKeys,
+    name: flags.name,
+    selector,
+    allowPlaintextV1: flags.allowPlaintextV1,
+  };
 }
 
 async function pullWithHost(ctx: PullContext, vault: string, selector: ManifestSelector): Promise<PullResult> {

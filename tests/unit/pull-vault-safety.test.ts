@@ -56,7 +56,7 @@ describe("pullVault: conflicts", () => {
   it("treats an untracked local file that differs from the remote as a conflict", async () => {
     const h = harness();
     await seedRemote(h.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
-    h.host.put(".ipfs-sync-fixture", "marker");
+    h.host.put(".ipfs-sync-fixture", "fixture");
     h.host.put("c.md", "predates the record");
     const result = await h.run();
     expect(result).toMatchObject({ fetched: 3, conflicted: 1 });
@@ -68,7 +68,7 @@ describe("pullVault: conflicts", () => {
     const h = harness();
     const files = { "a.md": "remote a", [`a (ipfs conflict ${TODAY}).md`]: "another device's copy" };
     await seedRemote(h.gateway, files, { tree: TREE1, root: ROOT1 });
-    h.host.put(".ipfs-sync-fixture", "marker");
+    h.host.put(".ipfs-sync-fixture", "fixture");
     h.host.put("a.md", "my local a");
     const result = await h.run();
     expect(result.failed).toBe(0);
@@ -137,7 +137,7 @@ describe("pullVault: integrity and failures", () => {
   it("fails a file behind a symlink and continues, leaving the link and its target alone", async () => {
     const h = harness();
     await seedRemote(h.gateway, { "linked/x.md": "new", "notes/a.md": "new a", "ok.md": "ok" }, { tree: TREE1, root: ROOT1 });
-    h.host.put(".ipfs-sync-fixture", "marker");
+    h.host.put(".ipfs-sync-fixture", "fixture");
     h.host.link("linked");
     h.host.put("linked/existing.md", "outside the vault", 7);
     h.host.link("notes/a.md");
@@ -155,18 +155,21 @@ describe("pullVault: integrity and failures", () => {
   });
 });
 
+/** Whole-file reads of vault files; the marker read of the destination guard is not a note read. */
+const noteReads = (h: Harness): number => h.host.reads.wholeReads.filter((path) => path !== ".ipfs-sync-fixture").length;
+
 describe("pullVault: exclusion divergence", () => {
   it("warns, ignores the mtime shortcut and re-verifies every file, deleting nothing", async () => {
     const h = harness();
     await seedRemote(h.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
     await h.run();
-    const readsBefore = h.host.reads.count;
+    const readsBefore = noteReads(h);
     await seedRemote(h.gateway, FILES_V1, { tree: TREE2, root: ROOT2, previousRoot: ROOT1, excludes: "a".repeat(64) });
     const result = await h.run();
     expect(result).toMatchObject({ forcedReverify: true, fetched: 0, unchanged: 3, failed: 0 });
     expect(h.warnings).toHaveLength(1);
     expect(h.warnings[0]).toContain("a".repeat(64));
-    expect(h.host.reads.count - readsBefore).toBe(3);
+    expect(noteReads(h) - readsBefore).toBe(3);
     expect(h.completed.at(-1)?.forcedReverify).toBe(true);
     expect(h.host.mutations.some((m) => m.startsWith("remove") && !m.includes(TEMP_DIR))).toBe(false);
   });
@@ -181,21 +184,6 @@ describe("pullVault: concurrency", () => {
     expect(result.fetched).toBe(100);
     expect(h.gateway.stats.maxInFlight).toBeLessThanOrEqual(6);
     expect(h.gateway.stats.maxInFlight).toBeGreaterThanOrEqual(4);
-  });
-});
-
-describe("pullVault: record shared with publish", () => {
-  it("lets publish treat pulled files as already synchronised", async () => {
-    const h = harness();
-    await seedRemote(h.gateway, { "notes/a.md": "alpha", "c.md": "charlie" }, { tree: TREE1, root: ROOT1 });
-    await h.run();
-    const node = createFakeNode([{ name: KEY, id: IPNS_NAME }]);
-    const published = await publishVault(
-      { client: node.client, host: h.host, bus: createSyncEventBus() },
-      { mfsRoot: MFS, keyName: KEY, ownedKeys: [IPNS_NAME], recordOwnedKey: async () => undefined },
-    );
-    expect(published).toMatchObject({ published: false, written: 0, removed: 0 });
-    expect(node.calls.filter((c) => c.startsWith("write "))).toEqual([]);
   });
 });
 
@@ -234,18 +222,6 @@ describe("pullVault: only the latest manifest advances the record", () => {
     await h.run({ selector: { kind: "historical", currentCid: TREE2 } });
     expect((await readState(h.host.kv))?.manifest.rootCID).toBe(TREE2);
     expect(h.warnings).toEqual([]);
-  });
-
-  it("makes the next publish write the restored files", async () => {
-    const h = await twoVersions();
-    await h.run({ selector: { kind: "historical", currentCid: TREE1 } });
-    const node = createFakeNode([{ name: KEY, id: IPNS_NAME }]);
-    const published = await publishVault(
-      { client: node.client, host: h.host, bus: createSyncEventBus() },
-      { mfsRoot: MFS, keyName: KEY, ownedKeys: [IPNS_NAME], recordOwnedKey: async () => undefined },
-    );
-    expect(published).toMatchObject({ published: true, written: 1 });
-    expect(node.calls.filter((c) => c.startsWith("write ") && c.endsWith("notes/a.md"))).toHaveLength(1);
   });
 });
 

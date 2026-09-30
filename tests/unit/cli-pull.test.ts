@@ -75,9 +75,10 @@ describe("ipfs-sync pull", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  const pull = async (extra: string[] = [], target: string = vault) => {
+  /** Plaintext (version 1) reading is off unless asked for, so the helper asks; the refusal tests pass `plaintext: false`. */
+  const pull = async (extra: string[] = [], target: string = vault, plaintext = true) => {
     const s = sink();
-    const code = await runCli(["pull", target, "--name", IPNS_NAME, ...extra], deps(), s.io);
+    const code = await runCli(["pull", target, "--name", IPNS_NAME, ...(plaintext ? ["--allow-plaintext-v1"] : []), ...extra], deps(), s.io);
     return { code, out: s.out.join("\n"), err: s.err.join("\n") };
   };
 
@@ -86,7 +87,7 @@ describe("ipfs-sync pull", () => {
     expect(await runCli(["pull", "--help"], deps(), s.io)).toBe(0);
     const help = s.out.join("\n");
     expect(help).toContain("ipfs-sync pull <vault>");
-    for (const flag of ["--name", "--manifest ", "--manifest-file", "--owned-key", "--config", "--show-request"]) expect(help).toContain(flag);
+    for (const flag of ["--name", "--manifest ", "--manifest-file", "--allow-plaintext-v1", "--owned-key", "--config", "--show-request"]) expect(help).toContain(flag);
   });
 
   it("exits 2 without a request when the vault argument is missing", async () => {
@@ -113,6 +114,9 @@ describe("ipfs-sync pull", () => {
     const s = sink();
     expect(await runCli(["publish", vault, "--name", IPNS_NAME], deps(), s.io)).toBe(2);
     expect(s.err.join("\n")).toContain("only valid for the pull command");
+    const flag = sink();
+    expect(await runCli(["publish", vault, "--allow-plaintext-v1"], deps(), flag.io)).toBe(2);
+    expect(flag.err.join("\n")).toContain("--allow-plaintext-v1 is only valid for the pull command");
   });
 
   it("pulls a fresh directory: summary line, exit 0, files present, marker present, reads only", async () => {
@@ -137,7 +141,7 @@ describe("ipfs-sync pull", () => {
 
   it("resolves the owned key when --name is absent (key/list, then name/resolve)", async () => {
     const s = sink();
-    const code = await runCli(["pull", vault, "--owned-key", IPNS_NAME], deps(), s.io);
+    const code = await runCli(["pull", vault, "--owned-key", IPNS_NAME, "--allow-plaintext-v1"], deps(), s.io);
     expect(code).toBe(0);
     expect(requests.slice(0, 2)).toEqual(["POST /api/v0/key/list", "POST /api/v0/name/resolve"]);
   });
@@ -155,7 +159,7 @@ describe("ipfs-sync pull", () => {
     await writeFile(join(vault, "private.md"), "my real notes");
     const result = await pull();
     expect(result.code).toBe(2);
-    expect(result.err).toContain("encryption is not available yet");
+    expect(result.err).toContain("decrypting pull arrives in a later release");
     expect(fetchStub).not.toHaveBeenCalled();
     expect(await readFile(join(vault, "private.md"), "utf8")).toBe("my real notes");
   });
@@ -197,7 +201,7 @@ describe("ipfs-sync pull", () => {
     const outside = join(dir, "outside");
     await mkdir(outside);
     await mkdir(vault);
-    await writeFile(join(vault, ".ipfs-sync-fixture"), "marker");
+    await writeFile(join(vault, ".ipfs-sync-fixture"), "fixture");
     await symlink(outside, join(vault, "notes"));
     const result = await pull();
     expect(result.code).toBe(1);
@@ -212,5 +216,70 @@ describe("ipfs-sync pull", () => {
     expect(result.out).toContain("request POST https://ipfs.prometheusags.ai/api/v0/name/resolve");
     expect(result.out).not.toContain("sekret-token-123");
     expect(result.err).not.toContain("sekret-token-123");
+  });
+
+  describe("encrypted roots and the plaintext reader", () => {
+    const encryptRoot = (): void => {
+      objects.delete(`${ROOT}/manifest.json`);
+      objects.set(`${ROOT}/keyslots.json`, new TextEncoder().encode("{}"));
+      objects.set(`${ROOT}/manifest.enc`, new Uint8Array([1, 2, 3]));
+    };
+    const manifestReads = (): string[] => requests.filter((r) => r.endsWith("manifest.json") || r.includes("/manifests/"));
+
+    it("stops at an encrypted root with the not-supported-yet error, exit 2, the destination unchanged and the latch set", async () => {
+      encryptRoot();
+      await mkdir(vault);
+      const result = await pull();
+      expect(result.code).toBe(2);
+      expect(result.err).toContain("encrypted vault");
+      expect(result.err).toContain("not supported yet");
+      expect(await readdir(vault)).toEqual([".ipfs-sync"]); // no marker, no file: only the latch
+      expect(await readdir(join(vault, ".ipfs-sync"))).toEqual(["encrypted-seen.json"]);
+      const latch = JSON.parse(await readFile(join(vault, ".ipfs-sync", "encrypted-seen.json"), "utf8")) as { encryptedSeen: boolean };
+      expect(latch.encryptedSeen).toBe(true);
+      expect(manifestReads()).toEqual([]);
+      expect(requests.filter((r) => !r.startsWith("POST ")).every((r) => r.startsWith("GET /ipfs/"))).toBe(true);
+    });
+
+    it("does not create the destination just to record what it saw", async () => {
+      encryptRoot();
+      const result = await pull();
+      expect(result.code).toBe(2);
+      await expect(stat(vault)).rejects.toThrow();
+    });
+
+    it("refuses a plaintext root without --allow-plaintext-v1, naming the flag, and reads no manifest", async () => {
+      const result = await pull([], vault, false);
+      expect(result.code).toBe(2);
+      expect(result.err).toContain("--allow-plaintext-v1");
+      await expect(stat(vault)).rejects.toThrow();
+      expect(manifestReads()).toEqual([]);
+    });
+
+    it("refuses a plaintext root once an encrypted vault was seen, even with the flag", async () => {
+      encryptRoot();
+      await mkdir(vault);
+      expect((await pull()).code).toBe(2);
+      // the node now serves a plaintext manifest again
+      await seedRemote({ objects, names }, FILES, { tree: "bafytreetwo000000000000", root: "bafyroottwo000000000000" });
+      for (const path of ["keyslots.json", "manifest.enc"]) objects.delete(`bafyroottwo000000000000/${path}`);
+      const downgraded = await pull();
+      expect(downgraded.code).toBe(2);
+      expect(downgraded.err).toContain("downgrade");
+      expect(await readdir(vault)).toEqual([".ipfs-sync"]);
+      const withoutFlag = await pull([], vault, false);
+      expect(withoutFlag.err).toContain("downgrade");
+    });
+
+    it("refuses a manifest path under .obsidian/ and counts it failed, without fetching it", async () => {
+      await seedRemote({ objects, names }, { ...FILES, ".obsidian/app.json": "{}" }, { tree: TREE, root: ROOT });
+      const result = await pull();
+      expect(result.code).toBe(1);
+      expect(result.out).toContain("1 failed");
+      expect(result.err).toContain(".obsidian/app.json");
+      expect(result.err).toContain("Obsidian configuration folder");
+      await expect(stat(join(vault, ".obsidian"))).rejects.toThrow();
+      expect(requests.some((r) => r.includes("app.json"))).toBe(false);
+    });
   });
 });

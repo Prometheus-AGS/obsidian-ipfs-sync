@@ -1,4 +1,4 @@
-import { FIXTURE_MARKER, MFS_BASE } from "./defaults";
+import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE, MFS_BASE, PULLED_MARKER_VALUE } from "./defaults";
 import { ConfigError } from "./errors";
 
 /**
@@ -114,16 +114,51 @@ export function assertKeyOwnedForPublish(name: string, classification: KeyClassi
   );
 }
 
-// ---------- Plaintext publish guard ----------
+// ---------- Fixture marker guard ----------
+
+/** What the fixture marker file at the vault root says. `absent` also covers a marker that is not a regular file. */
+export type MarkerState = "fixture" | "pulled-fixture" | "empty" | "unrecognised" | "absent";
+
+const TRAILING_NEWLINE = /\r?\n$/;
+
+/** Classify the marker file text. One trailing line ending is allowed; everything else must match exactly. */
+export function classifyMarkerText(text: string): Exclude<MarkerState, "absent"> {
+  const value = text.replace(TRAILING_NEWLINE, "");
+  if (value === FIXTURE_MARKER_VALUE) return "fixture";
+  if (value === PULLED_MARKER_VALUE) return "pulled-fixture";
+  return value === "" ? "empty" : "unrecognised";
+}
+
+/** Why a marker state does not enable the operation, as fixed text (the marker content itself is never echoed). */
+export function markerProblem(state: MarkerState): string {
+  switch (state) {
+    case "absent":
+      return `this vault has no ${FIXTURE_MARKER} marker`;
+    case "pulled-fixture":
+      return `the ${FIXTURE_MARKER} marker says "${PULLED_MARKER_VALUE}" (written by pull), which does not enable publishing`;
+    case "empty":
+      return `the ${FIXTURE_MARKER} marker is empty (an empty marker from an earlier release no longer enables publishing)`;
+    case "unrecognised":
+      return `the ${FIXTURE_MARKER} marker does not hold the text "${FIXTURE_MARKER_VALUE}"`;
+    case "fixture":
+      return "the marker is accepted";
+  }
+}
+
+/** The hint every publish refusal carries: how a fixture vault is marked deliberately. */
+export const MARK_FIXTURE_HINT = `To mark a fixture vault deliberately, create ${FIXTURE_MARKER} at the vault root containing the text "${FIXTURE_MARKER_VALUE}".`;
 
 /**
- * While the build has no encryption, only a synthetic fixture vault may be
- * published. `hasMarker` is whether the vault root contains `.ipfs-sync-fixture`.
+ * Until the encrypted pull change removes it (after independent review, an in-Obsidian run and a phone timing),
+ * only a vault whose marker holds `fixture` may be published, in every host and before the passphrase is looked
+ * at. `pulled-fixture`, an empty marker, any other text and no marker are refused. The marker is an accident guard,
+ * not a control; anyone who can create the file can override the refusal.
  */
-export function assertFixtureVault(hasMarker: boolean): void {
-  if (hasMarker) return;
+export function assertFixtureVault(marker: MarkerState): void {
+  if (marker === "fixture") return;
   throw new ConfigError(
-    "plaintext-publish-refused",
-    `publish refused: encryption is not available yet, and this vault has no ${FIXTURE_MARKER} marker`,
+    "fixture-marker-required",
+    `publish refused: ${markerProblem(marker)}. Encryption is implemented but not yet independently reviewed or verified in Obsidian, ` +
+      `so only fixture vaults can be published for now; real vaults are allowed after that review. ${MARK_FIXTURE_HINT} Nothing was sent to the node.`,
   );
 }

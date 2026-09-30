@@ -3,8 +3,14 @@ import type { RawConfigLayer } from "./types";
 /** The only MFS subtree this project may touch on the shared node. */
 export const MFS_BASE = "/obsidian-vault-sync";
 
-/** Marker file that flags a synthetic fixture vault (removed with the guard in mvp-06). */
+/** Marker file that flags a synthetic fixture vault (the guard is removed by the encrypted-pull change, mvp-07). */
 export const FIXTURE_MARKER = ".ipfs-sync-fixture";
+
+/** Marker text created by the user or the fixture generator. The only value that enables publish. */
+export const FIXTURE_MARKER_VALUE = "fixture";
+
+/** Marker text created by pull when it populated an empty destination. Enables pull, never publish. */
+export const PULLED_MARKER_VALUE = "pulled-fixture";
 
 export const DEFAULT_RPC_URL = "https://ipfs.prometheusags.ai";
 export const DEFAULT_GATEWAY_URL = "https://ipfs.prometheusags.ai";

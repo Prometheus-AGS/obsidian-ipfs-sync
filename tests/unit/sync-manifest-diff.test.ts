@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { planDelta } from "../../src/sync/diff";
 import { createExclusionMatcher, excludesHash } from "../../src/sync/exclusions";
 import { HASH_CHUNK_BYTES, SINGLE_READ_LIMIT_BYTES, hashFile, sha256Hex } from "../../src/sync/hash";
-import { buildManifest, parseManifest, serializeManifest, ManifestError } from "../../src/sync/manifest";
+import { buildManifest, parseManifest, ManifestError } from "../../src/sync/manifest";
 import { scanVault } from "../../src/sync/scan";
 import { StateError, buildState, decodeState, encodeState, readState, writeState, type LocalState } from "../../src/sync/state";
 import { createMemoryHost } from "../helpers/memory-host";
@@ -55,7 +55,7 @@ describe("hashing", () => {
 });
 
 describe("manifest", () => {
-  it("has exactly the v1 top-level fields and is byte-identical for equal input", async () => {
+  it("reads a v1 manifest back: exactly the v1 top-level fields, and the file entries as written", async () => {
     const input = {
       rootCid: "bafycurrent0000",
       publishedAt: "2026-09-30T00:00:00.000Z",
@@ -63,19 +63,10 @@ describe("manifest", () => {
       files: { "notes/hello.md": { sha256: HELLO_SHA, size: 5, cid: "bafkfile00000" } },
       excludesHash: await excludesHash(),
     };
-    const a = serializeManifest(buildManifest(input));
-    const b = serializeManifest(buildManifest({ ...input, files: { ...input.files } }));
-    expect(a).toBe(b);
-    expect(Object.keys(JSON.parse(a) as object).sort()).toEqual(["device", "excludesHash", "files", "publishedAt", "rootCID", "version"]);
-    expect(JSON.parse(a).version).toBe(1);
-    expect(parseManifest(a).files["notes/hello.md"]).toEqual(input.files["notes/hello.md"]);
-  });
-
-  it("orders keys regardless of insertion order", async () => {
-    const hash = await excludesHash();
-    const one = buildManifest({ rootCid: "c", publishedAt: "t", device: "d", excludesHash: hash, files: { b: { sha256: HELLO_SHA, size: 1, cid: "x" }, a: { sha256: HELLO_SHA, size: 1, cid: "y" } } });
-    const two = buildManifest({ rootCid: "c", publishedAt: "t", device: "d", excludesHash: hash, files: { a: { sha256: HELLO_SHA, size: 1, cid: "y" }, b: { sha256: HELLO_SHA, size: 1, cid: "x" } } });
-    expect(serializeManifest(one)).toBe(serializeManifest(two));
+    const text = JSON.stringify(buildManifest(input));
+    expect(Object.keys(JSON.parse(text) as object).sort()).toEqual(["device", "excludesHash", "files", "publishedAt", "rootCID", "version"]);
+    expect(JSON.parse(text).version).toBe(1);
+    expect(parseManifest(text).files["notes/hello.md"]).toEqual(input.files["notes/hello.md"]);
   });
 
   it.each([

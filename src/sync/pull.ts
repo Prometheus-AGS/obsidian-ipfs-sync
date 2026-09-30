@@ -10,6 +10,7 @@ import { PullSourceError, PullTargetError } from "./pull-errors";
 import { commitStaged, stageVerified, sweepTemp, type FetchContext } from "./pull-fetch";
 import { assertPullDestination, writeFixtureMarker, type GuardFs } from "./pull-guard";
 import { planPull, type PullDecision, type PullPlan } from "./pull-plan";
+import { screenRoot } from "./pull-screen";
 import { mergeRecord } from "./pull-record";
 import { chooseIpnsName, isCid, isIpnsName, loadManifest, resolveRootCid, type ManifestSelector } from "./pull-target";
 import { encodeState, readState, writeState, type LocalState } from "./state";
@@ -50,6 +51,11 @@ export interface PullOptions {
   readonly selector: ManifestSelector;
   readonly extraExclusions?: readonly string[];
   readonly concurrency?: number;
+  /**
+   * `--allow-plaintext-v1`: let the plaintext (version 1) reader run. Off by default, and refused whatever this says once an
+   * encrypted vault has been seen for the destination, root or key (see pull-latch.ts).
+   */
+  readonly allowPlaintextV1?: boolean;
 }
 
 export interface FileFailure {
@@ -169,6 +175,15 @@ async function locateSource(deps: PullDeps, options: PullOptions): Promise<Sourc
   deps.onPhase?.({ kind: "resolving" });
   const ipnsName = await chooseIpnsName(deps.client, options);
   const rootCid = await resolveRootCid(deps.client, ipnsName);
+  await screenRoot({
+    client: deps.client,
+    host: deps.host,
+    rootCid,
+    ipnsName,
+    mfsRoot: options.mfsRoot,
+    keyName: options.keyName,
+    allowPlaintextV1: options.allowPlaintextV1 === true,
+  });
   deps.onPhase?.({ kind: "reading-manifest" });
   const manifest = await loadManifest(deps.client, rootCid, options.selector);
   if (!isCid(manifest.rootCID)) throw new PullSourceError(`the manifest rootCID "${manifest.rootCID}" is not a CID`);
@@ -228,8 +243,9 @@ function summarize(source: Source, plan: PullPlan, tally: Tally, forced: boolean
 
 /**
  * Bring the vault behind `deps.host` to the selected manifest. Order: destination guard, local record,
- * target and manifest (reads only), exclusion check, marker, temp sweep, plan, fetch and verify each file,
- * record, events. Aborts before the first write on any guard, target or manifest failure; a failed file is
+ * target, encrypted-root screen (an encrypted root stops here and sets the latch; the plaintext reader needs the
+ * flag and an unlatched destination), manifest (reads only), exclusion check, marker, temp sweep, plan, fetch and
+ * verify each file, record, events. Aborts before the first write on any guard, target or manifest failure; a failed file is
  * counted, never fatal. No local file is deleted.
  */
 export async function pullVault(deps: PullDeps, options: PullOptions): Promise<PullResult> {

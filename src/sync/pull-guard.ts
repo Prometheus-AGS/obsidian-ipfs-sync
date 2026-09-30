@@ -1,12 +1,26 @@
-import { FIXTURE_MARKER } from "../core/config";
+import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE, PULLED_MARKER_VALUE, type MarkerState } from "../core/config";
 import type { HostFs } from "../core/host-bridge";
+import { REMARK_PULL_HINT, enablesPull, legacyMarkerProblem, readLegacyMarker, readMarkerState } from "./fixture-marker";
 import { PullGuardError } from "./pull-errors";
 import { TEMP_DIR } from "./pull-fetch";
+import { STATE_FOLDER } from "./manifest-paths";
 import { findSymlink } from "./symlink-guard";
 
-const MARKER_TEXT = "fixture copy created by ipfs-sync pull\n";
+const MARKER_TEXT = `${PULLED_MARKER_VALUE}\n`;
 
-export type GuardFs = Pick<HostFs, "stat" | "lstat" | "list" | "write">;
+export type GuardFs = Pick<HostFs, "stat" | "read" | "lstat" | "list" | "write">;
+
+/** A marker file that exists but holds neither accepted word (an empty marker from an earlier release, or other text). */
+async function refuseUnusableMarker(fs: GuardFs, state: MarkerState): Promise<void> {
+  if (state !== "empty" && state !== "unrecognised") return;
+  // A marker release 0.2.0 wrote or accepted gets its own message: it predates this version and must be re-marked deliberately.
+  const legacy = await readLegacyMarker(fs);
+  if (legacy !== undefined) throw new PullGuardError(`${legacyMarkerProblem(legacy)}. ${REMARK_PULL_HINT}`, "real-vault");
+  throw new PullGuardError(
+    `the ${FIXTURE_MARKER} marker is ${state === "empty" ? "empty" : "not one of the accepted words"}; it must hold the text "${FIXTURE_MARKER_VALUE}" or "${PULLED_MARKER_VALUE}"`,
+    "real-vault",
+  );
+}
 
 /**
  * Plaintext guard (removed in mvp-06 with encryption). Pull writes only into a destination that is absent,
@@ -20,10 +34,14 @@ export async function assertPullDestination(fs: GuardFs): Promise<{ readonly nee
   const link = await findSymlink(fs, TEMP_DIR);
   if (link !== undefined) throw new PullGuardError(`"${link}" is a symbolic link; pull will not write its state through it`);
   if (root === undefined) return { needsMarker: true };
-  if ((await fs.stat(FIXTURE_MARKER))?.kind === "file") return { needsMarker: false };
-  if ((await fs.list("")).length === 0) return { needsMarker: true };
+  const marker = await readMarkerState(fs);
+  if (enablesPull(marker)) return { needsMarker: false };
+  await refuseUnusableMarker(fs, marker);
+  // The state folder holds the latch and the sync record, not notes: a destination that has only it is still empty.
+  const entries = await fs.list("");
+  if (entries.every((entry) => entry.name.toLowerCase() === STATE_FOLDER)) return { needsMarker: true };
   throw new PullGuardError(
-    `encryption is not available yet, and this directory is not empty and has no ${FIXTURE_MARKER} marker`,
+    `this directory is not empty and has no ${FIXTURE_MARKER} marker. Pull of a real vault is not available in this build: it refuses encrypted roots, and decrypting pull arrives in a later release`,
     "real-vault",
   );
 }
@@ -57,15 +75,17 @@ export async function assertVaultPullDestination(fs: GuardFs): Promise<{ readonl
   if (root?.kind !== "directory") throw new PullGuardError("the destination is not a directory");
   const link = await findSymlink(fs, TEMP_DIR);
   if (link !== undefined) throw new PullGuardError(`"${link}" is a symbolic link; pull will not write its state through it`);
-  if ((await fs.stat(FIXTURE_MARKER))?.kind === "file") return { needsMarker: false };
+  const marker = await readMarkerState(fs);
+  if (enablesPull(marker)) return { needsMarker: false };
+  await refuseUnusableMarker(fs, marker);
   if ((await firstNoteFile(fs)) === undefined) return { needsMarker: true };
   throw new PullGuardError(
-    `encryption is not available yet, and this vault has files outside .obsidian/ and .ipfs-sync/ and no ${FIXTURE_MARKER} marker`,
+    `this vault has files outside .obsidian/ and .ipfs-sync/ and no ${FIXTURE_MARKER} marker. Pull of a real vault is not available in this build: it refuses encrypted roots, and decrypting pull arrives in a later release`,
     "real-vault",
   );
 }
 
-/** Mark a freshly created destination as a fixture copy so later pulls and publishes are allowed. */
+/** Mark a freshly created destination as a pulled copy (`pulled-fixture`): later pulls are allowed, publishing is not. */
 export async function writeFixtureMarker(fs: Pick<HostFs, "write">): Promise<void> {
   await fs.write(FIXTURE_MARKER, new TextEncoder().encode(MARKER_TEXT));
 }

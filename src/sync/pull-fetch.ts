@@ -60,7 +60,7 @@ function concat(parts: readonly Uint8Array[], total: number): Bytes {
 }
 
 /** Stop reading a response we cannot use, so its connection is released (an unstarted generator would not cancel). */
-async function abandon(stream: GatewayStream): Promise<void> {
+export async function abandon(stream: GatewayStream): Promise<void> {
   const iterator = stream.chunks[Symbol.asyncIterator]();
   await iterator.next().catch(() => undefined);
   await iterator.return?.();

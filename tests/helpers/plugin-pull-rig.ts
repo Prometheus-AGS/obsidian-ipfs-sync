@@ -60,6 +60,8 @@ export interface RigOptions {
   readonly gateway?: FakeGatewayOptions;
   readonly flushEditors?: () => Promise<void>;
   readonly lock?: SyncLock;
+  /** The plaintext (version 1) reader is off by default in the plugin; the rig switches it on unless a test says otherwise. */
+  readonly allowPlaintextV1?: boolean;
 }
 
 /** A pull runner over a memory vault and a recording fake gateway that also answers `key/list`. */
@@ -78,6 +80,7 @@ export function pullRig(options: RigOptions = {}): PullRig {
     bus,
     lock,
     flushEditors: options.flushEditors,
+    allowPlaintextV1: () => options.allowPlaintextV1 ?? true,
     createClient: () => gateway.client,
     now: () => NOW,
     newId: () => `id${(counter += 1)}`,

@@ -2,16 +2,19 @@ import { ConfigError, type SyncConfig } from "../core/config";
 import type { SyncEventBus } from "../core/events";
 import type { HostBridge } from "../core/host-bridge";
 import { createKuboClient, type Transport } from "../kubo";
-import { PullGuardError } from "../sync/pull-errors";
+import { EncryptedVaultError, PlaintextV1RefusedError, PullGuardError } from "../sync/pull-errors";
 import { assertVaultPullDestination } from "../sync/pull-guard";
 import { pullVault, type PullClient, type PullPhase, type PullResult } from "../sync/pull";
 import { PLUGIN_DEVICE } from "./publish-runner";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
 import {
+  ENCRYPTED_PULL_NOTICE,
   FIXTURE_ONLY_PULL_NOTICE,
   invalidSettingsPullNotice,
   noTargetNotice,
+  PLAINTEXT_DOWNGRADE_NOTICE,
+  PLAINTEXT_V1_OFF_NOTICE,
   phaseText,
   pullFailedNotice,
   pullResultNotice,
@@ -26,7 +29,7 @@ import { settingsToConfig } from "./settings-to-config";
 import { saveSummary } from "./summary-store";
 import { busyNotice, createSyncLock, type SyncLock } from "./sync-lock";
 
-export type PullRefusalReason = "busy" | "fixture-only" | "unsafe-destination" | "invalid-settings" | "no-target";
+export type PullRefusalReason = "busy" | "fixture-only" | "unsafe-destination" | "invalid-settings" | "no-target" | "encrypted-vault" | "plaintext-v1-off";
 
 /**
  * What a run did, with the text to show. `refused` means nothing was sent to the node or written; `pulled` means
@@ -60,6 +63,12 @@ export interface PullRunnerDeps {
   readonly now?: () => Date;
   /** Unique temp file names; defaults to a random UUID. */
   readonly newId?: () => string;
+  /**
+   * Whether the plaintext (version 1) reader may run. Off unless this says so: nothing in the settings switches it on
+   * (encrypted pull replaces the plaintext reader in the next change), and it is refused anyway for a destination
+   * that has seen an encrypted vault.
+   */
+  readonly allowPlaintextV1?: () => boolean;
 }
 
 export interface PullRunner {
@@ -94,6 +103,10 @@ function outcomeFor(error: unknown): PullOutcome {
     return error.reason === "real-vault"
       ? refused("fixture-only", FIXTURE_ONLY_PULL_NOTICE)
       : refused("unsafe-destination", unsafeDestinationNotice(error.message));
+  }
+  if (error instanceof EncryptedVaultError) return refused("encrypted-vault", ENCRYPTED_PULL_NOTICE);
+  if (error instanceof PlaintextV1RefusedError) {
+    return error.reason === "downgrade" ? refused("plaintext-v1-off", PLAINTEXT_DOWNGRADE_NOTICE) : refused("plaintext-v1-off", PLAINTEXT_V1_OFF_NOTICE);
   }
   if (error instanceof ConfigError) return refused("invalid-settings", invalidSettingsPullNotice(error.message));
   return { kind: "failed", notice: pullFailedNotice(error) };
@@ -192,6 +205,7 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
           name,
           selector: { kind: "latest" },
           extraExclusions: settings.userExclusions,
+          allowPlaintextV1: deps.allowPlaintextV1?.() === true,
         },
       );
       const problem = await saveSummary(deps.store, (current) => ({ ...current, lastPull: summaryOf(result, now()) }));

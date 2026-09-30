@@ -24,7 +24,7 @@ export interface LocalState {
 
 export class StateError extends Error {
   constructor(message: string) {
-    super(`${message}; delete ${STATE_KEY} in the vault's .ipfs-sync folder to force a full publish`);
+    super(`${message} (${STATE_KEY} in the vault's .ipfs-sync folder)`);
     this.name = "StateError";
   }
 }

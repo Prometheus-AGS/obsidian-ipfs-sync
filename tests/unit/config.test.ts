@@ -217,6 +217,8 @@ describe("parseConfigFile", () => {
     [{ auth: { scheme: "header", headerName: "X", headerValue: "v" } }, "auth.headerValue"],
     [{ rpc: { url: "https://h", auth: { token: "x" } } }, "rpc.auth.token"],
     [{ token: "x" }, "token"],
+    [{ passphrase: "x" }, "passphrase"],
+    [{ Passphrase: "x" }, "Passphrase"],
   ])("rejects a secret key in %j", (file, key) => {
     let caught: unknown;
     try {

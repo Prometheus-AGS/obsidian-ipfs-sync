@@ -1,12 +1,14 @@
 import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
+import { setPluginSeams } from "../../src/plugin/plugin-seams";
 import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
 import { createFakeGateway, type FakeGateway } from "../helpers/fake-gateway";
 import { IPNS_NAME, seedRemote } from "../helpers/pull-fixtures";
 import { serveGateway } from "../helpers/request-url-node";
 import { MemoryAdapter } from "../support/memory-adapter";
-import { App as StubApp, Notice, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin, type RequestUrlResponse } from "../support/obsidian-stub";
+import { referencePassphrase } from "../vectors/slot-helpers";
+import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin, type RequestUrlResponse } from "../support/obsidian-stub";
 
 const MANIFEST = { id: "ipfs-sync", version: "0.2.0" } as unknown as PluginManifest;
 const MFS = "/obsidian-vault-sync/mvp05-entry";
@@ -29,6 +31,7 @@ async function loadPlugin(data: unknown, adapter: MemoryAdapter): Promise<Loaded
   const plugin = new IpfsSyncPlugin(app as unknown as App, MANIFEST);
   const stub = plugin as unknown as StubPlugin;
   stub.data = data;
+  setPluginSeams(plugin, { allowPlaintextV1: true }); // the plaintext reader is off in a real plugin; these tests are about the plaintext path
   await plugin.onload();
   return { plugin, stub, app };
 }
@@ -64,9 +67,9 @@ describe("plugin entry: pull", () => {
     vi.unstubAllGlobals();
   });
 
-  it("registers Publish, Pull and Status commands, and a ribbon icon for each of Publish and Pull", async () => {
+  it("registers Publish, Pull, Status, Abandon and Clear stale lock commands, and a ribbon icon for each of Publish and Pull", async () => {
     const { stub } = await loadPlugin(settings(), new MemoryAdapter());
-    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual(["publish-vault:Publish vault", "pull-vault:Pull vault", "show-status:Show status"]);
+    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual(["publish-vault:Publish vault", "pull-vault:Pull vault", "show-status:Show status", "abandon-vault:Abandon this vault", "clear-stale-lock:Clear stale publish lock"]);
     expect(stub.ribbonIcons.map((r) => r.title)).toEqual(["IPFS Sync: publish vault", "IPFS Sync: pull vault"]);
     expect(stub.statusBarItems).toHaveLength(1);
   });
@@ -115,31 +118,24 @@ describe("plugin entry: pull", () => {
     const outcome = await plugin.pullVault();
     expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
     expect(requestUrlCalls).toEqual([]);
-    expect(Notice.shown.map((n) => n.message).join("\n")).toContain("only fixture vaults");
+    expect(Notice.shown.map((n) => n.message).join("\n")).toContain("Pull of a real vault is not available in this build");
     expect(adapter.text("notes/real.md")).toBe("private");
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
   });
 
-  it("does not start a pull while a publish runs, and says so", async () => {
+  it("a passphrase dialog left open by a publish does not hold the shared lock: a pull is not answered busy (review-5 R5-04)", async () => {
     const adapter = fixtureVault();
     adapter.put("notes/a.md", "a", 5000);
     const { plugin } = await loadPlugin(settings(), adapter);
-    let release: (() => void) | undefined;
-    setRequestUrlHandler(
-      () =>
-        new Promise<RequestUrlResponse>((resolve) => {
-          release = () => resolve(stubResponse(500, '{"Message":"stop the publish here"}'));
-        }),
-    );
-
+    // A manual publish on a device with no vault waits at the setup dialog. The dialog runs before the lock is taken.
+    Modal.reset();
     const publishing = plugin.publishVault();
-    await vi.waitFor(() => expect(requestUrlCalls).toHaveLength(1));
-    const blocked = await plugin.pullVault();
-    expect(blocked).toMatchObject({ kind: "refused", reason: "busy" });
-    expect(requestUrlCalls).toHaveLength(1);
-    expect(Notice.shown.some((n) => n.message.includes("publish is already in progress"))).toBe(true);
-    release?.();
-    await publishing;
+    await vi.waitFor(() => expect(Modal.instances).toHaveLength(1));
+    const other = await plugin.pullVault();
+    expect(other).not.toMatchObject({ kind: "refused", reason: "busy" });
+    expect(Notice.shown.some((n) => n.message.includes("already in progress"))).toBe(false);
+    Modal.instances[0]?.close();
+    expect(await publishing).toMatchObject({ kind: "refused", reason: "cancelled" });
   });
 
   it("runs no pull on load when catch-up is off", async () => {
@@ -161,7 +157,7 @@ describe("plugin entry: pull", () => {
     requestUrlCalls.length = 0;
     const second = await loadPlugin({ ...(first.stub.data as PluginSettings), catchUpOnLoad: true }, adapter);
     // The plugin has loaded; nothing is requested until the workspace is ready.
-    expect(second.stub.commands).toHaveLength(3);
+    expect(second.stub.commands).toHaveLength(5);
     expect(requestUrlCalls).toEqual([]);
 
     second.app.workspace.markLayoutReady();
@@ -175,7 +171,7 @@ describe("plugin entry: pull", () => {
       throw new Error("network is unreachable");
     });
     const loaded = await loadPlugin(settings({ catchUpOnLoad: true }), fixtureVault());
-    expect(loaded.stub.commands).toHaveLength(3);
+    expect(loaded.stub.commands).toHaveLength(5);
     expect(Notice.shown).toEqual([]);
 
     loaded.app.workspace.markLayoutReady();
@@ -191,7 +187,17 @@ describe("plugin entry: pull", () => {
     const loaded = await loadPlugin(settings({ catchUpOnLoad: true }), adapter);
     loaded.app.workspace.markLayoutReady();
     await vi.waitFor(() => expect(Notice.shown).toHaveLength(1));
-    expect(Notice.shown[0]?.message).toContain("only fixture vaults");
+    expect(Notice.shown[0]?.message).toContain("Pull of a real vault is not available in this build");
     expect(requestUrlCalls).toEqual([]);
+  });
+
+  it("W-12: exposes neither the passphrase source nor the plaintext-v1 switch as a property", async () => {
+    const { plugin } = await loadPlugin(settings(), fixtureVault());
+    setPluginSeams(plugin, { passphraseSource: () => referencePassphrase(), allowPlaintextV1: true });
+    const names = [...Object.getOwnPropertyNames(plugin), ...Object.getOwnPropertyNames(Object.getPrototypeOf(plugin) as object)];
+    expect(names).not.toContain("passphraseSource");
+    expect(names).not.toContain("allowPlaintextV1");
+    expect("passphraseSource" in plugin).toBe(false);
+    expect("allowPlaintextV1" in plugin).toBe(false);
   });
 });

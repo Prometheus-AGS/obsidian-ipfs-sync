@@ -36,3 +36,9 @@ Append-only. Dated entries. Mark superseded entries; do not delete them.
   per-platform KeyStore (keychain/Keystore/Capacitor), keep excludesHash,
   ucanto + @noble/curves SPAKE2 + didcomm-node, searchable settings center
   with first-class security section.
+
+## 2026-09-30 — mvp-06 task 5.1 documentation (documentation-specialist)
+- DESIGN.md section 8 replaced (only section 8); README, CHANGELOG rewritten for the encrypted tree; new operator runbook `docs/operator/encrypted-vault.md`. Constants in section 8 were checked against the code by a grep script (87 of 88 matched; the one miss was a regex on an unquoted key, confirmed by hand).
+- Documented as the code behaves, not as the spec scenario reads: (1) a release-0.2.0 pulled marker is refused by `publish` and `pull` with a generic "does not hold the text" / "not one of the accepted words" message, not a message that says the marker predates this version (spec "Legacy pulled markers" is not met in code); (2) the abandon action (`abandonVault`, `AbandonVaultDialog`) is not reachable from the CLI or the settings tab, though refusal messages name it; (3) the plugin's Pull cannot read a plaintext root (no setting for `allowPlaintextV1`) and refuses an encrypted one, so plugin Pull brings no files in this tree; (4) the old pull demo (publish then pull) no longer works; (5) `tools/feature-op-mvp-06.mjs` is not in the repository, so the shared-node feature operation is listed as not run.
+- Stale text found and NOT fixed (outside owned scope): DESIGN.md sections 1 to 7, 9 and 10 still describe the pre-implementation plaintext design; `VaultKeysError creation-not-requested` still says `--init`; `.kbd-orchestrator/phases/mvp/tasks.md` items 23/24 still say `publish --init`.
+- Every review of this change (0.1, 0.2, 2, 2b, 3, 3b, 4-1) is stated in the docs as a static read by one model, and review 5 as not run.

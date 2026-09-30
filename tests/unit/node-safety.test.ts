@@ -5,6 +5,7 @@ import {
   assertMfsMutationPath,
   assertValidKeyName,
   classifyKey,
+  classifyMarkerText,
   isValidKeyName,
   validateMfsRoot,
 } from "../../src/core/config";
@@ -110,11 +111,32 @@ describe("classifyKey", () => {
 });
 
 describe("assertFixtureVault", () => {
-  it("passes for a fixture vault", () => {
-    expect(() => assertFixtureVault(true)).not.toThrow();
+  it("passes only for the `fixture` marker value", () => {
+    expect(() => assertFixtureVault("fixture")).not.toThrow();
   });
 
-  it("refuses a real vault before any request", () => {
-    expect(() => assertFixtureVault(false)).toThrowError(/encryption is not available yet/);
+  it.each(["absent", "pulled-fixture", "empty", "unrecognised"] as const)("refuses the marker state %s with the review-pending message", (state) => {
+    expect(() => assertFixtureVault(state)).toThrowError(/not yet independently reviewed or verified in Obsidian/);
+    expect(() => assertFixtureVault(state)).toThrowError(/create \.ipfs-sync-fixture at the vault root containing the text "fixture"/);
+    expect(() => assertFixtureVault(state)).toThrowError(expect.objectContaining({ code: "fixture-marker-required" }));
+  });
+});
+
+describe("classifyMarkerText", () => {
+  it.each([
+    ["fixture", "fixture"],
+    ["fixture\n", "fixture"],
+    ["fixture\r\n", "fixture"],
+    ["pulled-fixture", "pulled-fixture"],
+    ["pulled-fixture\n", "pulled-fixture"],
+    ["", "empty"],
+    ["\n", "empty"],
+    ["Fixture", "unrecognised"],
+    ["fixture\n\n", "unrecognised"],
+    [" fixture", "unrecognised"],
+    ["fixture copy created by ipfs-sync pull\n", "unrecognised"],
+    ["marker", "unrecognised"],
+  ] as const)("reads %j as %s", (text, expected) => {
+    expect(classifyMarkerText(text)).toBe(expected);
   });
 });

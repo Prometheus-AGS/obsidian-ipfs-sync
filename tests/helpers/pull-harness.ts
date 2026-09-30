@@ -36,7 +36,7 @@ export function harness(gatewayOptions: Parameters<typeof createFakeGateway>[0] 
   bus.on("conflict", (event) => void conflicts.push(event));
   bus.on("pull.complete", (event) => void completed.push(event));
   let counter = 0;
-  const base: PullOptions = { mfsRoot: MFS, keyName: KEY, ownedKeys: [], name: IPNS_NAME, selector: { kind: "latest" }, concurrency: 3 };
+  const base: PullOptions = { mfsRoot: MFS, keyName: KEY, ownedKeys: [], name: IPNS_NAME, selector: { kind: "latest" }, concurrency: 3, allowPlaintextV1: true };
   return {
     host,
     gateway,

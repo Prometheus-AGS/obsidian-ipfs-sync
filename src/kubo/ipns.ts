@@ -18,7 +18,7 @@ const CID_SHAPE = /^[A-Za-z0-9]{10,}$/;
 
 function assertCid(endpoint: ResolvedEndpoint, cid: string): string {
   if (CID_SHAPE.test(cid)) return cid;
-  throw new KuboError(endpoint.name, endpoint.baseUrl, `"${cid}" is not a valid CID`);
+  throw new KuboError(endpoint.name, endpoint.baseUrl, `"${cid.replace(/[^A-Za-z0-9]/g, "?").slice(0, 64)}" is not a valid CID`);
 }
 
 /** `key/gen`: create an ed25519 key. The name must match the project pattern and not be reserved. */

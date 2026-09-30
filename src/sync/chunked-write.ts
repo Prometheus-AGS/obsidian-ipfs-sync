@@ -1,4 +1,4 @@
-import type { HostFs } from "../core/host-bridge";
+import type { Bytes } from "../core/host-bridge";
 import type { KuboClient } from "../kubo";
 import { HASH_CHUNK_BYTES, SINGLE_READ_LIMIT_BYTES } from "./hash";
 import { WriteVerificationError } from "./publish-errors";
@@ -15,37 +15,20 @@ export interface WrittenFile {
   readonly size: number;
 }
 
-async function sendChunks(
-  client: WriteClient,
-  fs: Pick<HostFs, "readRange">,
-  localPath: string,
-  mfsPath: string,
-  size: number,
-): Promise<void> {
-  for (let offset = 0; offset < size; offset += WRITE_CHUNK_BYTES) {
-    const chunk = await fs.readRange(localPath, offset, Math.min(WRITE_CHUNK_BYTES, size - offset));
-    await client.filesWrite(mfsPath, chunk, { offset, truncate: offset === 0 });
-  }
-}
-
 /**
- * Write one local file to MFS and confirm the remote size with `files/stat`.
- * Up to 32 MB is one request; above that, 8 MB chunks at increasing offsets
- * (first chunk truncates, later ones do not), so the file is never fully in memory.
+ * Write bytes that are already in memory (key slots, `manifest.enc`, a history file) and confirm the remote size.
+ * Up to 32 MB is one request; above that, 8 MB pieces at increasing offsets. `label` names the object in an error
+ * message and is never a vault path.
  */
-export async function writeFileToMfs(
-  client: WriteClient,
-  fs: Pick<HostFs, "read" | "readRange">,
-  localPath: string,
-  mfsPath: string,
-  size: number,
-): Promise<WrittenFile> {
-  if (size <= SINGLE_WRITE_LIMIT_BYTES) {
-    await client.filesWrite(mfsPath, await fs.read(localPath));
+export async function writeBytesToMfs(client: WriteClient, mfsPath: string, bytes: Bytes, label: string): Promise<WrittenFile> {
+  if (bytes.length <= SINGLE_WRITE_LIMIT_BYTES) {
+    await client.filesWrite(mfsPath, bytes);
   } else {
-    await sendChunks(client, fs, localPath, mfsPath, size);
+    for (let offset = 0; offset < bytes.length; offset += WRITE_CHUNK_BYTES) {
+      await client.filesWrite(mfsPath, bytes.subarray(offset, offset + WRITE_CHUNK_BYTES), { offset, truncate: offset === 0 });
+    }
   }
   const stat = await client.filesStat(mfsPath);
-  if (stat.size !== size) throw new WriteVerificationError(localPath, size, stat.size);
+  if (stat.size !== bytes.length) throw new WriteVerificationError(label, bytes.length, stat.size);
   return { cid: stat.cid, size: stat.size };
 }

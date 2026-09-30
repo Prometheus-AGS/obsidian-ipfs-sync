@@ -100,7 +100,7 @@ export function envLayer(env: EnvMap): RawConfigLayer {
 
 // ---------- config file ----------
 
-const SECRET_KEYS: readonly string[] = ["password", "token", "headervalue", "secret", "authorization", "apikey"];
+const SECRET_KEYS: readonly string[] = ["password", "passphrase", "token", "headervalue", "secret", "authorization", "apikey"];
 const AUTH_KEYS: readonly string[] = ["scheme", "user", "headerName"];
 const ENDPOINT_KEYS: readonly string[] = ["url", "port", "auth"];
 const TOP_KEYS: readonly string[] = ["rpc", "gateway", "publicationKey", "mfsRoot", "auth", "ownedKeys"];

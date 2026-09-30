@@ -5,7 +5,8 @@ import { createSyncEventBus } from "../src/core/events";
 import { createKuboClient, authHeaders } from "../src/kubo";
 import { createExclusionMatcher, excludesHash } from "../src/sync/exclusions";
 import { hashFile, sha256Hex } from "../src/sync/hash";
-import { parseManifest, serializeManifest } from "../src/sync/manifest";
+import { parseManifest } from "../src/sync/manifest";
+import { decodeManifestFile, encodeManifestFile } from "../src/sync/encrypted-manifest";
 import { publishVault } from "../src/sync/publish";
 import { chooseConflictName } from "../src/sync/conflict-name";
 import { pullVault } from "../src/sync/pull";
@@ -28,8 +29,9 @@ Object.assign(globalThis, {
     hashFile,
     sha256Hex,
     parseManifest,
-    serializeManifest,
     publishVault,
+    encodeManifestFile,
+    decodeManifestFile,
     pullVault,
     planPull,
     stageVerified,

@@ -3,7 +3,7 @@ import { fetchGatewayBytes, openGatewayStream } from "./gateway";
 import type { Transport } from "./http";
 import { addPin, generateKey, publishName, resolveName } from "./ipns";
 import { writeMfsFile } from "./mfs-write";
-import { listKeys, listMfs, nodeId, nodeVersion, removeMfs, statMfs } from "./node-calls";
+import { listIpfs, listKeys, listMfs, nodeId, nodeVersion, removeMfs, statMfs } from "./node-calls";
 import type { KuboClient } from "./types";
 
 export interface KuboClientEndpoints {
@@ -29,6 +29,7 @@ export function createKuboClient(endpoints: KuboClientEndpoints): KuboClient {
     version: () => nodeVersion(rpc, transport),
     filesLs: (path) => listMfs(rpc, path, transport),
     filesStat: (path) => statMfs(rpc, path, transport),
+    ipfsLs: (path) => listIpfs(rpc, path, transport),
     filesRm: async (path, options = {}) => removeMfs(rpc, assertMfsMutationPath(path), options.recursive ?? false, transport),
     filesWrite: (path, data, options) => writeMfsFile(rpc, path, data, options, transport),
     keyList: () => listKeys(rpc, transport),

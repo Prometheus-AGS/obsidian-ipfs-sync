@@ -35,3 +35,34 @@ export class ConflictPreserveError extends Error {
     this.name = "ConflictPreserveError";
   }
 }
+
+/** Thrown when the resolved root holds an encrypted vault (key slots or an encrypted manifest): pulling one arrives with the next change. */
+export class EncryptedVaultError extends Error {
+  constructor() {
+    super(
+      "this root holds an encrypted vault, and pulling encrypted vaults is not supported yet (it arrives with the next change, mvp-07). " +
+        "Nothing in the vault was written and no key derivation ran. This device has recorded that an encrypted vault was seen, so plaintext reads " +
+        "of this destination, root and key are refused from now on.",
+    );
+    this.name = "EncryptedVaultError";
+  }
+}
+
+/**
+ * The plaintext (version 1) reader was not allowed. `flag-required`: it is off unless `--allow-plaintext-v1` is given, because
+ * anyone who can write to the node can forge a plaintext manifest. `downgrade`: an encrypted vault was seen here before, so a
+ * root that now serves plaintext is refused even with the flag.
+ */
+export class PlaintextV1RefusedError extends Error {
+  readonly reason: "flag-required" | "downgrade";
+
+  constructor(reason: "flag-required" | "downgrade") {
+    super(
+      reason === "flag-required"
+        ? "this root serves a plaintext (version 1) manifest. Reading it is off unless you pass --allow-plaintext-v1, because anyone who can write to the node can forge one. Nothing was written."
+        : "an encrypted vault was seen for this destination, root or key before, and this root now serves a plaintext manifest. That may be a downgrade, so it is refused even with --allow-plaintext-v1. Nothing was written.",
+    );
+    this.name = "PlaintextV1RefusedError";
+    this.reason = reason;
+  }
+}

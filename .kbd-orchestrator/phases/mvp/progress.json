@@ -2,25 +2,25 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 380,
-  "derivedRevision": 380,
+  "sourceRevision": 546,
+  "derivedRevision": 546,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 380
+    "a92f5905-c918-468c-a89d-ee22138e2183": 546
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-09-30T07:00:20.604312Z",
+  "last_updated": "2026-09-30T13:38:08.039363Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 15,
-  "changes_completed": 4,
+  "changes_completed": 6,
   "implementation_total": 15,
-  "implementation_completed": 4,
+  "implementation_completed": 6,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 4,
+      "completed": 6,
       "total": 15,
       "status": "IN_PROGRESS"
     },
@@ -49,7 +49,7 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 4,
+      "completed": 6,
       "total": 15,
       "status": "IN_PROGRESS"
     },
@@ -139,12 +139,12 @@
     {
       "id": "mvp-05-plugin-delta-pull-conflict",
       "title": "mvp-05-plugin-delta-pull-conflict",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
       "tasks_total": 13,
-      "tasks_done": 12,
-      "last_task_completed": "6.2 (release-deployment-lead) Produce the local release record for v0.2.0 only after tasks 1.1 to 5.2 are done and the feature operation passed: version 0.2.0 in `manifest.json` and `package.json`, `dist/release/v0.2.0/` (artifacts, CLI tarball with an explicit file list, `SHA256SUMS`, `release-notes.md` opening with the fixture-only statement, `evidence.json` with the paths of the feature-operation output and the screenshots or recording). Verify: `manifest.json` and `package.json` read 0.2.0; recomputed checksums match; every evidence path exists; release notes' first paragraph says the release must not be used on real notes and lists the limitations; the record marks its unverified claims",
-      "next_task_pending": "6.3 (release-deployment-lead; each step needs the operator's explicit yes for that exact action) Outward steps, optional: show the operator the exact commit, tag name, repository, asset list with checksums and release text; on separate approvals, commit the version bump, create tag `v0.2.0`, push, and create a GitHub pre-release on `Prometheus-AGS/obsidian-ipfs-sync` with the fixture-only text; then run the cadence `publication-receipt.mjs` against the public asset URLs and a page that advertises them. If any approval is absent or declined, stop and record \"not published; publication receipt not produced\". Verify: the session shows the operator's approval text for each action performed and none for actions not performed; for a published release, the receipt shows checksums equal to the downloaded bytes; otherwise the report states the publication receipt is pending",
+      "tasks_done": 13,
+      "last_task_completed": "6.3 (release-deployment-lead; each step needs the operator's explicit yes for that exact action) Outward steps, optional: show the operator the exact commit, tag name, repository, asset list with checksums and release text; on separate approvals, commit the version bump, create tag `v0.2.0`, push, and create a GitHub pre-release on `Prometheus-AGS/obsidian-ipfs-sync` with the fixture-only text; then run the cadence `publication-receipt.mjs` against the public asset URLs and a page that advertises them. If any approval is absent or declined, stop and record \"not published; publication receipt not produced\". Verify: the session shows the operator's approval text for each action performed and none for actions not performed; for a published release, the receipt shows checksums equal to the downloaded bytes; otherwise the report states the publication receipt is pending",
+      "next_task_pending": null,
       "blockers": []
     },
     {
@@ -161,11 +161,11 @@
     {
       "id": "mvp-06-encrypted-vault-publish",
       "title": "Client-side encrypted publish",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 30,
+      "tasks_done": 30,
+      "last_task_completed": "3.9 (security-reviewer) Delta check 3b of tasks 28 and 29 (3.7 and 3.8), saved by the lead as `openspec/changes/mvp-06-encrypted-vault-publish/review-3b.md`. Verify: `review-3b.md` exists with no open critical or high finding; section 4 requires tasks 28, 29 and 30 closed",
       "next_task_pending": null,
       "blockers": []
     },

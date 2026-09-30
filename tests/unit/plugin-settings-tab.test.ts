@@ -9,7 +9,8 @@ import { App, Modal } from "../support/obsidian-stub";
 import { controlFor, flush, labelOf, memoryStore, NODE_KEYS, NOW, open, OWNED_ID, PEER_ID, type } from "../support/settings-tab-rig";
 
 const FIXTURE_TEXT =
-  "This build publishes plaintext and only accepts synthetic fixture vaults containing .ipfs-sync-fixture; encryption is not available yet.";
+  "Encryption is implemented but not yet independently reviewed or verified in Obsidian. Until that review, this build only publishes " +
+  'fixture vaults: vaults with a .ipfs-sync-fixture file at the root holding the text "fixture". Real vaults are refused, and nothing is sent to the node for them.';
 
 beforeEach(() => Modal.reset());
 

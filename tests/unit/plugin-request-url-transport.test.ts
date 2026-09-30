@@ -6,6 +6,10 @@ import { createPublishRunner } from "../../src/plugin/publish-runner";
 import { defaultSettings } from "../../src/plugin/settings-model";
 import { createSettingsStore } from "../../src/plugin/settings-store";
 import { MemoryAdapter } from "../support/memory-adapter";
+import { createFakeNode } from "../helpers/fake-kubo";
+import { sessionRig } from "../helpers/plugin-session";
+import { initVault } from "../helpers/vault-init";
+import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import { requestUrlTransport } from "../../src/plugin/request-url-transport";
 import { requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type RequestUrlParam } from "../support/obsidian-stub";
 
@@ -135,7 +139,7 @@ describe("plugin default transport", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     try {
-      setRequestUrlHandler((params) => (params.url.endsWith("/key/list") ? stubResponse(200, '{"Keys":[]}') : stubResponse(500, '{"Message":"stop here"}')));
+      setRequestUrlHandler(() => stubResponse(500, '{"Message":"stop here"}'));
       const adapter = new MemoryAdapter();
       adapter.put(".ipfs-sync-fixture", "fixture\n");
       adapter.put("notes/a.md", "a");
@@ -143,9 +147,13 @@ describe("plugin default transport", () => {
         { loadData: async () => null, saveData: async () => undefined },
         { settings: { ...defaultSettings(), mfsRoot: "/obsidian-vault-sync/mvp04-test" }, outcome: "fresh", notices: [], persist: false },
       );
-      const outcome = await createPublishRunner({ store, adapter, bus: createSyncEventBus() }).run();
+      // The vault exists on this device (its local key-slot copy), so unlock is local and the node is asked only afterwards.
+      await initVault(createObsidianHostBridge({ adapter }).fs, createFakeNode(), "/obsidian-vault-sync/mvp04-test");
+      const session = sessionRig({ store, adapter, createClient: (config) => createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: requestUrlTransport }) }).session;
+      const outcome = await createPublishRunner({ store, adapter, bus: createSyncEventBus(), session }).run();
       expect(outcome.kind).toBe("failed");
-      expect(requestUrlCalls.map((c) => new URL(c.url).pathname)).toEqual(["/api/v0/key/list", "/api/v0/key/gen"]);
+      // The first thing a publish asks the node is the state of the MFS root; the node's answer stops the run.
+      expect(requestUrlCalls.map((c) => new URL(c.url).pathname)).toEqual(["/api/v0/files/stat"]);
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();

@@ -6,39 +6,25 @@ import type { Manifest, ManifestFile } from "./manifest";
 import type { LocalState } from "./state";
 import { findSymlink, type SymlinkCache } from "./symlink-guard";
 
-/** Vault-relative folder that holds the sync record and temporary files. Manifest paths may never point into it. */
-export const STATE_FOLDER = ".ipfs-sync";
+import { STATE_FOLDER, untrustedPathReason } from "./manifest-paths";
 
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
-const DRIVE_LETTER = /^[A-Za-z]:/;
-
-/**
- * Why a manifest path must not be written, or `undefined` when it is acceptable. Manifest paths come from
- * the network: absolute paths, empty, `.` or `..` segments, backslashes, control characters and anything
- * inside the state folder (compared case-insensitively, because macOS and Windows volumes are) are refused.
- */
-export function untrustedPathReason(path: string): string | undefined {
-  if (path === "") return "empty path";
-  if (path.startsWith("/") || DRIVE_LETTER.test(path)) return "absolute path";
-  if (path.includes("\\")) return "backslash in path";
-  if (CONTROL_CHARACTERS.test(path)) return "control character in path";
-  const segments = path.split("/");
-  if (segments.some((segment) => segment === "" || segment === "." || segment === "..")) return "empty, . or .. path segment";
-  if (segments[0]?.toLowerCase() === STATE_FOLDER) return `inside the ${STATE_FOLDER} state folder`;
-  return undefined;
-}
+export { STATE_FOLDER, untrustedPathReason };
 
 /** Plugin code and data are device-local. Refused whatever the local exclusion list says (case-insensitive volumes). */
 const DEVICE_LOCAL_PREFIX = ".obsidian/plugins";
+/** Obsidian's configuration folder (themes, snippets, hotkeys, core settings): not written from a pulled manifest either. */
+const CONFIG_FOLDER = ".obsidian";
 
 /**
- * Why a manifest path must not be written although it is well formed: it matches the effective exclusion list
- * (defaults plus this device's additions), or it lies under `.obsidian/plugins/`. A legitimate manifest never
+ * Why a manifest path must not be written although it is well formed: it lies under `.obsidian/` (configuration and,
+ * above all, plugins), or it matches the effective exclusion list (defaults plus this device's additions). A legitimate manifest never
  * contains such paths, because publish applies the same list; one that does is forged or from a divergent build.
  */
 export function excludedPathReason(path: string, extraExclusions: readonly string[]): string | undefined {
   const lower = path.toLowerCase();
   if (lower === DEVICE_LOCAL_PREFIX || lower.startsWith(`${DEVICE_LOCAL_PREFIX}/`)) return "device-local plugin path (.obsidian/plugins/)";
+  // Obsidian's own configuration must not arrive from the network: a forged theme, snippet or hotkey file changes what the app runs.
+  if (lower === CONFIG_FOLDER || lower.startsWith(`${CONFIG_FOLDER}/`)) return "Obsidian configuration folder (.obsidian/)";
   return isExcluded(path, extraExclusions) ? "matches the exclusion list; a legitimate manifest never contains it" : undefined;
 }
 

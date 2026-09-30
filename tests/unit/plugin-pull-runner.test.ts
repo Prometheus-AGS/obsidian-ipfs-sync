@@ -20,7 +20,7 @@ describe("plugin pull runner: destination guard", () => {
 
     const outcome = await rig.pull();
     expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(outcome.notice).toContain("only fixture vaults");
+    expect(outcome.notice).toContain("Pull of a real vault is not available in this build");
     expect(outcome.notice).toContain(".ipfs-sync-fixture");
     expect(rig.gateway.requests).toEqual([]);
     expect(adapter.calls.filter((call) => /^(write|remove|rename|mkdir)/.test(call))).toEqual([]);
@@ -126,10 +126,12 @@ describe("plugin pull runner: local edits", () => {
   it("saves open editors first, so a pending edit becomes a conflict copy instead of being overwritten", async () => {
     const flushes: string[] = [];
     const adapter = freshVault();
+    // The destination guard reads the small marker file; a note read is any other read.
+    const noteReads = (): number => adapter.reads.filter((path) => path !== ".ipfs-sync-fixture").length;
     const rig = pullRig({
       adapter,
       flushEditors: async () => {
-        flushes.push(`flush after ${adapter.reads.length} reads and ${rig.gateway.requests.length} requests`);
+        flushes.push(`flush after ${noteReads()} reads and ${rig.gateway.requests.length} requests`);
         // The second pull finds an editor with content that is not on disk yet.
         if (flushes.length === 2) adapter.put("notes/a.md", "typed but not yet saved", 9000);
       },
@@ -138,7 +140,7 @@ describe("plugin pull runner: local edits", () => {
     expect((await rig.pull()).kind).toBe("pulled");
 
     await seed(rig, { ...FILES_V1, "notes/a.md": "alpha from the other device" }, 2);
-    const reads = adapter.reads.length;
+    const reads = noteReads();
     const requests = rig.gateway.requests.length;
     const outcome = await rig.pull();
     // The flush ran before this pull read any local file and before its first request.
@@ -307,5 +309,55 @@ describe("plugin pull runner: summary and secrets", () => {
     expect(stages).toContain("fetching 3 of 3...");
     const counts = stages.flatMap((stage) => /^fetching (\d+) of 3/.exec(stage)?.[1] ?? []).map(Number);
     expect(counts).toEqual([...counts].sort((a, b) => a - b));
+  });
+});
+
+describe("plugin pull runner: encrypted roots and the plaintext reader", () => {
+  const encrypt = (rig: ReturnType<typeof pullRig>): void => {
+    rig.gateway.objects.delete("bafyrootone000000000000/manifest.json");
+    rig.gateway.objects.set("bafyrootone000000000000/keyslots.json", new TextEncoder().encode("{}"));
+    rig.gateway.objects.set("bafyrootone000000000000/manifest.enc", new Uint8Array([1]));
+  };
+
+  it("refuses an encrypted vault with a notice that says pull is not supported yet, changes no file and sets the latch", async () => {
+    const adapter = freshVault();
+    const rig = pullRig({ adapter });
+    await seed(rig, FILES_V1);
+    encrypt(rig);
+    adapter.calls.length = 0;
+
+    const outcome = await rig.pull();
+    expect(outcome).toMatchObject({ kind: "refused", reason: "encrypted-vault" });
+    expect(outcome.notice).toContain("not supported yet");
+    // Only the latch is written, in the state folder.
+    expect(adapter.calls.filter((call) => /^(remove|rename)/.test(call))).toEqual([]);
+    expect(adapter.calls.filter((call) => /^mkdir/.test(call))).toEqual(["mkdir .ipfs-sync"]);
+    expect(adapter.files.has("notes/a.md")).toBe(false);
+    expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
+    expect(adapter.files.has(".ipfs-sync/encrypted-seen.json")).toBe(true);
+    expect(rig.store.get().lastPull).toBeUndefined();
+  });
+
+  it("refuses a plaintext root while the plaintext reader is off, and reads no manifest", async () => {
+    const rig = pullRig({ adapter: freshVault(), allowPlaintextV1: false });
+    await seed(rig, FILES_V1);
+    const outcome = await rig.pull();
+    expect(outcome).toMatchObject({ kind: "refused", reason: "plaintext-v1-off" });
+    expect(outcome.notice).toContain("switched off");
+    expect(rig.gateway.requests.some((request) => request.includes("manifest.json"))).toBe(false);
+  });
+
+  it("names a downgrade when an encrypted vault was seen before", async () => {
+    const adapter = freshVault();
+    const rig = pullRig({ adapter });
+    await seed(rig, FILES_V1);
+    encrypt(rig);
+    await rig.pull();
+    await seed(rig, FILES_V1);
+    rig.gateway.objects.delete("bafyrootone000000000000/keyslots.json");
+    rig.gateway.objects.delete("bafyrootone000000000000/manifest.enc");
+    const outcome = await rig.pull();
+    expect(outcome).toMatchObject({ kind: "refused", reason: "plaintext-v1-off" });
+    expect(outcome.notice).toContain("downgrade");
   });
 });

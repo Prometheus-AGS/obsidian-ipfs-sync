@@ -16,11 +16,16 @@ export async function sha256Hex(bytes: Bytes): Promise<string> {
 
 /**
  * Lowercase hex sha256 of a file. WebCrypto has no incremental digest, so a file
- * above 32 MB is read in 8 MB ranges and fed to an incremental sha256; the whole
+ * above `singleReadLimit` (32 MB unless the caller lowers it) is read in 8 MB ranges and fed to an incremental sha256; the whole
  * file is never in memory. The result equals the one-pass digest of the same bytes.
  */
-export async function hashFile(fs: Pick<HostFs, "read" | "readRange">, path: string, size: number): Promise<string> {
-  if (size <= SINGLE_READ_LIMIT_BYTES) return sha256Hex(await fs.read(path));
+export async function hashFile(
+  fs: Pick<HostFs, "read" | "readRange">,
+  path: string,
+  size: number,
+  singleReadLimit: number = SINGLE_READ_LIMIT_BYTES,
+): Promise<string> {
+  if (size <= singleReadLimit) return sha256Hex(await fs.read(path));
   const hasher = sha256.create();
   for (let offset = 0; offset < size; offset += HASH_CHUNK_BYTES) {
     hasher.update(await fs.readRange(path, offset, Math.min(HASH_CHUNK_BYTES, size - offset)));

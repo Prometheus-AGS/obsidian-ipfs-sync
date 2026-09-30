@@ -1,6 +1,7 @@
-import { ConfigError, FIXTURE_MARKER } from "../core/config";
+import { ConfigError, FIXTURE_MARKER, MARK_FIXTURE_HINT } from "../core/config";
 import type { PublishResult } from "../sync/publish";
 import { OwnedKeyNotRecordedError } from "../sync/publish-errors";
+import { PublishRefusedError } from "../sync/publish-refusals";
 
 /**
  * The text the user sees. Every message is built from names, counts and CIDs; error messages of the
@@ -11,8 +12,28 @@ const PREFIX = "IPFS Sync:";
 const SHORT_CID = 16;
 
 export const FIXTURE_ONLY_NOTICE =
-  `${PREFIX} publishing is off for this vault. Encryption is not available yet, so only synthetic fixture vaults ` +
-  `(marked with a ${FIXTURE_MARKER} file at the vault root) can be published. Nothing was sent to the node.`;
+  `${PREFIX} publishing is off for this vault. Encryption is implemented but not yet independently reviewed or verified in Obsidian, ` +
+  `so only fixture vaults (a ${FIXTURE_MARKER} file at the vault root holding the text "fixture") can be published; ` +
+  `real vaults are allowed after that review. ${MARK_FIXTURE_HINT} Nothing was sent to the node.`;
+
+export const PASSPHRASE_REQUIRED_NOTICE =
+  `${PREFIX} the vault is locked, so nothing was sent to the node. Run Publish vault again to enter the passphrase.`;
+
+/** The auto-publish timer found the session locked. It never opens a dialog; this is shown once per session. */
+export const LOCKED_TIMER_NOTICE =
+  `${PREFIX} automatic publishing is paused while the vault is locked. Run Publish vault (or Unlock in the plugin settings) to enter the passphrase once for this session. Nothing was sent to the node.`;
+
+/** The auto-publish timer found no vault on this device. Creating one takes the setup dialog, which the timer never opens. */
+export const NOT_SET_UP_TIMER_NOTICE =
+  `${PREFIX} automatic publishing is paused because no encrypted vault is set up on this device. Run Publish vault to create one. Nothing was sent to the node.`;
+
+export const UNLOCK_CANCELLED_NOTICE = `${PREFIX} publish cancelled: the vault was not unlocked. Nothing was sent to the node.`;
+
+/** An authentic manifest whose content this build does not recognise (review-3b N3-01). It is somebody's real state and is never overwritten. */
+export const INCOMPATIBLE_MANIFEST_NOTICE =
+  `${PREFIX} the manifest on the node was written by a newer or incompatible version of this plugin, so nothing was published or changed. Update the plugin, then publish again.`;
+
+const CLI_ONLY_HINT = " Repair and lock removal are available in the ipfs-sync command line tool.";
 
 function shortCid(cid: string): string {
   return cid.length > SHORT_CID ? `${cid.slice(0, SHORT_CID)}...` : cid;
@@ -57,8 +78,17 @@ export function invalidSettingsNotice(error: ConfigError): string {
   return `${PREFIX} publish refused: ${error.message}. Check the plugin settings.`;
 }
 
-/** A failure that is not a named refusal. Names the reason and makes no claim of partial success. */
+/**
+ * A failure that is not a named refusal. Names the reason and makes no claim of partial success. The engine's refusals
+ * name command-line flags (`--repair`, `--break-lock`); the plugin has none of those, so it says where they live.
+ */
 export function failedNotice(error: unknown): string {
   const reason = error instanceof Error ? error.message : "unknown error";
-  return `${PREFIX} publish failed: ${reason}`;
+  const hint = error instanceof PublishRefusedError && reason.includes("--") ? CLI_ONLY_HINT : "";
+  return `${PREFIX} publish failed: ${reason}${hint}`;
+}
+
+/** Another publish (this vault's command-line tool, or an earlier run) holds the lock file. The timer skips silently; a manual run shows this. */
+export function lockHeldNotice(error: PublishRefusedError): string {
+  return `${PREFIX} ${error.message} (--break-lock is an option of the ipfs-sync command line tool.) A lock with no heartbeat for 15 minutes is replaced automatically. Nothing was sent to the node.`;
 }

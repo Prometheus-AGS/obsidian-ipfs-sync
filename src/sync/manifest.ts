@@ -1,5 +1,3 @@
-import { stableStringify } from "./stable-json";
-
 export const MANIFEST_VERSION = 1;
 
 export interface ManifestFile {
@@ -10,7 +8,10 @@ export interface ManifestFile {
   readonly cid: string;
 }
 
-/** Manifest v1 (DESIGN section 4.2). Plaintext; fixture vaults only until mvp-06. */
+/**
+ * Manifest v1 (DESIGN section 4.2). Plaintext. Publishing it was removed in mvp-06 (every publish is encrypted); this type
+ * and its reader stay only for the pull engine's plaintext path, which encrypted pull removes in the next change.
+ */
 export interface Manifest {
   readonly version: typeof MANIFEST_VERSION;
   /** CID of the `current/` vault tree, read before the manifest is written. */
@@ -46,11 +47,6 @@ export function buildManifest(input: ManifestInput): Manifest {
     files: input.files,
     excludesHash: input.excludesHash,
   };
-}
-
-/** Sorted keys, two-space indent, trailing newline: equal manifests are byte-identical. */
-export function serializeManifest(manifest: Manifest): string {
-  return `${stableStringify(manifest, 2)}\n`;
 }
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;

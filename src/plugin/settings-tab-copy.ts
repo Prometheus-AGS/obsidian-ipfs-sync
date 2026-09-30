@@ -101,8 +101,8 @@ export const AUTH_SCHEME_LABELS: Readonly<Record<AuthScheme, string>> = {
 
 export const FIXTURE_NOTICE_TITLE = "Fixture-only build";
 export const FIXTURE_NOTICE =
-  `This build publishes plaintext and only accepts synthetic fixture vaults containing ${FIXTURE_MARKER}; ` +
-  "encryption is not available yet.";
+  "Encryption is implemented but not yet independently reviewed or verified in Obsidian. Until that review, this build only publishes " +
+  `fixture vaults: vaults with a ${FIXTURE_MARKER} file at the root holding the text "fixture". Real vaults are refused, and nothing is sent to the node for them.`;
 
 export const SECRETS_WARNING_TITLE = "Secrets are stored in plain text";
 export const SECRETS_WARNING =

@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -95,5 +95,36 @@ describe("node host bridge", () => {
       expect((error as Error).message).toContain("not implemented in this host");
     }
     await writeFile(join(root, "keep"), "");
+  });
+
+  describe("fs.write atomicity", () => {
+    it("replaces the target through a 0600 temp file and leaves no temp file", async () => {
+      await host.fs.write("keys/slot.json", bytes("old"));
+      await host.fs.write("keys/slot.json", bytes("new"));
+      expect(text(await host.fs.read("keys/slot.json"))).toBe("new");
+      expect(((await stat(join(root, "keys/slot.json"))).mode & 0o777).toString(8)).toBe("600");
+      expect(await readdir(join(root, "keys"))).toEqual(["slot.json"]);
+    });
+
+    it("keeps the previous content and removes the temp file when the write fails midway", async () => {
+      await host.fs.write("keys/slot.json", bytes("previous"));
+      const torn = {} as unknown as Uint8Array<ArrayBuffer>;
+      await expect(host.fs.write("keys/slot.json", torn)).rejects.toThrow();
+      expect(text(await host.fs.read("keys/slot.json"))).toBe("previous");
+      expect(await readdir(join(root, "keys"))).toEqual(["slot.json"]);
+    });
+
+    it("removes the temp file when the rename fails", async () => {
+      await mkdir(join(root, "keys/slot.json/inner"), { recursive: true });
+      await expect(host.fs.write("keys/slot.json", bytes("x"))).rejects.toThrow();
+      expect(await readdir(join(root, "keys"))).toEqual(["slot.json"]);
+    });
+
+    it("creates missing parent directories 0700 and leaves an existing directory mode alone", async () => {
+      await mkdir(join(root, "existing"), { mode: 0o755 });
+      await host.fs.write("existing/new/a.txt", bytes("a"));
+      expect(((await stat(join(root, "existing/new"))).mode & 0o777).toString(8)).toBe("700");
+      expect(((await stat(join(root, "existing"))).mode & 0o777).toString(8)).toBe("755");
+    });
   });
 });

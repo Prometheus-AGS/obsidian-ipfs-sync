@@ -1,5 +1,5 @@
 import type { ResolvedEndpoint } from "../core/config";
-import { KuboError } from "./errors";
+import { KuboError, KuboResponseTooLargeError } from "./errors";
 import type { Transport } from "./http";
 import { rpcCall } from "./rpc-call";
 import { numberField, objectList, optionalString, stringField, type JsonObject } from "./rpc-fields";
@@ -14,6 +14,14 @@ import type { MfsEntry, MfsEntryType, MfsStat, NodeIdentity, NodeKey, NodeVersio
 
 const DETAIL_LIMIT = 200;
 const LS_TYPE_DIRECTORY = 1;
+
+/**
+ * The node is untrusted: a `files/ls` or `files/stat` answer is refused above 1 MiB, and a listing above 2,000
+ * entries. A folder that legitimately holds more (for example `manifests/` after 2,000 publishes) is refused
+ * too, with a typed error, not truncated.
+ */
+export const MFS_RESPONSE_MAX_BYTES = 1024 * 1024;
+export const MFS_LIST_MAX_ENTRIES = 2000;
 
 export async function nodeId(endpoint: ResolvedEndpoint, transport?: Transport): Promise<NodeIdentity> {
   const body = await rpcCall({ endpoint, command: "id", transport }, "json");
@@ -34,15 +42,43 @@ function lsEntry(endpoint: ResolvedEndpoint, entry: JsonObject): MfsEntry {
 /** `files/ls` with `long` (so entries carry CIDs) and `stream`, as the previous library sent it. */
 export async function listMfs(endpoint: ResolvedEndpoint, path: string, transport?: Transport): Promise<readonly MfsEntry[]> {
   const lines = await rpcCall(
-    { endpoint, command: "files/ls", args: { arg: path, long: true, stream: true }, transport },
+    { endpoint, command: "files/ls", args: { arg: path, long: true, stream: true }, transport, maxResponseBytes: MFS_RESPONSE_MAX_BYTES },
     "ndjson",
   );
   // Older kubo ignores `stream` and answers one object with `Entries`; newer streams one entry per line.
-  return lines.flatMap((line) => ("Entries" in line ? objectList(endpoint, "files/ls", line, "Entries") : [line])).map((entry) => lsEntry(endpoint, entry));
+  const entries = lines.flatMap((line) => ("Entries" in line ? objectList(endpoint, "files/ls", line, "Entries") : [line]));
+  if (entries.length > MFS_LIST_MAX_ENTRIES) {
+    throw new KuboResponseTooLargeError(endpoint.name, endpoint.baseUrl, `the files/ls listing (${entries.length} entries)`, `${MFS_LIST_MAX_ENTRIES} entries`);
+  }
+  return entries.map((entry) => lsEntry(endpoint, entry));
+}
+
+/** UnixFS types `ls` reports for a directory: 1 (directory) and 5 (a sharded directory). Everything else is a file. */
+const IPFS_LS_DIRECTORY_TYPES: readonly number[] = [1, 5];
+
+/**
+ * `ls` on an immutable path: the children of a directory, each with the CID of the link. Used to read a published
+ * snapshot back by its root CID, where the mutable MFS listing (`files/ls`) would not be evidence.
+ */
+export async function listIpfs(endpoint: ResolvedEndpoint, path: string, transport?: Transport): Promise<readonly MfsEntry[]> {
+  const body = await rpcCall(
+    { endpoint, command: "ls", args: { arg: path, "resolve-type": true, size: true, stream: false }, transport, maxResponseBytes: MFS_RESPONSE_MAX_BYTES },
+    "json",
+  );
+  const links = objectList(endpoint, "ls", body, "Objects").flatMap((object) => objectList(endpoint, "ls", object, "Links"));
+  if (links.length > MFS_LIST_MAX_ENTRIES) {
+    throw new KuboResponseTooLargeError(endpoint.name, endpoint.baseUrl, `the ls listing (${links.length} entries)`, `${MFS_LIST_MAX_ENTRIES} entries`);
+  }
+  return links.map((link) => ({
+    name: optionalString(link, "Name"),
+    type: IPFS_LS_DIRECTORY_TYPES.includes(typeof link["Type"] === "number" ? link["Type"] : -1) ? "directory" : "file",
+    size: typeof link["Size"] === "number" ? link["Size"] : 0,
+    cid: stringField(endpoint, "ls", link, "Hash"),
+  }));
 }
 
 export async function statMfs(endpoint: ResolvedEndpoint, path: string, transport?: Transport): Promise<MfsStat> {
-  const body = await rpcCall({ endpoint, command: "files/stat", args: { arg: path }, transport }, "json");
+  const body = await rpcCall({ endpoint, command: "files/stat", args: { arg: path }, transport, maxResponseBytes: MFS_RESPONSE_MAX_BYTES }, "json");
   return {
     cid: stringField(endpoint, "files/stat", body, "Hash"),
     size: numberField(endpoint, "files/stat", body, "Size"),

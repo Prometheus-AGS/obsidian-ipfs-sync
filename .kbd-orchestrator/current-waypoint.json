@@ -2,10 +2,10 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 380,
-  "derivedRevision": 380,
+  "sourceRevision": 546,
+  "derivedRevision": 546,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 380
+    "a92f5905-c918-468c-a89d-ee22138e2183": 546
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
@@ -21,19 +21,19 @@
   "phase": "mvp",
   "parentPhase": null,
   "childPointer": null,
-  "change": "mvp-05-plugin-delta-pull-conflict",
-  "currentTask": "13",
+  "change": "mvp-07-encrypted-pull-second-device",
+  "currentTask": null,
   "status": "ready",
   "lifecycle": "ready",
   "stageId": "execute",
   "stageStatus": "IN_PROGRESS",
   "completionMetric": "implementation",
-  "implementationCompleted": 4,
+  "implementationCompleted": 6,
   "implementationTotal": 15,
   "planRevision": 2,
-  "revision": 380,
+  "revision": 546,
   "exactNextCommand": "change mvp-01-config-auth-shared-client-cli",
-  "nextChange": "mvp-05-plugin-delta-pull-conflict",
-  "nextTask": "13",
-  "updatedAt": "2026-09-30T07:00:20.604312Z"
+  "nextChange": "mvp-07-encrypted-pull-second-device",
+  "nextTask": null,
+  "updatedAt": "2026-09-30T13:38:08.039363Z"
 }

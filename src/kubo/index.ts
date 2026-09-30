@@ -9,6 +9,7 @@ export { rpcCall } from "./rpc-call";
 export type { RpcCallInput, RpcMode } from "./rpc-call";
 export type { GatewayRange, GatewayStream } from "./gateway";
 export { DEFAULT_IPNS_TTL } from "./ipns";
+export { MFS_LIST_MAX_ENTRIES, MFS_RESPONSE_MAX_BYTES } from "./node-calls";
 export type { QueryArgs } from "./http";
 export { MULTIPART_FIELD } from "./mfs-write";
 export type { Bytes, WriteOptions } from "./mfs-write";
