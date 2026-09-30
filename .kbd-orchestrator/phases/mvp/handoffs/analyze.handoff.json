@@ -1,0 +1,12 @@
+{
+  "stage": "analyze",
+  "completedAt": "2026-09-30T00:28:04Z",
+  "outputs": [
+    "analysis.md",
+    "library-candidates.json"
+  ],
+  "nextStage": "spec",
+  "summaryForNext": "7 candidates: ADOPT kubo-rpc-client+wrapper (query-string args survive proxy quirk), pglite (metadata confirmed/vector conditional), ucanto+noble-curves (security track), @ipld/car, @napi-rs/keyring (Node-only path constraint); SurrealDB deferred; didcomm-node rejected as stale (2023-05); build items: diff engine, seams, SPAKE2 state machine, chunk pool, settings shell. Cadence skeleton I1-I10 (2h usable iterations, releases after I5/I7/I10). Review: PASS, 3 WARNINGs folded (keyring placement, budget overage recorded, pgvector split).",
+  "skipped": false,
+  "skipReason": null
+}

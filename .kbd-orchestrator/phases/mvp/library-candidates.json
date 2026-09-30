@@ -1,0 +1,252 @@
+{
+  "phase": "mvp",
+  "generated_at": "2026-09-29T19:30:00Z",
+  "research_budget": {
+    "max_queries_per_tier": 8,
+    "max_minutes": 20,
+    "queries_used": {
+      "registry_npm_view": 11,
+      "github_repo_check": 5,
+      "stack_discovery": 0,
+      "registry_tier_cap_exceeded": true,
+      "note": "registry tier exceeded its 8-query cap (11 npm-view calls); github tier within cap (5/8). Overage recorded honestly rather than re-classified; stack tier not needed (stack is specified: TS7/Node24/pnpm/vitest). Findings were complete before the overage was noticed."
+    }
+  },
+  "gaps_addressed": ["G1", "G2", "G3", "G4", "G5", "G6"],
+  "candidates": [
+    {
+      "id": "cand-001",
+      "name": "kubo-rpc-client",
+      "kind": "library",
+      "repo_url": "https://github.com/ipfs/js-kubo-rpc-client",
+      "registry": "npm",
+      "fit_for_gap": "G2/G3 — shared kubo RPC client base for plugin (WebView) and Node CLI",
+      "verdict": "adopt",
+      "coverage_estimate": 0.85,
+      "license": "Apache-2.0 OR MIT",
+      "maintenance": {
+        "last_release": "2026-06-09 (7.1.0)",
+        "note": "repo pushed 2026-08-10, not archived; maintainers Protocol/lidel"
+      },
+      "evidence": [
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/kubo-rpc-client",
+          "claim": "kubo-rpc-client 7.1.0 published 2026-06-09, actively maintained by Protocol"
+        },
+        {
+          "tier": 2,
+          "source_url": "https://github.com/ipfs/js-kubo-rpc-client/tree/main/src/lib",
+          "claim": "client encodes all API args as URL search params (src/lib/to-url-search-params.ts), surviving our proxy's quirk of dropping form-encoded args"
+        },
+        {
+          "tier": 2,
+          "source_url": "https://github.com/ipfs/js-kubo-rpc-client",
+          "claim": "runtime-agnostic fetch-based implementation, safe to bundle for Obsidian WebView and run under Node 24"
+        }
+      ],
+      "risks": [
+        "files/write multipart file field name must be 'data' per our proxy quirk — verify at plan time; wrap just that call if it differs",
+        "wrapper must remain the single place proxy quirks live (assessment risk 1)"
+      ],
+      "decision_rationale": "Base of src/rpc/ shared module; thin wrapper for proxy quirks and IO injection keeps quirk handling in exactly one place."
+    },
+    {
+      "id": "cand-002",
+      "name": "@ipld/car",
+      "kind": "library",
+      "repo_url": "https://github.com/ipld/js-car",
+      "registry": "npm",
+      "fit_for_gap": "G2/G6 — CAR export/import for >32MB files and disaster recovery",
+      "verdict": "adapt",
+      "coverage_estimate": 0.7,
+      "license": "Apache-2.0 OR MIT",
+      "maintenance": {
+        "last_release": "2026-07-30 (5.4.7)"
+      },
+      "evidence": [
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/@ipld/car",
+          "claim": "@ipld/car 5.4.7 published 2026-07-30, actively maintained"
+        },
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/ipfs-car",
+          "claim": "ipfs-car 3.1.0 (2025-10) considered but lower-level @ipld/car preferred for control over the MFS-layout contract"
+        }
+      ],
+      "risks": ["CAR reassembly into MFS layout is our code; library handles codec only"],
+      "decision_rationale": "Used inside our own exporter/importer for large-file chunked CAR packaging and vault disaster recovery."
+    },
+    {
+      "id": "cand-003",
+      "name": "@electric-sql/pglite",
+      "kind": "library",
+      "repo_url": "https://github.com/electric-sql/pglite",
+      "registry": "npm",
+      "fit_for_gap": "G5 — StoreAdapter implementation (vectors + metadata) for the event bus and indexing hooks",
+      "verdict": "adopt",
+      "coverage_estimate": 0.8,
+      "license": "Apache-2.0",
+      "maintenance": {
+        "last_release": "2026-08-26 (0.5.8)",
+        "note": "Electric team, active"
+      },
+      "evidence": [
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/@electric-sql/pglite",
+          "claim": "PGlite 0.5.8 published 2026-08-26, actively maintained embedded Postgres (WASM)"
+        },
+        {
+          "tier": 2,
+          "source_url": "https://pglite.dev/docs/extensions",
+          "claim": "pglite ships contrib extensions including pgvector for in-browser/WASM vector search"
+        }
+      ],
+      "risks": [
+        "metadata + sync-state adoption confirmed for MVP; vector columns are conditional on verifying pgvector availability in the 0.5.8 contrib set at plan time (adapter ships metadata-only if unconfirmed; interface unchanged when vectors land)"
+      ],
+      "decision_rationale": "Operator decision (2026-09-29): MVP ships a real PGlite StoreAdapter instead of a no-op, so event/indexing seams are exercised for real; SurrealDB WASM graph adapter deferred to a later phase. Verdict split per review finding: metadata adopt confirmed, vector support conditional."
+    },
+    {
+      "id": "cand-004",
+      "name": "@ucanto/core + @ucanto/principal",
+      "kind": "library",
+      "repo_url": "https://github.com/storacha/ucanto",
+      "registry": "npm",
+      "fit_for_gap": "Security track (post-MVP token gating) — UCAN capability tokens for device identity and authz",
+      "verdict": "adopt",
+      "coverage_estimate": 0.75,
+      "license": "Apache-2.0 AND MIT",
+      "maintenance": {
+        "last_release": "2025-10-27 (@ucanto/core 10.4.6; @ucanto/principal 9.0.3)"
+      },
+      "evidence": [
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/@ucanto/core",
+          "claim": "@ucanto/core 10.4.6 and @ucanto/principal 9.0.3 maintained (Storacha/UCAN-wg), dual Apache-2.0 AND MIT"
+        },
+        {
+          "tier": 3,
+          "source_url": "https://github.com/ucan-wg/spec",
+          "claim": "UCAN spec: offline-validated attenuated capability tokens; no server required — matches decentralized security research recommendation"
+        }
+      ],
+      "risks": ["lands after MVP sync core; proxy-side validation is a server prerequisite tracked in DESIGN §5"],
+      "decision_rationale": "Confirms spec 011 Q6 UCAN pick is maintained; adopt when token gating phase starts."
+    },
+    {
+      "id": "cand-005",
+      "name": "@noble/curves",
+      "kind": "library",
+      "repo_url": "https://github.com/paulmillr/noble-curves",
+      "registry": "npm",
+      "fit_for_gap": "Security track — SPAKE2 (RFC 9382) curve backend for device pairing",
+      "verdict": "adopt",
+      "coverage_estimate": 0.6,
+      "license": "MIT",
+      "maintenance": {
+        "last_release": "2026-08-27 (2.4.0)"
+      },
+      "evidence": [
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/@noble/curves",
+          "claim": "@noble/curves 2.4.0 published 2026-08-27, audited, actively maintained"
+        },
+        {
+          "tier": 3,
+          "source_url": "https://www.rfc-editor.org/rfc/rfc9382.html",
+          "claim": "SPAKE2 is the standard PAKE for short-code/QR device pairing per RFC 9382; JS protocol implementations are scarce so the state machine is a small build item on top of noble curves"
+        }
+      ],
+      "risks": ["SPAKE2 protocol state machine (~300 LOC) is our build item, not a library"],
+      "decision_rationale": "Spec 011 Q6 pick confirmed maintained; post-MVP pairing work."
+    },
+    {
+      "id": "cand-006",
+      "name": "@napi-rs/keyring",
+      "kind": "library",
+      "repo_url": "https://github.com/napi-rs/keyring",
+      "registry": "npm",
+      "fit_for_gap": "G1 — OS keychain storage for kubo RPC tokens in the Node CLI (spec 011 Q4)",
+      "verdict": "adopt",
+      "coverage_estimate": 0.8,
+      "license": "MIT",
+      "maintenance": {
+        "last_release": "2026-09-13 (2.1.0)"
+      },
+      "evidence": [
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/@napi-rs/keyring",
+          "claim": "@napi-rs/keyring 2.1.0 published 2026-09-13, active, prebuilt napi binaries incl. Windows"
+        },
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/keytar",
+          "claim": "keytar 7.9.0 (2025-07) is maintenance mode with native-build pain on Windows — rejected as primary, kept only as fallback"
+        }
+      ],
+      "risks": [
+        "native N-API module — must live in a Node-only CLI package/path, never imported by plugin/WebView code, never in the esbuild plugin bundle (review finding; plan constraint)",
+        "Obsidian plugin keeps plugin-data/machine-key storage per spec 011 Q4; mobile keychain is a later-phase item"
+      ],
+      "decision_rationale": "Cross-platform keychain for the CLI without native build fragility."
+    },
+    {
+      "id": "cand-007",
+      "name": "didcomm-node",
+      "kind": "library",
+      "repo_url": "https://github.com/decentralized-identity/didcomm-node",
+      "registry": "npm",
+      "fit_for_gap": "Security track — DIDComm v2 messaging (post-MVP, specs 005/008 transport ambitions)",
+      "verdict": "reject",
+      "coverage_estimate": 0.2,
+      "license": "Apache-2.0",
+      "maintenance": {
+        "last_release": "2023-05 (0.4.1)",
+        "note": "STALE — no releases in over 3 years"
+      },
+      "evidence": [
+        {
+          "tier": 1,
+          "source_url": "https://www.npmjs.com/package/didcomm-node",
+          "claim": "didcomm-node 0.4.1 last modified 2023-05 — dormant, flagged stale"
+        }
+      ],
+      "risks": ["adopting a dormant package for the messaging layer would import maintenance debt"],
+      "decision_rationale": "Rejected for now (messaging is post-MVP anyway); re-evaluate DIDComm alternatives at that phase rather than committing to a stale package."
+    }
+  ],
+  "build_required": [
+    {
+      "need": "Manifest diff engine — sha256 walk, exclude-list unification, manifest v1 schema, changed-set computation",
+      "why_no_candidate": "Vault-diff semantics and manifest schema are project-specific (DESIGN §4); no library encodes our MFS layout contract",
+      "capability_gap_id": null
+    },
+    {
+      "need": "EventBus, HostBridge, StoreAdapter seams (typed TS interfaces + in-memory/first implementations)",
+      "why_no_candidate": "Seams are deliberately library-free so future phases (007 records, 006 indexing, 005 WASM) plug into frozen interfaces without inherited dependencies",
+      "capability_gap_id": null
+    },
+    {
+      "need": "SPAKE2 protocol state machine on @noble/curves (~300 LOC, RFC 9382)",
+      "why_no_candidate": "maintained JS SPAKE2 implementations are scarce; protocol build on audited curve primitives fits spec 005's crypto posture",
+      "capability_gap_id": null
+    },
+    {
+      "need": "Per-file publish/pull pool with 8MB chunking and WebView memory discipline",
+      "why_no_candidate": "WebView memory rules + proxy quirks + MFS staging layout are project constraints no generic uploader encodes",
+      "capability_gap_id": null
+    },
+    {
+      "need": "Settings/UX shell and agentic chat UI scaffolding (future-phase surface, seams declared in MVP)",
+      "why_no_candidate": "UI contract is specified in docs/010; implementation is project code, not a library concern",
+      "capability_gap_id": null
+    }
+  ]
+}

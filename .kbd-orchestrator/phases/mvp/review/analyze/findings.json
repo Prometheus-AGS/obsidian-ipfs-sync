@@ -1,0 +1,34 @@
+{
+  "mode": "artifact",
+  "verdict": "PASS",
+  "judge_model": "kbd-judge",
+  "producer_model": "kimi-k2.5",
+  "isolation_mode": "rest-gateway:http://localhost:8181/v1",
+  "cross_model_check": "verified-distinct",
+  "findings": [
+    {
+      "severity": "WARNING",
+      "file": "analysis.md",
+      "line": 0,
+      "claim": "The analysis recommends a native N-API keyring dependency without resolving the project's WebView-safe/no-native-module constraint boundary.",
+      "evidence": "Constraint requires: \"Plugin must run in Obsidian mobile WebView \u2014 no Node built-ins, no child_process, no native modules in src/\". The analysis recommends: \"ADOPT `@napi-rs/keyring` for the Node CLI\" and describes it as \"prebuilt napi binaries \u2014 cross-platform incl. Windows\". The current file tree has only `src/main.ts` and no separate CLI source tree, so the analysis gives no placement rule preventing this native dependency from entering `src/` or the plugin bundle.",
+      "suggested_fix": "State that `@napi-rs/keyring` must be isolated in a Node-only CLI package/path outside `src/` or guarded so it is never imported by plugin/WebView code; add this as a plan constraint and candidate risk."
+    },
+    {
+      "severity": "WARNING",
+      "file": "library-candidates.json",
+      "line": 0,
+      "claim": "The research budget accounting contradicts itself, making the analysis provenance unreliable.",
+      "evidence": "`research_budget.max_queries_per_tier` is 8, but `queries_used.registry_npm_view` is 11 while the note still says \"~16 total queries, within 8-per-tier cap\".",
+      "suggested_fix": "Correct the budget record: either raise/clarify the registry tier limit, split the 11 registry lookups into distinct allowed tiers, or mark the budget as exceeded."
+    },
+    {
+      "severity": "WARNING",
+      "file": "analysis.md",
+      "line": 0,
+      "claim": "The PGlite vector recommendation is presented as an MVP adoption while its required pgvector capability is explicitly unresolved.",
+      "evidence": "The G5 section says: \"MVP ships a real PGlite adapter \u2014 `@electric-sql/pglite` 0.5.8 ... ADOPT. Vectors + metadata live in PGlite from day one\" but immediately adds: \"Verify pgvector extension availability in pglite's contrib set at plan time\". The risks section repeats: \"if vector is not in the shipped contrib set for 0.5.8, metadata-only adapter first\".",
+      "suggested_fix": "Downgrade the recommendation to metadata-only until pgvector support is verified, or split the candidate verdict into confirmed PGlite metadata adoption plus conditional vector support."
+    }
+  ]
+}
