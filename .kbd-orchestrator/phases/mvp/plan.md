@@ -273,3 +273,31 @@ Judge: gpt-5.5 (producer claude-opus-5-5; cross-model). Artifacts: `review/plan/
 ## Unresolved review findings
 
 None open. The three revision-2 round-2 CRITICALs are fixed in the text but not judge-confirmed (see the round cap above).
+
+## Revision 3 (2026-09-30): mvp-07 split into 07a and 07b
+
+History above is unchanged. Reason: two independent reviews (`openspec/changes/mvp-07-encrypted-pull-second-device/critique-plan.md`, `review-0.md`) found the single mvp-07 set not ready; operator decisions in `decision-log.md` of 2026-09-30 split it and changed the guard model.
+
+### 7a. `mvp-07-encrypted-pull-second-device`: a second vault unlocks and syncs (no release)
+- Scope: src/sync (decrypting pull, RootState v3, sequence floor, fork resolution, path policy, history names, publisher deltas) | src/plugin (pull runner, dialogs, ranged fetch) | cli (pull) | tests (two-device suite)
+- Depends on: mvp-06. Owners: `ipfs-engineer` (most tasks), `identity-security-engineer` (pull unlock), `uiux-lead` (plugin dialogs), `bdd-engineer` (integration suite), `documentation-specialist`, `security-reviewer` (final review). 24 tasks (`tasks.md`).
+- The fixture-only guard is untouched. No release. The gate is the phase gate plus the independent review; the in-Obsidian run is 07b's.
+
+### 7b. `mvp-07b-keys-history-guard-release-2`: keys, history, guard removal -> **Release 2 (v0.3.0)**
+- Scope: src/crypto (rewrap) | src/sync (key management, prune, removal guard, plaintext removal, guard modules) | cli | src/plugin (key dialogs, measure command) | tools (checker, recorder, operator run, release tool)
+- Depends on: 07a. Owners as above plus `release-deployment-lead`. 29 tasks; section 7 is post-finish (operator run, phone timing, release record, outward steps).
+- Guard model: policy centralised into two modules, real post-removal code on a branch, independent review of that tree, operator run on that build, release gated by a checker over a tree hash and build hashes. No fixture-only Variant B.
+
+### Dependencies and order
+- mvp-08 keeps its id and dependency (mvp-03). mvp-09 depends on 07a (encrypted pull). mvp-10 depends on 07b, mvp-08, mvp-09.
+- Round order: Round 7 becomes 7a then 7b; Release 2 (v0.3.0) now falls at the end of 7b (after its review, the operator run and the checker). Rounds 8 and 9 follow 7b for mvp-10; mvp-09 may start after 7a.
+- Commands to run: `/opsx:new mvp-07b-keys-history-guard-release-2` (directory already created). The positional KBD task ids registered for the old mvp-07 are stale; revise through `prometheus kbd revise` before registering the new lists.
+
+## Revision 3b (2026-09-30): Correction 2 of the 07a and 07b change sets
+
+History above is unchanged. The confirmation reviews `openspec/changes/mvp-07-encrypted-pull-second-device/confirm-review.md` (security-reviewer, Q-01..Q-24) and `confirm-critique.md` (artifact-critic, C-01..C-14; both copied unchanged into the 07b directory) returned PROCEED-WITH-FIXES and READY-WITH-FIXES for both changes. One batched correction folded every finding; each is fixed, or deferred or rejected with a reason, in the "Correction 2" section of each `revision-notes.md`. No further review cycle is planned for the correction itself.
+
+- **07a `mvp-07-encrypted-pull-second-device`: 32 tasks (was 24).** New or split: 1.5 (`abandon` prints the floor), 2.5 (carry-forward of paths a device could not restore), 2.6 (drift guard, split from 2.2), 3.1a and 3.1b (fold table, path policy), 4.0 (relocate shared pull helpers), 4.6a to 4.6c (pull orchestration split), 5.0 (settings plumbing). Publish no longer refuses on an incomplete pull; state carries `unmaterialized` and `previousIdentity`; publish journal format 2.
+- **07b `mvp-07b-keys-history-guard-release-2`: 36 tasks (was 29); 32 inside the increment, 4 post-finish.** Split: 3.1a to 3.1c (plaintext removal in three steps), 4.3a to 4.3c (checker: tree hash, clean-export build, item A and trust anchor), 4.4a to 4.4c (items B, C, D and E), 4.7a and 4.7b (operator-run phases). New: `keys discard`, `publish.lock` for rewrap, accept and prune, required lists held in the checker, per-tree review record files, an operator-enrolled trust anchor outside the repository.
+- Dependencies and round order are unchanged. The registered KBD task lists for 07a and 07b still carry the Revision 3 counts (24 and 29) and need `prometheus kbd revise` before registration.
+- Decisions beyond the operator's list, open questions and deferrals are listed in the two `revision-notes.md` files.

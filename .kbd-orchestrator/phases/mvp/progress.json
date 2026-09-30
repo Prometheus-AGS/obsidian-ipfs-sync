@@ -2,26 +2,26 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 546,
-  "derivedRevision": 546,
+  "sourceRevision": 616,
+  "derivedRevision": 616,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 546
+    "a92f5905-c918-468c-a89d-ee22138e2183": 616
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-09-30T13:38:08.039363Z",
+  "last_updated": "2026-09-30T19:07:26.012023Z",
   "last_updated_by": "kbd-runtime",
-  "changes_total": 15,
+  "changes_total": 16,
   "changes_completed": 6,
-  "implementation_total": 15,
+  "implementation_total": 16,
   "implementation_completed": 6,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
       "completed": 6,
-      "total": 15,
+      "total": 16,
       "status": "IN_PROGRESS"
     },
     "evidence": {
@@ -50,7 +50,7 @@
     "primaryCounter": "implementation",
     "implementation": {
       "completed": 6,
-      "total": 15,
+      "total": 16,
       "status": "IN_PROGRESS"
     },
     "evidence": {
@@ -185,10 +185,21 @@
       "title": "Encrypted pull on a second vault — Release 2 v0.3.0",
       "status": "PENDING",
       "implementation_status": "PENDING",
-      "tasks_total": 0,
+      "tasks_total": 32,
       "tasks_done": 0,
       "last_task_completed": null,
-      "next_task_pending": null,
+      "next_task_pending": "1.1 (ipfs-engineer) RootState version 3, the manifest identity, the carry-forward fields and every writer of the state.",
+      "blockers": []
+    },
+    {
+      "id": "mvp-07b-keys-history-guard-release-2",
+      "title": "mvp-07b: keys, history pruning, guard removal, Release 2",
+      "status": "PENDING",
+      "implementation_status": "PENDING",
+      "tasks_total": 36,
+      "tasks_done": 0,
+      "last_task_completed": null,
+      "next_task_pending": "1.1 (identity-security-engineer) Rewrap in `src/crypto/key-slots.ts`.",
       "blockers": []
     },
     {
