@@ -2,25 +2,25 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 616,
-  "derivedRevision": 616,
+  "sourceRevision": 762,
+  "derivedRevision": 762,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 616
+    "a92f5905-c918-468c-a89d-ee22138e2183": 762
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-09-30T19:07:26.012023Z",
+  "last_updated": "2026-10-03T11:04:28.278541Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 16,
-  "changes_completed": 6,
+  "changes_completed": 7,
   "implementation_total": 16,
-  "implementation_completed": 6,
+  "implementation_completed": 7,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 6,
+      "completed": 7,
       "total": 16,
       "status": "IN_PROGRESS"
     },
@@ -49,7 +49,7 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 6,
+      "completed": 7,
       "total": 16,
       "status": "IN_PROGRESS"
     },
@@ -183,12 +183,12 @@
     {
       "id": "mvp-07-encrypted-pull-second-device",
       "title": "Encrypted pull on a second vault — Release 2 v0.3.0",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 32,
-      "tasks_done": 0,
-      "last_task_completed": null,
-      "next_task_pending": "1.1 (ipfs-engineer) RootState version 3, the manifest identity, the carry-forward fields and every writer of the state.",
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 33,
+      "tasks_done": 33,
+      "last_task_completed": "33 (ipfs-engineer) Cadence feature operation for 07a: `tools/feature-op-mvp-07a.mjs`.",
+      "next_task_pending": null,
       "blockers": []
     },
     {
@@ -247,6 +247,17 @@
       "blockers": []
     }
   ],
-  "children": {},
+  "children": {
+    "mobile-feasibility": {
+      "status": "DONE",
+      "changes_completed": 0,
+      "changes_total": 0,
+      "implementation_completed": 0,
+      "implementation_total": 0,
+      "certification_status": "NOT_TRACKED",
+      "handoff": null,
+      "completed_at": null
+    }
+  },
   "migrationStatus": null
 }

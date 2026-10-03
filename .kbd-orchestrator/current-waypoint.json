@@ -2,10 +2,10 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 616,
-  "derivedRevision": 616,
+  "sourceRevision": 762,
+  "derivedRevision": 762,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 616
+    "a92f5905-c918-468c-a89d-ee22138e2183": 762
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
@@ -21,19 +21,19 @@
   "phase": "mvp",
   "parentPhase": null,
   "childPointer": null,
-  "change": "mvp-07-encrypted-pull-second-device",
+  "change": "mvp-07b-keys-history-guard-release-2",
   "currentTask": "1",
   "status": "ready",
   "lifecycle": "ready",
-  "stageId": "execute",
-  "stageStatus": "IN_PROGRESS",
+  "stageId": null,
+  "stageStatus": null,
   "completionMetric": "implementation",
-  "implementationCompleted": 6,
+  "implementationCompleted": 7,
   "implementationTotal": 16,
   "planRevision": 3,
-  "revision": 616,
-  "exactNextCommand": "change mvp-07-encrypted-pull-second-device",
-  "nextChange": "mvp-07-encrypted-pull-second-device",
+  "revision": 762,
+  "exactNextCommand": "/kbd-status",
+  "nextChange": "mvp-07b-keys-history-guard-release-2",
   "nextTask": "1",
-  "updatedAt": "2026-09-30T19:07:26.012023Z"
+  "updatedAt": "2026-10-03T11:04:28.278541Z"
 }

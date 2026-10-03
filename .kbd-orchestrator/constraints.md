@@ -71,8 +71,8 @@ constraints:
 - id: never-sync-workspace-state
   severity: warning
   description: 'The exclusion definition (src/sync/exclusions.ts) keeps .trash/, workspace.json churn, and this dev folder out of sync payloads'
-  check: "test \"$(grep -ohE '\"\\.trash/\"|\"\\.ipfs-sync/\"|\"\\.obsidian/workspace\\.json\"' src/sync/exclusions.ts | sort -u | wc -l | tr -d ' ')\" = 3"
-  note: 'Moved from scripts/excludes.txt in mvp-02 (task 2.2); passes whether or not scripts/excludes.txt exists'
+  check: "test \"$(grep -ohE '\"\\.trash/\"|\"\\.ipfs-sync/\"|\"\\.obsidian/\"' src/sync/exclusions.ts | sort -u | wc -l | tr -d ' ')\" = 3"
+  note: 'Moved from scripts/excludes.txt in mvp-02 (task 2.2); passes whether or not scripts/excludes.txt exists. Updated 2026-10-03 (operator decision): mvp-07a task 1.3 replaced the individual .obsidian/workspace*.json, graph.json, cache and plugins/ entries with one ".obsidian/" entry that excludes the whole configuration folder (stricter, workspace state still never syncs), so the check now looks for that literal instead of ".obsidian/workspace.json"'
 ```
 
 ---

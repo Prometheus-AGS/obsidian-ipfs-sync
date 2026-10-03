@@ -81,3 +81,9 @@ PLANNED REFLECTION INPUTS
 - cadence report (gross vs net delivery, overruns), review findings, unverified list (auth rejection against a live authenticated endpoint; mobile WebView)
 
 DISPATCH READY — EXECUTE REMAINS ACTIVE
+
+## 2026-09-30 — mvp-07-encrypted-pull-second-device (07a) dispatch contract (lead)
+- Backend: OpenSpec change `openspec/changes/mvp-07-encrypted-pull-second-device/` (33 tasks, registered positionally in KBD; ids 1..33 follow the order of tasks.md). Cadence increment 7 (delivery-cadence 1.2.0, state v3) started 2026-09-30T21:30:40Z, scope = all 33 tasks, feature operation = `tools/feature-op-mvp-07a.mjs` (task 33, creationTaskRef).
+- Dispatch by role (team default): implementation goes to the owning role per the `(owner)` in tasks.md; `Requires` lines are binding; two tasks never edit one file at once (per-file order table in the tasks.md header). Reviewers (security-reviewer, bdd-engineer as integration checker) stay dormant until 6.3 has passed. Lead orchestrates, records KBD begin/end receipts, owns the build directory (`pnpm build` only at the gate), and does not implement role-owned work.
+- Wave 1 (no prerequisites, disjoint files), ipfs-engineer instances: 1.1 (KBD 1), 1.3 (3), 2.4 (9), 3.1a (12), 4.0 (15).
+- Constraints for every task: no per-edit builds; `pnpm typecheck` and targeted vitest at the end of the task only; no commits; real vault `/Users/gqadonis/obsidian` never touched; no shared-node contact except the cadence feature checkpoint after 6.4; fixture-only guard untouched.
