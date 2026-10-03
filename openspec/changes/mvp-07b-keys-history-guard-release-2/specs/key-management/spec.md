@@ -75,6 +75,18 @@ A rewrap SHALL write the pending `keyslots.json` bytes into a maintenance journa
 - **WHEN** another device's rewrap replaced the node's file so that it matches neither the journal nor the old bytes
 - **THEN** the rerun refuses naming `keys discard` and `keys accept-slots`, and after `keys discard` publish and pull work again
 
+#### Scenario: Lost race is withdrawn (re-read 2026-10-03)
+- **WHEN** a rewrap or a prune loses the name race after it wrote into the shared working tree
+- **THEN** the republish step withdraws its write (a rewrap restores the old `keyslots.json` bytes only when the file still holds the journal's bytes and the old bytes equal the file inside the root the name moved to), and the winning device can still publish
+
+#### Scenario: Nothing changed after a rewrap or prune (re-read 2026-10-03)
+- **WHEN** a device publishes after a rewrap or a prune and the vault has not changed
+- **THEN** the state's `rootCid` equals the node's root, the publish reports nothing changed, and no manifest or history file is written
+
+#### Scenario: Rolled-back node (re-read 2026-10-03)
+- **WHEN** the node's sequence equals the device's record but both are below the sequence floor
+- **THEN** rewrap and prune refuse as a rolled-back node and write nothing
+
 #### Scenario: Sequence unchanged
 - **WHEN** a rewrap completes
 - **THEN** `manifest.enc` and the recorded sequence are unchanged
@@ -125,7 +137,7 @@ After a rewrap, another device's stored copy differs from the node's file, so it
 - **THEN** it refuses naming `keys accept-slots --root-cid <old root> --allow-rollback`, and after that accept the pull can proceed under the older passphrase
 
 #### Scenario: Restore by manifest needs no accept
-- **WHEN** `pull --manifest <cid> --allow-rollback` (or the plugin's Restore action) selects a history entry under the current root after a rewrap
+- **WHEN** a device that holds the current key-slot copy runs `pull --manifest <cid> --allow-rollback` (or the plugin's Restore action) and selects a history entry under the current root after a rewrap (a device with a stale copy still refuses and names the accept action)
 - **THEN** the pull proceeds with the current key-slot copy and no accept action is needed, because the blobs are encrypted under the vault key and the history entry is read from the current root
 
 #### Scenario: One root

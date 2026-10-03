@@ -37,6 +37,14 @@ The plugin SHALL provide a command "IPFS Sync: Measure key derivation time" that
 - **WHEN** the command runs
 - **THEN** a notice shows the elapsed seconds, the platform, `completed: yes` and the first 16 characters of the build hash in groups of four, and no vault is touched
 
+#### Scenario: Gap (re-read 2026-10-03)
+- **WHEN** the command runs
+- **THEN** the record also shows the longest event-loop gap in milliseconds measured by a heartbeat during the derivation, and the command uses the public key-slot creation path (no crypto export, no allow-list edit)
+
+#### Scenario: Cost above the default (re-read 2026-10-03)
+- **WHEN** a pull, accept, publish or Restore meets a key slot above the default cost (65,536 KiB, 3)
+- **THEN** the plugin asks through a cost-confirm dialog that shows the slot's cost and settles with the real outcome; where the operator chose the CLI-only fallback, the plugin shows a stop that names the terminal command
+
 #### Scenario: No build hash
 - **WHEN** the plugin file cannot be read
 - **THEN** the notice says the build hash is unavailable

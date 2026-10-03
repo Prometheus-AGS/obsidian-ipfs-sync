@@ -1,5 +1,59 @@
 # Revision notes, 07b (mvp-07b-keys-history-guard-release-2), revision 3, 2026-09-30
 
+## Re-read 2026-10-03
+
+Inputs: `reread-A.md` (tasks 1.1 to 3.2), `reread-B.md` (4.1 to 7.6), `review-final*.md` of 07a, and the operator decisions of 2026-10-03. Nothing was run; the evidence is the re-read's file:line references. Details sit under the "Re-read 2026-10-03" bullets of each `tasks.md` section.
+
+Operator decisions (encoded exactly): (1) two increments, iteration 8 = 1.x to 5.1 uncommitted until `finish`, iteration 9 = 6.x and 7.x with commits and own freeze, both on the 1.2.0 engine path, ready inputs recorded; (2) git-history evidence with the typed acknowledgement, `~/.ssh/id_ed25519` not enrolled, dedicated key later; (3) injected terminal streams, one skippable `expect(1)` smoke test, one no-pty exit-2 test, no pty dependency; (4) item C stays build-bound via a BRAT pre-release, thresholds 3 s and 100 ms gap.
+
+What changed (task id -> one line):
+- header -> cadence block, ready-input requirements, shared-file chains extended (`root-files.ts`, `vault-keys.ts`, `publish-refusals.ts`, `history-check.ts`, `webview-import-probe.mjs`, 07a tools).
+- 1.1 -> two input modes for `assertGenerated`; `costPolicy` for the current slot; unknown-slot scan covers all slots.
+- 1.2 -> names the 07a verdict functions; copy-less `unlockForPull`; `confirmCost`; floor error surfaced.
+- 1.3 -> lost-race withdrawal; A-01 re-read; `state.rootCid` update; reuse the verifier; shared up-to-date plus floor helper; `maintenance` in `RootFileNames` and `abandonVault`; refusal placement; owned-key check; kill-matrix harness.
+- 1.4 -> token-check lock standard; shared helper; `init-command.ts` helpers; lazy device store; path-limit text; write helpers; cost warning.
+- 1.5 -> accept hint satisfied by 07a (verify only), only the `--root-cid` suffix is new; journal field; `--manifest` caveat.
+- 1.6 -> second "not available" text in `publish-refusals.ts`; reuse the history order helpers; 2,000-entry overflow; fork-after-prune test; display escaping; `rootCid`.
+- 1.7 -> supersedes the emptied-with-state publish; the exclusion split runs over `removedPaths`; denominator; placement; port; `.smart-env` integration test; `CON.md` wording.
+- 1.8 -> acceptance names an interval (default timer is off); real driver already excluded; plugin prune gap; arithmetic.
+- 2.1 -> file list fix; settle contract; escaping; cost source.
+- 2.2 -> measure command on the public key-slot path (no crypto export); heartbeat gap; shared locks; port; cost wiring; Requires 2.4.
+- 2.3 -> streaming transport must fit the import probe; missing pieces named; mobile residual closes in 7.2.
+- NEW 2.4 -> plugin cost-confirm dialog (recommended; fallback: CLI-only above default).
+- NEW 2.5 -> conditional plugin prune action.
+- 3.1a -> split `pull-fixtures.ts` first; `three-way.test.ts`, `publish-repair.test.ts`; floor output satisfied by 07a.
+- 3.1b -> CLI and plugin v1 coupling files and symbols; probe entry simplification.
+- 3.1c -> refusals mostly satisfied by 07a (verify only); only the pull-side plaintext message is new; `pull-errors.ts` keeps its guards.
+- 3.2 -> grep scope; call order in `encrypted-pull.ts`; imports to list.
+- 4.1 -> descriptor covers strings, steps and no-bump mode; tag one field; regression on same tree.
+- 4.2 -> sentinel check satisfied by 07a (verify only).
+- 4.3a -> glob narrowed (lead default); imported tools added by exact path.
+- 4.3c -> rewritten: injected streams, one `expect(1)` smoke test, no-pty test; signing decision.
+- 4.4a -> 07a result location corrected (tmpdir, not per-user).
+- 4.4b -> bound 3 s and 100 ms gap (replaces 600 s).
+- 4.5 -> injected-stream tests; BRAT route.
+- 4.6 -> bases on 07a; parameterise `DEMO_PARENT`, `DEFAULT_OUT`, `LOCK_FILE`; hash check new; Requires 4.9.
+- 4.7b -> reuse 07a phases; hostile writes on the stub (lead default).
+- 4.8 -> no-bump, no-build record mode.
+- 4.9 -> printed restore text fix added; TTL testing remains.
+- NEW 4.10 -> kill matrices for restore and fork resolution.
+- 5.1 -> BRAT route and mobile facts; supersession; Android not claimed.
+- 6.1 to 6.5 -> tag field; probe worktree warning; commits before `ready`; run list; record form.
+- 7.1 -> reuse 07a pointer/restore; cleanup debt. 7.2 -> BRAT, probe-style numbers, thresholds, multi-MiB phone pull. 7.3 -> acknowledgement wording. 7.4 -> phone pre-release listed.
+- NEW 7.7 -> BRAT phone pre-release (own approval).
+- Specs -> `guard-evidence` (glob, thresholds), `key-management` (restore caveat, three scenarios), `mass-removal-guard` (`CON.md`), `plugin-key-management-ui` (gap, cost-confirm), `release-2` (Android, cadence). Design -> 2, 4, 7, 9, 10, 11, 12, 13 and a status block under Open Questions.
+
+Open for the operator (lead defaults in brackets):
+1. Whether 7.1 to 7.5 sit inside iteration 9's checkpoints, given the 2026-09-30 gotcha that operator-run tasks stay outside a freeze.
+2. 1.8: coalescing, a plugin prune action (task 2.5), or the explicit CLI-only statement.
+3. Cost-confirm dialog (2.4, recommended) or the CLI-only fallback; the High preset is unmeasured on a phone.
+4. Fixture-only fallback release; the bidi-override decision (7.6).
+5. `tests/**` and `tools/webview-import-probe.mjs` in T's scope.
+6. Hostile writes on the stub (4.7b) [yes], with the required assertion ids reconciled.
+7. Android not a gate [yes]; tag `v0.3.0` [yes]; glob narrowed [yes]; deleting `0.2.1-probe.1` as an approved cleanup [yes]; form (b) signing kept built [yes]; 4.10 as a task or a 7.1 "not run" note [task].
+
+Not changed, tracked as residuals: `stripControlCharacters` omits U+2028/9 (`cli/io.ts:48`); release `firstFilePrefix` prefix-hash cost; six publish-side scenarios without integration tests (`tests/integration/scenario-map.test.ts:122`); A-04 (7.5); B1-04(b); `SessionKeys.adopt(vault)` (optional in 2.2). Not checked in the re-read: `key-slot-format.ts` internals, per-command flag gating for `keys` in `cli/run.ts`.
+
 Inputs as in the 07a notes. The same traceability table follows; "Where" says which change holds the resolution.
 
 ## Decisions made beyond those given (reasons)

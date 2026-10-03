@@ -36,7 +36,7 @@ After the diff and before any write, the publish SHALL split the planned removal
 - **THEN** the publish stops, the message counts the two note removals against the two remaining entries, and does not blame the exclusion list
 
 #### Scenario: Carried entries are kept entries
-- **WHEN** a Windows device carries `CON.md` and loses two of its other four files
+- **WHEN** a device carries `CON.md` (refused on every host since 07a, host-independent) and loses two of its other four files
 - **THEN** the entries counted as remaining include `CON.md`, and two of five removals proceed without a stop
 
 ### Requirement: Stated limits
