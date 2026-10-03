@@ -436,7 +436,9 @@ does in Obsidian is unconfirmed, and the plugin lock has not been run in Obsidia
 
 ### Before a shared-node run of `tools/feature-op-mvp-07a.mjs`
 
-This run has not happened. These are the steps for when the operator approves it (condition from review 6.4, pass C, M-02).
+This run happened once, on 2026-10-03, against the shared node: exit 0, 76 of 76 checks passed, 1 skipped by design (replay by name is stub-only). The demo folder `musbpmtt-e574198f` was left on the node; cleanup is opt-in with `--cleanup`. These are the steps for any further run (condition from review 6.4, pass C, M-02).
+
+If the key exists on the node but is not in the script's config file, the script needs `--owned-key <id>`. Without it, it refuses with exit 2 before any mutation.
 
 1. Run a fresh `pnpm build` immediately before the run; the script checks that `dist` did not change during it.
 2. Save the printed line `previous IPNS pointer of obsidian-vault-sync: <keyId> -> <pointer>` before the run proceeds. If the line is missing, stop. It is the only record of where the name pointed.
@@ -446,7 +448,8 @@ This run has not happened. These are the steps for when the operator approves it
    - Run it on the node, as a user with access to the node's keystore. It cannot be run from a device that only has the HTTP API behind a gateway.
    - It restores the saved pointer only, and only for the key `obsidian-vault-sync`.
    - Its record lifetime and TTL are kubo's defaults, not the product's 5-minute TTL. A resolver may see the restored value for a different length of time than after a product publish.
-   - It is UNVERIFIED against the shared node. The form matches kubo's documented CLI, but nothing has run it there. Test it on a throwaway key (create one, publish a known CID, republish another, resolve) before you rely on it for the real key.
+   - Verified once on 2026-10-03 against kubo v0.42.0 (pod `ipfs-0`), default lifetime and TTL only; not tested with other options. On a throwaway key it published (about 8 s) and `ipfs name resolve --nocache` returned the CID; a republish to another CID resolved to the new one; the key was removed. The real run's pointer was then restored with the same form and resolved to the saved pointer.
+   - On this deployment the command runs via `kubectl --context know-me -n ipfs exec ipfs-0 -c ipfs -- ipfs name publish --key=obsidian-vault-sync /ipfs/<cid>`.
    - If the saved line is not a plain `/ipfs/<cid>` path, the script prints no command; restore it by hand from the saved line.
 6. After a restore, resolve the name and compare it with the saved line.
 
