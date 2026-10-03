@@ -22,7 +22,12 @@ Derived from Obsidian mobile = Capacitor WebView (WKWebView / Android WebView):
 | iOS suspends the app off-screen | Sync model = "fast catch-up on app open", never background |
 | Memory capped, jetsam kills | No monolithic FormData / no whole-vault ArrayBuffers; everything streams and is incremental |
 | Intermittent, metered networks | Delta-only transfers in both directions |
-| WebView has only HTTP(S)/WSS | Phones never speak libp2p/DHT directly; they reach an always-on daemon over WSS |
+| WebView has only HTTP(S)/WSS | Phones never speak libp2p/DHT directly. The mobile transport is the plugin over HTTPS: `requestUrl` for the RPC, the gateway for blobs (§3). Helia/js-libp2p was evaluated and is not adopted |
+
+Phones and background sync: iOS gives a backgrounded app only opportunistic background time, so sync happens when
+Obsidian is open, on an on-load catch-up pull, or on a manual pull. This is the claim of the mobile-feasibility client
+assessment (`.kbd-orchestrator/phases/mvp/children/mobile-feasibility/assessment-clients.md`); it is **unverified on a
+device**.
 
 ## 3. Architecture overview
 
@@ -32,15 +37,26 @@ Derived from Obsidian mobile = Capacitor WebView (WKWebView / Android WebView):
 │  (plugin)  │                │  kubo: storage + pins    │
 └────────────┘                │  + IPNS pointer          │
                               └──────▲───────────────────┘
-┌────────────┐   HTTPS RPC         │ WSS (Phase 2)
-│  iOS app   │◄────────────────────┘
-│  (plugin)  │                ┌──────────────────────────┐
-└────────────┘                │  VPS sync daemon         │
-┌────────────┐   HTTPS RPC   │  (Phase 2: Helia+OrbitDB │
-│ Android app│◄─────────────►│  "Voyager" persistent    │
-│  (plugin)  │                │  peer, always online)    │
-└────────────┘                └──────────────────────────┘
+┌────────────┐   HTTPS (requestUrl RPC, gateway blobs)
+│  iOS app   │◄─────────────────────┘
+│  (plugin)  │
+└────────────┘
+┌────────────┐   HTTPS (same)
+│ Android app│◄──────────────► same node (Android untested)
+│  (plugin)  │
+└────────────┘
 ```
+
+The earlier sketch had phones reaching a Helia/OrbitDB daemon over WSS. That is not the mobile transport. Evidence (from
+`assessment-clients.md` and `device-results.md`; nothing else is claimed): kubo 0.42.0 on the node advertises no directly
+dialable public address, only circuit-relay addresses; gateway Range and CORS probes against `/ipfs/` returned 206 with
+open CORS, while `/api/v0` returned 403 for `Origin: app://obsidian.md`; the IPNS record is fetchable at
+`/ipns/<name>?format=ipns-record`. On an iPhone, plaintext pulls of 24 KB and 50 MB over `requestUrl` worked, and Argon2id
+at 64 MiB, t = 3, p = 1 took 980 to 1143 ms. Limits: the Range and CORS probes were run from a Mac, not a phone; the
+encrypted pull has not run on a phone; Android is untested.
+
+**Helia/js-libp2p: evaluated, not adopted.** About 318 KB gzip per the report (`helia` 7.1.16), it needs node-side
+reachability work, and it adds nothing the AES-GCM authenticated data does not already cover.
 
 - **Phase 1.1 (this spec's implementation target):** snapshot pointer (IPNS) +
   delta transfers, all via kubo HTTP RPC. Mobile-compatible.
@@ -51,6 +67,11 @@ Derived from Obsidian mobile = Capacitor WebView (WKWebView / Android WebView):
 - **Phase 4:** availability/polish — pinning strategy, selective sync, conflict center.
 
 ## 4. Phase 1.1 spec — delta sync over the RPC
+
+> **Status.** This section is the Phase 1.1 plaintext design. The delivered layout, manifest and publish flow are
+> encrypted and are described in §8 (layout and constants in §8.3). The delivered pull is described in §4.3 below and in
+> §8.10; the plaintext reader it replaced survives only behind `--allow-plaintext-v1`. Where §4 and §8 differ, §8
+> describes the code.
 
 ### 4.1 Node-side layout (MFS)
 
@@ -69,6 +90,10 @@ Fixed persistent staging tree (replaces the per-run timestamped dirs of Phase 1)
   yields the new root CID. Cost: O(changes), not O(vault).
 - Manifests are content-addressed by the root they describe; old roots stay
   resolvable (free history: pulling an old manifest = point-in-time restore).
+- In the encrypted layout (§8.3) a history file is named `manifests/<16-digit sequence>-<rootCID>.enc`, so that sorting
+  the names gives the publish order without decrypting anything. A name is only a claim: a reader trusts its prefix only
+  after the file authenticates and carries the same sequence. Names written by a `mvp-06` development build,
+  `<rootCID>.enc`, still read and sort before every prefixed name.
 
 ### 4.2 Manifest schema
 
@@ -92,8 +117,17 @@ under `manifests/`):
 - `sha256` (WebCrypto, cheap on mobile) is the change-detection key; `cid` is
   the fetch key. Local files are hashed and compared — only misses/mismatches transfer.
 - `version` gates schema evolution.
-- Files under exclusion paths are absent from `files` — exclusion list lives in
-  the plugin settings, shared with the CLI via `scripts/excludes.txt`.
+- Files under exclusion paths are absent from `files`. The default exclusion list is one module
+  (`src/sync/exclusions.ts`) that publish, change detection and the manifest hash all read: `.trash/`, `.ipfs-sync/`,
+  `.ipfs-sync-fixture`, `.DS_Store`, `.obsidian/` (the whole configuration folder, device-local on every platform; a
+  directory called `.obsidian` at any depth matches), `node_modules/`, `.git/` and `.smart-env/` (the Smart Connections
+  embeddings folder). The defaults cannot be removed;
+  the plugin adds a renamed configuration folder and the user's own entries. `excludesHash` is the sha256 of the
+  effective list sorted by UTF-16 code unit and joined with `\n`; for the defaults it is
+  `ebd10cbd1cd9776229910af44cc1455550e840ba6aad25e8ba9434b0df32da0f` (before `mvp-07a` it was
+  `062286b651a2f5a832e1b8913d4e4fcd7dcfd39c081d5eb0bf5f5310962ddc9d`). A pull of a manifest whose hash differs from the
+  local one prints one warning and hashes every local file instead of trusting size and modification time. Entries of an
+  older manifest under `.obsidian/` or on the list are skipped as expected and leave the manifest at the next publish.
 
 ### 4.3 Plugin behavior
 
@@ -107,18 +141,28 @@ under `manifests/`):
 5. Write manifest JSON → add it (pinned) → mirror into `manifests/`.
 6. `name/publish` root CID to the `obsidian-vault` IPNS key (`ttl=5m`).
 
-**Pull (delta, streamed):**
-1. `name/resolve` → root CID → `cat <root>/.ipfs-sync.manifest.json`.
-2. Compare manifest against local files (sha256 pool).
-3. Fetch only missing/changed files via `cat` (pool), write via `vault.create` / `vault.modify`.
-4. Conflict policy (unchanged from Phase 1): **remote wins, local content preserved**
-   as `name (ipfs conflict YYYY-MM-DD)`. Never delete local files in 1.1.
+**Pull (delta, streamed).** The plaintext steps this section first described (`cat` of `.ipfs-sync.manifest.json`, then
+`vault.create` / `vault.modify`) survive only in the plaintext reader behind `--allow-plaintext-v1`. The delivered pull
+of an encrypted vault, in the CLI and the plugin, is (details in §8.10):
+1. Refuse invalid flag combinations; check the destination (absent, empty, or marked `fixture` or `pulled-fixture`); take
+   `publish.lock`; `name/resolve` (with `nocache=true`) → root CID; list the root once.
+2. Unlock from the local key-slot copy, else from the node's slots; authenticate `manifest.enc`; run the path policy over
+   the whole manifest; decide the verdict against the record (state and sequence floor, §8.10). A first pull is shown and
+   confirmed before anything is written.
+3. Plan each path on plaintext sha256 (this device, the baseline, the node) with the size-and-mtime shortcut; fetch only
+   what is missing or changed from the immutable tree `/ipfs/<manifest rootCID>/` through a bounded pool; each file is
+   decrypted and hashed into `.ipfs-sync/tmp/`, then renamed into place.
+4. Conflict policy (unchanged from Phase 1): **the node's version wins, local content preserved**
+   as `name (ipfs conflict YYYY-MM-DD)` (the extension is kept). Never delete local files: a remote deletion is reported
+   as `remote-deleted` and the file stays.
 
 **Triggers:** command palette (publish/pull/status), ribbon, on-load catch-up
 (enabled per device), debounced after-save publish (opt-in). All foreground.
 
-**Config sync:** `.obsidian/` stays excluded on mobile; desktop may optionally
-include a whitelist of config files (plugin settings for this plugin).
+**Config sync:** none. The whole `.obsidian/` folder is excluded on every platform (since `mvp-07a`): plugin code and
+plugin data, including this plugin's `data.json` with its credentials, never leave the device, and a pull refuses any
+manifest path under it because a pulled plugin file would be code execution. A whitelist of config files is not
+implemented.
 
 ### 4.4 CLI scripts
 
@@ -140,8 +184,10 @@ manifest-driven). Scripts remain desktop tools; mobile uses the plugin only.
   Attachments referenced by CID (dedup across devices for free).
 - **VPS daemon:** Node process next to kubo; Helia + OrbitDB hosting the log
   ("Voyager"-style persistent peer). kubo continues to store/pin blocks.
-- **Clients (desktop + mobile plugins):** replicate over **WSS to the daemon
-  only** — no DHT, no raw sockets from WebViews. Delta sync on both ends.
+- **Clients (desktop + mobile plugins):** the original sketch had them replicate over **WSS to the daemon
+  only**. For mobile that assumption is not adopted: the node advertises only circuit-relay addresses, and the
+  evaluated Helia/js-libp2p route (about 318 KB gzip) needs node-side reachability work (see §3). Phones use the plugin
+  over HTTPS until a Phase 2 decision replaces it. Delta sync on both ends.
 - **Merging:** Merkle-CRDT; concurrent edits converge; per-file conflicts
   resolved by policy (default: higher lamport wins, loser preserved as conflict copy).
 - **Encryption (decision pending):** per-file AES-GCM with a vault key vs.
@@ -168,10 +214,12 @@ manifest-driven). Scripts remain desktop tools; mobile uses the plugin only.
 
 ## 8. Encrypted vault: formats, keys, threat model and limits
 
-This section describes the encrypted publish path delivered by change `mvp-06-encrypted-vault-publish`, as the code
-stands. Where it contradicts §4.1 to §4.4 (plaintext layout, plaintext `manifest.json`, the shell scripts) or §6
-("encryption decision pending"), this section describes what the code does today; those sections have not been
-rewritten. Every constant below was checked against the code (module named in the last column of §8.3).
+This section describes the encrypted publish path delivered by change `mvp-06-encrypted-vault-publish` and the encrypted
+pull and second-device publish delivered by change `mvp-07-encrypted-pull-second-device` (task group `07a`; unreleased),
+as the code stands. Where it contradicts §4.1 to §4.4 (plaintext layout, plaintext `manifest.json`, the shell scripts) or
+§6 ("encryption decision pending"), this section describes what the code does today; §4 carries a status note and its
+pull, config-sync and exclusion text was corrected, §6 has not been rewritten. Every constant below was checked against
+the code (module named in the last column of §8.3).
 
 Read this first: the key-slot file is public, the node is open-write, and the only thing between an attacker and every
 note ever published is the passphrase. Encryption is implemented but has not been independently reviewed to a standard
@@ -181,8 +229,11 @@ that permits real notes, and has never been run inside Obsidian. Real vaults are
 
 Delivered in `mvp-06`: encrypted-only publish in the CLI and the plugin; `ipfs-sync init`; the crypto core
 (`src/crypto/`); per-root state, journal, resume, `--repair`, lock file and history check (`src/sync/`); the plugin key
-session, setup, unlock and abandon dialogs (`src/plugin/`). Not delivered: pulling an encrypted vault (`mvp-07`),
-passphrase change, additional key slots, `prune-history`, the history store (`mvp-08`).
+session, setup, unlock and abandon dialogs (`src/plugin/`). Delivered in `mvp-07a` (not independently reviewed, not run in
+Obsidian, on a phone or by the operator against the shared node): the decrypting pull in the CLI and the plugin (§8.10),
+the sequence floor, restore, fork resolution, second-device publish, history names with a sequence prefix, the path
+policy for pulled manifests, and the `.obsidian/` and `.smart-env/` exclusions. Not delivered: passphrase change,
+additional key slots, `prune-history` (`mvp-07b`), the history store (`mvp-08`).
 
 Independent review, stated as it happened:
 
@@ -208,8 +259,9 @@ R5-01 to R5-08 the same way (static, single model, nothing executed): R5-01 and 
 C5-03, C5-04 and C5-05) have NOT been re-read by any reviewer; C5-02 is still open (§8.7). No later review is
 scheduled short of the phase-boundary gate, which has not run.
 
-Nothing has run in Obsidian (desktop or phone), the key derivation has not been timed on a phone. The feature-operation script ran
-twice against the shared node on 2026-09-30 (§8.7 item 6).
+Nothing has run in Obsidian (desktop or phone). The key derivation was timed on an iPhone in a probe build (§8.7
+"Mobile"); an encrypted publish or pull has not run on a phone. The feature-operation script of `mvp-06` ran twice
+against the shared node on 2026-09-30 (§8.7 item 6); the `mvp-07a` pull has not been run against it.
 
 ### 8.2 Key hierarchy
 
@@ -256,12 +308,18 @@ after release without a new format version.
 | Node name | `current/<n[0..2]>/<n>`, n = base32-lower, no padding, of HMAC-SHA256(nameKey, UTF-8 path), 52 characters over `a-z2-7`, unused bits of the last character zero, compared by string equality with the recomputed name; paths are not Unicode-normalised | `src/crypto/blob-names.ts` |
 | `manifest.enc` | header 17 B = `ISMF` (0x49 0x53 0x4D 0x46) ‖ version 0x02 ‖ nonce(12), then ciphertext ‖ tag; associated data `"ipfs-sync/manifest/v1"` ‖ vaultId(16) ‖ header(17); at most 64 MiB (checked by `files/stat` before reading and while streaming) | `src/crypto/manifest-envelope.ts` |
 | Manifest v2 plaintext | fields `device`, `excludesHash`, `files`, `publishedAt`, `rootCID`, `sequence`, `vaultId`, `version` (2); entry fields `blob`, `cid`, `fileId`, `sha256`, `size`; keys sorted by UTF-16 code unit, no whitespace; at most 100,000 entries and 8 MiB of path bytes; sequence 1 to 2^53-1; `device` 1 to 64 code points; `rootCID` CIDv1 base32; `files` built without prototypes; JSON depth at most 32 | `src/sync/encrypted-manifest.ts`, `src/crypto/strict-json.ts` |
-| MFS layout | `<mfsRoot>/current/<xx>/<52 chars>`, `<mfsRoot>/manifests/<rootCID>.enc`, `<mfsRoot>/manifest.enc`, `<mfsRoot>/keyslots.json`; the root lists exactly those four entries | `src/sync/node-reader.ts`, `src/sync/read-back.ts` |
+| MFS layout | `<mfsRoot>/current/<xx>/<52 chars>`, `<mfsRoot>/manifests/<16-digit sequence>-<rootCID>.enc` (a `mvp-06` development build wrote `<rootCID>.enc`; it still reads and sorts first), `<mfsRoot>/manifest.enc`, `<mfsRoot>/keyslots.json`; the root lists exactly those four entries | `src/sync/node-reader.ts`, `src/sync/read-back.ts`, `src/sync/history-names.ts` |
+| History names | `^(?:([0-9]{16})-)?([A-Za-z0-9]{10,128})\.enc$`; the sequence is zero-padded to 16 digits (1 to 2^53-1); a prefix of 0 or above that is junk; a reader trusts a prefix only after the file authenticates and its manifest carries the same sequence; legacy names have no order among themselves | `src/sync/history-names.ts` |
+| Default exclusions | `.trash/`, `.ipfs-sync/`, `.ipfs-sync-fixture`, `.DS_Store`, `.obsidian/`, `node_modules/`, `.git/`, `.smart-env/`; `excludesHash` = sha256 of the sorted list joined with `\n`, `ebd10cbd1cd9776229910af44cc1455550e840ba6aad25e8ba9434b0df32da0f` (before `mvp-07a`: `062286b651a2f5a832e1b8913d4e4fcd7dcfd39c081d5eb0bf5f5310962ddc9d`) | `src/sync/exclusions.ts` |
 | Node response caps | listings and `files/stat` at 1 MiB and 2,000 entries; other RPC replies at 64 KiB; error bodies at 16 KiB; a blob is written in one request up to 32 MiB, otherwise per segment | `src/kubo/node-calls.ts`, `src/kubo/rpc-call.ts`, `src/kubo/http.ts`, `src/sync/chunked-write.ts` |
 | History limits | warn at 1,500 files in `manifests/`, refuse at 1,999 | `src/sync/history-check.ts` |
 | Full re-upload | above 256 MiB non-interactively needs `--allow-full-reupload` | `src/sync/publish.ts` |
-| Local files | under `<vault>/.ipfs-sync/`, per MFS root, `h` = first 16 hex of sha256(mfsRoot): `state.<h>.json` (format 2), `journal.<h>.json` (format 1), `keyslots.<h>.json` (byte copy of the node's file), one `publish.lock` per vault (heartbeat 60 s, stale after 15 min without one, or at once if the recorded process is dead on the same host), `encrypted-seen.json` (pull latch) | `src/sync/root-files.ts`, `root-state.ts`, `journal.ts`, `publish-lock.ts`, `pull-latch.ts` |
-| Marker | `.ipfs-sync-fixture` holding `fixture` (user or generator) or `pulled-fixture` (pull); read up to 64 bytes | `src/sync/fixture-marker.ts`, `src/core/config/node-safety.ts` |
+| Local files | under `<vault>/.ipfs-sync/`, per MFS root, `h` = first 16 hex of sha256(mfsRoot): `state.<h>.json` (format 3; format 2, which no released build wrote, is upgraded on read; format 3 is read strictly), `journal.<h>.json` (format 1), `keyslots.<h>.json` (byte copy of the node's file), one `publish.lock` per vault (heartbeat 60 s, stale after 15 min without one, or at once if the recorded process is dead on the same host), `encrypted-seen.json` (pull latch), `tmp/` (in-flight pull files `<id>.part` and `<id>.copy`, plaintext until renamed or swept) | `src/sync/root-files.ts`, `root-state.ts`, `journal.ts`, `publish-lock.ts`, `pull-latch.ts`, `temp-files.ts` |
+| State format 3 fields | the format 2 fields plus `manifestIdentity`, `previousIdentity`, `highestSequence`, `highestIdentity`, `complete`, `unmaterialized`, `devicesSeen` (at most 16, first-seen order) and optional `restoredFrom` | `src/sync/root-state.ts` |
+| Device-local store | outside every vault: CLI, a per-user directory (`$XDG_STATE_HOME/ipfs-sync`, else macOS `~/Library/Application Support/ipfs-sync`, Windows `%LOCALAPPDATA%\ipfs-sync`, otherwise `~/.local/state/ipfs-sync`; directory 0700, files 0600, owned by the user); plugin, the `deviceStore` section of the plugin data. Entries `device-id` (16 random bytes as 32 hex; the manifest `device` carries `<label>-<first 12 hex>`) and `sequence-floor.json` | `cli/device-store-node.ts`, `src/plugin/device-store-plugin.ts`, `src/sync/device-store.ts` |
+| Sequence floor | `sequence-floor.json`, format 1: per vault ID (32 hex), the highest accepted manifest `sequence`, its `identity` (64 hex) and the write time `at`; at most 64 vaults, the oldest `at` dropped beyond that; every write re-reads the file and keeps the higher sequence; strict decoding, a damaged file is refused and never repaired | `src/sync/sequence-floor.ts` |
+| Pull limits | in-flight segment memory budget 128 MiB; at most 6 files in flight (6 at segment exponent 23, 4 at 24); ask before fetching above 512 MiB (`--max-bytes`; plugin `pullConfirmAboveMb`, 64 to 8192); the plugin accepts a whole 200 body only up to 32 MiB and fetches only segment exponents of 20 or more; `--list-versions` and Restore list the newest 20 history names and decrypt files of at most 8 MiB. Every number is a proposal, not a measurement | `src/sync/pull-budget.ts`, `cli/pull-versions.ts`, `src/plugin/pull-restore.ts` |
+| Marker | `.ipfs-sync-fixture` holding `fixture` (user or generator) or `pulled-fixture` (pull, when it populated an empty directory; `publish` refuses it until the user writes `fixture` by hand); read up to 64 bytes | `src/sync/fixture-marker.ts`, `src/core/config/node-safety.ts` |
 
 Error classes (`src/crypto/errors.ts`): only a genuine AES-GCM authentication failure is reported as
 `authentication-failed`, and callers treat it as tampering, a wrong key or a moved object. `malformed-input` is
@@ -306,7 +364,20 @@ copy and its own authentication. A dropped connection during a write can leave a
 next publish diagnoses it and rewrites only what differs. A lock file is a best-effort guard, not an atomic lock across
 machines. Detecting a blob moved between paths or an old blob replayed against a newer manifest entry is the job of a
 reader that applies the reader requirements of the blob and manifest formats; those are specified and tested at the
-crypto layer, and the pull engine applies them from `mvp-07`. Today nothing on the read side does.
+crypto layer, and the pull engine of `mvp-07a` applies them (§8.10): it reads each blob from the immutable tree the
+authenticated manifest names and accepts a file only when size and sha256 equal the manifest entry. Two devices
+publishing to one root are narrowed, not prevented (§8.7 "Multiple publishers").
+
+Before its first write, and again right before `name/publish`, a publish that has work reads the publication name; it
+refuses with "another device may have published" if the name moved, and with "the publication name could not be read"
+when name routing fails (`src/sync/name-recheck.ts`, `NAME_RESOLVE_DHT_TIMEOUT` of `10s` in `src/kubo/ipns.ts`). kubo has
+no compare-and-swap, so this narrows the overlap to the time between the second read and `name/publish`; a write race on
+the shared MFS tree is not detected at all. **On the operator's node an unresolvable name is always `not-found`:** for a
+name that was never published it answered HTTP 500 `could not resolve name` identically with `dht-timeout` of 1 ms, 1 s
+and 10 s, so a routing failure cannot be told from a name that does not exist. The re-check can therefore detect a move
+only when the name resolves; a routing failure on a vault that already has a published name reads as `not-found` and the
+publish proceeds (limited in practice, because the node serves its own key from its local record; `src/kubo/ipns.ts`). A
+routing timeout on a vault's first publish counts as `not-found` by rule.
 
 ### 8.5 Threat model
 
@@ -360,7 +431,9 @@ The uncomfortable parts, stated plainly:
 Non-goals (not hidden, not prevented, not provided):
 - the number of files, the exact size of each file, when and how often a vault is published, which encrypted files
   change, the IPNS and DHT access pattern, the existence of the vault;
-- preventing rollback or freeze by an open-write node (nothing on the read side enforces the sequence yet);
+- preventing rollback or freeze by an open-write node: a pull refuses a manifest below the highest sequence this device
+  recorded (§8.10), which detects a replayed older genuine manifest only on a device that has already accepted a newer
+  one, and nothing detects a freeze or a first pull of a stale root;
 - protecting a device whose memory, environment or files are compromised, or other code in the same application context;
 - forward secrecy and revocation: the VCK never rotates, and a leaked passphrase exposes every state ever published,
   including states in old pinned roots;
@@ -375,16 +448,23 @@ Non-goals (not hidden, not prevented, not provided):
 ### 8.6 What the node sees
 
 Names of `current/` entries are 52-character HMAC values under two-character prefix folders; blob contents begin with the
-`ISBL` magic followed by ciphertext; `manifest.enc`, `manifests/<rootCID>.enc` and `keyslots.json` are the only other
+`ISBL` magic followed by ciphertext; `manifest.enc`, `manifests/<sequence>-<rootCID>.enc` and `keyslots.json` are the only other
 objects. No request URL or body contains a vault path, file name or content other than through encrypted blobs and
-`manifest.enc`; local terminal output may show vault paths and never shows the passphrase or a key. Events keep their
+`manifest.enc`; local terminal output may show vault paths and never shows the passphrase or a key. The sequence number
+of each publish is visible in the clear in its history file name (the node could count the files anyway), and a pull
+reads only: `name/resolve`, `key/list`, listings of the immutable root and gateway reads. Events keep their
 shape: `file.changed` carries its `path` inside the process only, and no persistent sink may store event paths.
 
 ### 8.7 Stated limits
 
 - **Plugin transport.** The Obsidian `requestUrl` transport buffers whole response bodies. The streaming caps and the
   one-segment memory bound therefore give no memory protection inside the plugin for what the transport has already
-  buffered; Range requests reduce the exposure only against gateways that honour them.
+  buffered; Range requests reduce the exposure only against gateways that honour them. The CLI pull streams. The plugin
+  pull holds up to the 128 MiB in-flight budget (`SEGMENT_MEMORY_BUDGET`, a design budget, not a measurement); a gateway
+  that answers 200 to a Range request makes the gateway "ignoring Range" for the rest of the pull, a whole body is
+  accepted only up to 32 MiB (`WHOLE_BODY_LIMIT`), and a larger blob is discarded after the transport buffered it and its
+  file is `unfetched`. A blob whose segment exponent is below 20 (`PLUGIN_MIN_EXPONENT`) is `unfetched` in the plugin. Large-file
+  pull in the plugin is not advertised as working until the `mvp-07b` operator run records the outcome.
 - **Same-context code.** A non-extractable key object does not stop other code in the same JavaScript context from using
   it: code holding the session's key set can derive and exfiltrate raw file, name and manifest key bytes using the public
   labels. Non-extractability protects only against exporting the base key object. The plugin dialog holds the passphrase
@@ -397,7 +477,10 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   file modes (Windows), no permission check is possible.
 - **Delta detection.** A file whose size and modification time equal the recorded values is not hashed, on the normal
   path and on the idle path. A restore that preserves the modification time (`cp -p`, `rsync -t`, some backup tools) and
-  yields a file of the same size is not noticed until the size or time changes.
+  yields a file of the same size is not noticed until the size or time changes. A pull trusts the same pair against the
+  recorded baseline (unless the exclusion lists differ, which forces a content check): a local file edited in place with
+  the same size and a preserved time is read as unedited, so a pull can replace it with the node's version without a
+  conflict copy.
 - **History growth.** Every publish that changes something adds one `manifests/<rootCID>.enc` file, pinned forever, of the
   size of `manifest.enc` (about 4 to 14 MB for a vault of 5,000 to 20,000 files). Publishing warns at 1,500 and refuses at
   1,999. The `ipfs-sync prune-history` command named in the refusal does not exist in this build.
@@ -421,9 +504,11 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   file: two steps. Because `adapter.rename` may replace an existing target (unconfirmed in Obsidian), `createExclusive`
   in `src/plugin/adapter-lock-file.ts` reads the file back after the rename and compares the bytes; if the file is not
   ours it returns false and leaves the other holder's file alone, and if the read-back itself throws it removes our
-  file before rethrowing. `src/plugin/lock-token-check.ts` (`verifyHeld`) is a second check, run in
-  `publish-runner.ts` right after the lock is acquired and before `publishUnderLock`; a mismatch throws `lock-held` and
-  releases. There is no token check immediately before each write to the node. After that second check only the
+  file before rethrowing. `src/sync/lock-token-check.ts` (`verifyHeld`, shared by the CLI and the plugin since `mvp-07a`)
+  is a second check, run in `publish-runner.ts` right after the lock is acquired and before `publishUnderLock`; a
+  mismatch throws `lock-held` and releases. Since `mvp-07a` the engine also awaits a fresh `verifyHeld` through
+  `beforeFirstWrite` right before its first request that can change the node (resume, key creation or first blob, junk
+  removal), in the CLI and the plugin. There is no token check immediately before each write to the node. After that the
   heartbeat (every 60 s) notices a replaced lock file, so a CLI publish and a plugin publish can overlap for up to one
   heartbeat interval (about 60 s) on a platform where rename overwrites. The plugin still depends on rename semantics
   for that window, and what `adapter.rename` does with an existing target in Obsidian is unconfirmed. The plugin lock
@@ -445,21 +530,46 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   `keyslots.json` to the node. The plugin cannot repair a vault; use the CLI.
 - **Setup re-entry.** The setup dialog hands the displayed passphrase back as the value the re-entry is compared with, so
   the dialog model is the only gate for re-entry.
-- **Multiple publishers.** Two devices publishing to one root are not supported. The drift path would discard the other
-  publisher's changes, and `--repair` in the ahead case says so.
+- **Multiple publishers.** A second device pulls first (§8.10) and then publishes at the next sequence; this is
+  supported as a sequence of turns, not as concurrent writers. Concurrent publishes are narrowed, not prevented (§8.4,
+  name re-check). The drift path removes stray blobs only when no other device was ever seen (`devicesSeen`, at most 16
+  values) and the node's latest manifest names this device, so it protects another device's blobs only after this device
+  has pulled a manifest of that device; the first overlap by a device that has never seen the other can still make the
+  other device's read-back fail (that publish fails and is retried). No node-side marker exists. `--repair` in the ahead
+  case is refused when a floor exists for the vault or the local state decodes; it remains only for a state file that
+  exists, does not decode, and has no floor.
+- **Recovery after a ratchet.** A holder of the vault key can publish a manifest with a very high sequence; every device
+  that pulls it raises its floor and then refuses honest, lower manifests as older. The recovery is to delete the floor
+  file (`sequence-floor.json`, which holds every vault's floor on that device) and the affected `state.<h>.json` files and
+  pull again as a first pull. Deleting the per-user store, the plugin data or reinstalling the plugin removes the floor.
+- **Fork resolution without an ancestor.** The common ancestor is the history entry at sequence N whose name carries the
+  prefix, which authenticates for the same vault and sequence, and whose identity equals the state's `previousIdentity`;
+  exactly one may match. Without one (no `previousIdentity`, which a first publish, a pull and an upgraded format 2 state leave null; no
+  entry at the prefix; none or several matches) every file that differs from the node's becomes a conflict copy and the
+  node's text takes the path.
 - **Unicode.** Path normalisation differs across platforms and is not applied; a path is encoded exactly as the host
   reports it.
-- **Mobile.** Argon2id at 64 MiB and t = 3 has not been timed on a phone. The engineer recorded about 0.84 s wall time and
-  about 16 ms worst event-loop gap on an Apple M1 Max with Node 24.16 (targets 3 s and 100 ms); that number is from the
-  build log and was not reproduced when this section was written.
+- **Mobile.** Recorded on 2026-10-02 from operator screenshots and reports on an iPhone (iOS 27.2 beta, Obsidian 1.13.7
+  build 365), not reproduced by an agent (`.kbd-orchestrator/phases/mvp/children/mobile-feasibility/device-results.md`):
+  Argon2id at 64 MiB, t = 3, p = 1 took 980, 1143 and 1133 ms in a probe build (`0.2.1-probe.1`), with a longest
+  event-loop gap of 21, 17 and 17 ms (targets 3 s and 100 ms); the Mac baseline for the same function was 990 to 1177 ms.
+  The release 0.2.0 plaintext build pulled 5 files (24 KB) and a 50 MB plus a 5 MB random file on the phone (the second
+  is an operator report; time and responsiveness were not recorded). The first pull crashed the app once, which is
+  unexplained; the relaunch loop that followed was an iOS file-provider hang (watchdog 0x8BADF00D) cleared by restarting
+  the phone. These are measurements of that build, not claims about the encrypted pull: an encrypted publish or pull
+  has not run on a phone, nothing was measured above 50 MB, background and suspend behaviour is unknown, and Android is
+  untested. A phone test installs through BRAT from a GitHub pre-release with its own tag, and until the guard is
+  removed (`mvp-07b`) it is a fixture-only build.
 
 Unverified, or unenforced, at the time of writing:
 1. Anything inside Obsidian: the setup, unlock and abandon dialogs, an encrypted publish from the plugin, HKDF, HMAC and
    AES-GCM under Obsidian's WebView (only a SHA-256 digest is recorded as having run in Obsidian 1.13.7), and
    `requestUrl` with multi-megabyte binary bodies and Range requests.
-2. Argon2id timing on a phone.
+2. Encrypted publish and pull on a phone (Argon2id alone was timed on an iPhone; see "Mobile"), and Android.
 3. Zeroization beyond the arrays the core owns.
-4. Rollback and freeze prevention (unenforced).
+4. Rollback and freeze prevention: a pull refuses a sequence below this device's record, and nothing detects a freeze or a
+   stale first pull; the pull itself (CLI and plugin) has not been run in Obsidian, on a phone, or by the operator
+   against the shared node.
 5. An authenticated (auth-protected) kubo endpoint with the plugin.
 6. The automated feature operation against the shared node ran twice on 2026-09-30 (task 6.2 and the delivery-cadence feature checkpoint). `tools/feature-op-mvp-06.mjs` (with
    `tools/feature-op-mvp-06/`) has an offline `--dry-run` and a `--local-stub` mode, records the IPNS pointer of
@@ -491,7 +601,9 @@ Unverified, or unenforced, at the time of writing:
 11. Real Obsidian behaviour the reviews could not read: `adapter.rename` onto an existing target, `adapter.stat().mtime`
     (an mtime of 0 would make the scratch-file sweep delete live temporary files), and the path format returned by
     `adapter.list` on mobile (the sweep's `holding` check relies on it).
-12. C5-02 (open): the plugin's lock token is checked at acquire, not at the first node write; see "Plugin lock file".
+12. C5-02 (open for the "each write" case): the lock token is checked at acquire and, since `mvp-07a`, right before the
+    first request that can change the node (not independently reviewed), not before each node write; see "Plugin lock
+    file".
 
 Deferred or accepted, recorded so they are not lost:
 - A `.taken` file left by a crash between the move-aside and the discard in "Clear stale publish lock" is never cleaned
@@ -502,7 +614,7 @@ Deferred or accepted, recorded so they are not lost:
   .ipfs-sync/"; before, it named only `.obsidian/` although the guard also ignores `.ipfs-sync/`.
 - W-14 (untouched blobs are never re-verified), W-15 (mass removal is silent) and W-16 (the plugin's `readRange` re-reads
   the whole file per segment, so a file over 8 MiB edited during upload can be uploaded as a mix of versions) are
-  preconditions for removing the guard in `mvp-07`. So is `prune-history` (N3-09).
+  preconditions for removing the guard in `mvp-07b`. So is `prune-history` (N3-09).
 - N2-13: `checkDistBundles` is not called by the release tooling (`tools/release-mvp-05.mjs`), so the dist-bundle check
   is not wired in. This blocks Release 2.
 - R5-11 (accepted): the feature-op toolbox builds the test-hook folder name from parts (`["test","ing"].join("")`) so that
@@ -524,14 +636,94 @@ never opens a dialog from the timer.
 
 ### 8.9 The publish guard
 
-Until mvp-07 removes it, publish (CLI and plugin) and `init` refuse any vault whose `.ipfs-sync-fixture` file does not
+Until `mvp-07b` removes it, publish (CLI and plugin) and `init` refuse any vault whose `.ipfs-sync-fixture` file does not
 hold the text `fixture`, before a passphrase is looked at and before any request. `pulled-fixture` (written by pull), an
-empty marker and any other text are refused; pull accepts `fixture` and `pulled-fixture`. The message states that
-encryption is implemented but not yet independently reviewed or verified in Obsidian. **The marker is not protection:
+empty marker and any other text are refused; pull accepts `fixture` and `pulled-fixture`. A directory that pull populated
+therefore cannot be published from until the user writes `fixture` into the marker by hand, which is the user's own
+statement that it holds no real notes. The message states that encryption is implemented but not yet independently
+reviewed or verified in Obsidian. **The marker is not protection:
 anyone who can create a file in the vault can create it, and then the refusal is overridden.** Removing the guard is a
-named `mvp-07` task that requires the security reviewer's sign-off, a recorded in-Obsidian run, and a phone timing of the
-key derivation or an explicit, informed operator acceptance; `prune-history` and the case-fold and Windows path hardening
-for authenticated manifests are also `mvp-07` work.
+named `mvp-07b` task that requires the security reviewer's sign-off, a recorded in-Obsidian run, and a phone timing of the
+key derivation or an explicit, informed operator acceptance (a timing on an iPhone now exists, §8.7 "Mobile"; whether it
+meets the precondition is for the operator and the reviewer); `prune-history` is also `mvp-07b` work. The case-fold and
+Windows path hardening for authenticated manifests landed in `mvp-07a` as the pull path policy (§8.10).
+
+### 8.10 What one pull does
+
+Delivered by `mvp-07a`, unreleased, covered by automated tests with fake nodes; not independently reviewed, not run in
+Obsidian, on a phone, or by the operator against the shared node. The CLI (`cli/pull-command.ts`,
+`cli/pull-encrypted-command.ts`) and the plugin (`src/plugin/pull-runner.ts`) call one engine, `pullEncryptedVault`
+(`src/sync/encrypted-pull.ts` for steps 1 to 6, `src/sync/encrypted-pull-stage.ts` for steps 7 and 8). Which reader runs:
+`--manifest-file` is a plaintext flag; `--root-cid` and `--list-versions` exist only for encrypted vaults; otherwise the
+root the name serves decides (key slots or an encrypted manifest there mean the decrypting reader). A plaintext (version
+1) root is read only with `--allow-plaintext-v1` and never into a destination that has seen an encrypted vault.
+
+In order, and what each step may write:
+
+1. Flag combinations that are never valid are refused before any request (`--resolve-fork` with `--allow-rollback`;
+   `--allow-rollback` without `--root-cid` or `--manifest`; `--resolve-fork` with either of those).
+2. The destination guard (marker rule above; state folder not a symbolic link). Refusal exits 2.
+3. The in-process lock and `publish.lock` are taken (a held lock is a stop with publish's own text); `.ipfs-sync/tmp/` is
+   swept while the lock is held; the state file is read (a damaged one is a stop); the target is resolved (name with
+   `nocache`, `--root-cid`, or `--manifest`); the root is listed once; `keyslots.json` and `manifest.enc` are read by the
+   CID of their listing entry, each refused above its cap before any byte is read. `manifest.json` is never requested.
+4. Unlock (`src/sync/pull-unlock.ts`): `--expect-vault-id` and the record's vault are compared with the slot file's
+   `vaultId` before any derivation. With a local key-slot copy the copy is unlocked first and the node's file must equal it
+   byte for byte; without one, a slot above the default cost is shown and confirmed once (no terminal: refused). A wrong
+   passphrase, a damaged slot and a failed commitment are one outcome and one message.
+5. `manifest.enc` (or the chosen history entry) is authenticated and decoded; its `vaultId` must equal the slot file's; for
+   `--manifest` its `rootCID` must equal the named CID. The path policy runs over the whole manifest.
+6. The verdict (below). A first pull is shown and confirmed. Only then are the key-slot copy and, for a first pull or a
+   newer manifest, the floor written. Nothing is written before this step except the lock and the sweep.
+7. Plan: for every manifest path, the path policy first, then the symbolic-link prefix walk, then the three-way rule on
+   plaintext sha256 (L missing: fetch; L = R: unchanged; L = B: replace; B = R: locally modified, left alone; otherwise
+   conflict; with no `B`, a file that differs from the node's is a conflict). The size-and-mtime shortcut is bypassed when this device's exclusion
+   list differs from the manifest's. A total above the ceiling needs a yes (otherwise every file to fetch is `unfetched`
+   and nothing is requested). The `pulled-fixture` marker is written before the first vault file when the destination was
+   empty. Blobs are listed and read from `/ipfs/<manifest.rootCID>/`, never the root's mutable `current/`, by a bounded
+   pool; each file goes through the free-space check (CLI only), `.ipfs-sync/tmp/<id>.part` (every segment authenticated;
+   identifier, size and sha256 equal to the entry), the write-time path check, a conflict copy of the local file where the
+   pull would replace an edit (made first; if it cannot be written the replace is aborted), and the rename.
+8. The outcomes are merged into the baseline, a publish journal at or below the pulled sequence is moved aside, and the
+   state is written last. An interrupted pull leaves whole files and the old state.
+
+Verdicts, first match wins, against the effective record (the higher of the state's `highestSequence` and the floor; a
+floor of another vault than the state's is ignored; equal sequences with different identities flag a conflict):
+`refused` for a failed `--expect-vault-id` or `--expect-min-sequence`; `first-pull` with no record; `refused` for a
+different vault; for a lower sequence, `restore` only for an explicit target with `--allow-rollback`, otherwise `refused`
+(an unfinished adopted publish of this device is reported as "run publish", not as a rollback); for an equal sequence with
+another identity, `fork-resolution` for a name target with `--resolve-fork`, otherwise `refused`; `same`; `newer`. The
+record is raised by `first-pull`, `newer` and `fork-resolution`; no verdict lowers it. `src/sync/pull-sequence.ts`.
+
+- **Restore** runs steps 7 and 8 with the existing baseline as `B`: files differ from it afterwards, so the next publish
+  sees them as edits and publishes them as a new, higher sequence. The state changes only in `restoredFrom` (the lowest
+  sequence a restore accepted), `devicesSeen` and the dropped `mtimes` of written paths. It deletes nothing.
+- **Fork resolution** uses the common ancestor as `B` (`src/sync/fork-resolution.ts`; rules in §8.7), or no `B`. The
+  floor is rewritten with the node manifest's identity after the fetch and before the state, so a crash between them
+  leaves a fork that resolves again. The publish journal is not touched.
+- **The state after a pull** has `rootCid` equal to the immutable root the target resolved to, `previousIdentity` null,
+  `highest*` from the verdict, `devicesSeen` gaining the manifest's `device`, and `complete` and `unmaterialized` from the
+  settlement: a path that is `integrity-failed` or `unfetched`, or skipped for a platform reason, keeps the node's entry in
+  the baseline and joins `unmaterialized`, so a later publish carries it unchanged and publishes nothing from this device
+  for it. `complete` is false iff a path is `integrity-failed` or `unfetched`; publish does not refuse on it.
+- **Path policy** (`src/sync/path-policy.ts`, generated fold table `src/sync/path-fold-table.ts`). `expected`: the
+  configuration folder or a match of the effective exclusion list. `unsafe`/`shape`: empty, absolute, backslash, control
+  character, empty or dot segment, the state folder, a protected folder name by fold key. `unsafe`/`platform`: trailing dot
+  or space, stream syntax, reserved device names, 8.3 short names, case-fold collisions, file/directory prefix groups, and
+  a symbolic link or directory in the way on this device. The policy is not applied inside the manifest decoder (an honest
+  Linux vault may hold a name such as `CON.md`, and a Linux device also refuses to write it on pull, carries it forward
+  unchanged in its publishes, and exits 1); the publisher gets `adviseUnrestorablePaths`, a warning that never
+  refuses. The CLI exits 1 for an `integrity-failed`, `unfetched` or `unsafe` path or a stop, and 0 for `expected` skips
+  alone; exit 2 is a refusal before a request.
+- **Restore listing.** `pull --list-versions` and the plugin's Restore list the newest 20 history names (prefixed names
+  newest first, legacy names after them), and decrypt files of at most 8 MiB for date and device. The name is a claim; the
+  entry the user chooses is authenticated again before any confirmation, and a name whose prefix disagrees with its
+  manifest is refused.
+- **Plugin.** `src/plugin/pull-runner.ts` offers Pull (never the rollback flag), Restore (the only caller of the rollback
+  flag) and Resolve fork (after a confirmation, before the lock is taken); dialogs for the first pull, restore, fork and
+  large pull set node-supplied values as text, not as HTML (no `innerHTML` in those files). The runner sweeps `.ipfs-sync/tmp/` on load only while it holds
+  `publish.lock` by a try-acquire, and skips the sweep when the lock is held. The plugin's file `rename` removes an
+  existing target first, so it is not atomic.
 
 ## 9. Explicit non-goals
 

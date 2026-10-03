@@ -4,14 +4,128 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries describe what exists in the code;
 anything not yet built is under "Known limitations" or not mentioned.
 
+## [Unreleased] - encrypted pull and second-device publish (fixture-only, after the encrypted publish below)
+
+**Still fixture-only. Do not use it on real notes.** This section is change `mvp-07-encrypted-pull-second-device`, task
+group `07a`: the read side of the encrypted vault. It is covered by automated tests with fake nodes. It has not been run
+inside Obsidian, on a phone, or by the operator against the shared node, and it has not been independently reviewed. The
+`publish` and `init` guard (`.ipfs-sync-fixture` must hold `fixture`) is unchanged and is removed in `mvp-07b`. Nothing
+here is tagged or released. The v0.2.0 pre-release is still the plaintext build and does not contain any of this.
+
+### Added
+
+- **`ipfs-sync pull` reads an encrypted vault.** It takes the vault passphrase (same sources as `publish`) and
+  `publish.lock`, reads only (`name/resolve`, `key/list`, listings, gateway reads), authenticates `manifest.enc` before
+  it requests any file, plans each path on plaintext sha256 (this device, the baseline, the node), fetches from the
+  immutable tree the authenticated manifest names (never the mutable `current/`), decrypts into `.ipfs-sync/tmp/`,
+  renames a file into place only when its size and sha256 equal the manifest entry, and writes the state file last.
+  Flags: `--name`, `--root-cid`, `--manifest`, `--allow-rollback`, `--resolve-fork`, `--expect-min-sequence`,
+  `--expect-vault-id`, `--accept-first-pull`, `--max-bytes` (default 536870912, 512 MiB), `--accept-large` and
+  `--list-versions` (the newest 20 history entries by name, with date and device for files of at most 8 MiB). The output
+  lists `integrity-failed`, `unfetched` and skipped paths apart. Exit 0: everything written and verified, or skipped as
+  expected. Exit 1: a file failed or was not fetched, a path was skipped as unsafe, or the pull stopped at a check.
+  Exit 2: a refused invocation or destination.
+- **The record and the sequence floor.** This device records the highest manifest sequence it accepted, in
+  `state.<h>.json` (now format 3: adds `manifestIdentity`, `previousIdentity`, `highestSequence`, `highestIdentity`,
+  `complete`, `unmaterialized`, `devicesSeen` and `restoredFrom`; format 2, which no released build wrote, is upgraded on
+  read) and in `sequence-floor.json` outside the vault (CLI: a per-user directory; plugin: the `deviceStore` section of
+  the plugin data). A node that serves a lower sequence is refused. The floor survives `abandon`, deleting `.ipfs-sync/`
+  and a changed MFS root. It keeps at most 64 vaults.
+- **First pull** shows the sequence, date and device the vault key holder chose and asks (or needs
+  `--accept-first-pull`). A declined first pull writes no file, marker, state, floor or key-slot copy; the lock may leave
+  an empty `.ipfs-sync/` folder.
+- **Restore** (`--allow-rollback` with `--root-cid` or `--manifest`; plugin: "Restore an older version") adds and replaces
+  files, never deletes, keeps local edits as dated conflict copies and does not lower the recorded sequence; the next
+  publish makes the result a new version.
+- **Fork resolution** (`--resolve-fork`, needs a terminal; plugin: "Resolve fork") merges against the common ancestor in
+  the node's history. With no ancestor, every file that differs from the node's becomes a conflict copy.
+- **Second-device publish.** A second device pulls, adopts the owned key (`ownedKeys` in the config file, or
+  `--owned-key <id>` for one run; plugin: "Adopt a key by ID") and publishes at the next sequence. The publisher reads the
+  publication name before its first write and again before `name/publish` and refuses when it moved ("another device may
+  have published"). The drift guard removes stray blobs only when no other device was ever seen.
+- **History names carry the sequence:** `manifests/<16-digit sequence>-<rootCID>.enc`. Names written by a `mvp-06`
+  development build (`<rootCID>.enc`) still read and sort first.
+- **Path policy for pulled manifests:** paths a pull must not write are skipped before any request, as `expected` (the
+  configuration folder, the exclusion list) or `unsafe` (a shape no honest publisher produces, or a name another platform
+  can write: Windows forms, reserved names, 8.3 shapes, case-fold collisions). The policy is host-independent: a name such
+  as `CON.md` is refused by pull on every host including Linux, is carried unchanged in that device's publishes, and
+  makes the pull exit 1. The publisher warns about such names and never refuses.
+- **Plugin:** Pull for encrypted vaults (first-pull, restore, fork and large-pull dialogs; the catch-up pull never opens
+  a dialog), the commands "Restore an older version" and "Resolve fork", a "Pull record" row in the Encryption section,
+  and the setting "Ask before pulling more than (MB)" (`pullConfirmAboveMb`, 64 to 8192, default 512). The plugin sweeps
+  `.ipfs-sync/tmp/` on load only while it holds `publish.lock`.
+- The publish engine awaits a fresh lock-token check (`beforeFirstWrite`) right before its first request that can change
+  the node, in the CLI and the plugin.
+
+### Changed
+
+- **`.obsidian/` no longer syncs.** The default exclusion list now holds the whole `.obsidian/` folder in place of the
+  narrower entries, and `.smart-env/`. The default list's `excludesHash` is now
+  `ebd10cbd1cd9776229910af44cc1455550e840ba6aad25e8ba9434b0df32da0f` (before this change:
+  `062286b651a2f5a832e1b8913d4e4fcd7dcfd39c081d5eb0bf5f5310962ddc9d`). A pull of a manifest with another hash prints one
+  warning and verifies every local file by content. Entries of an old manifest under `.obsidian/` are skipped as expected
+  (exit 0) and leave the manifest at the next publish.
+- **`.smart-env/` (Smart Connections embeddings) is excluded by default.** Reason, limited to what a desk study read in
+  that plugin's source and issues (nothing was installed or run): the plugin queues a re-import 13 seconds after a note
+  edit and appends to files in that folder; its README tells third-party sync users to ignore it; its author advised
+  against syncing the embedding files. On our side, the idle check (path, size and modification time must all equal the
+  record) cannot apply while those files change, and each non-empty publish adds one history file toward the warning at
+  1,500 and the refusal at 1,999.
+- **`publish --repair` in the "node is ahead" case** is refused ("Run pull first, then publish again.") when a floor
+  exists for the vault, when the local state decodes, and for a device with no state and no floor. It remains only for a
+  state file that exists, does not decode, and has no floor, behind its confirmation. The "ahead" and fork refusals of
+  `publish` now name `pull` and `pull --resolve-fork`; the new-device refusal names `pull`.
+- A directory that `pull` populated carries `pulled-fixture`; to publish from it, write `fixture` into
+  `.ipfs-sync-fixture` by hand (your statement that it holds no real notes; nothing verifies it).
+- `pull` routes by the root: key slots or an encrypted manifest mean the decrypting reader. The plaintext (version 1)
+  reader stays behind `--allow-plaintext-v1`, and the encrypted-only flags are refused on a plaintext root.
+- The token check moved from `src/plugin/lock-token-check.ts` to `src/sync/lock-token-check.ts` and is shared by the CLI
+  and the plugin.
+
+### Security
+
+- A pull detects a replayed older genuine manifest only on a device that already accepted a newer one. A first pull has no
+  baseline and trusts what the node serves; a freeze (withheld updates) is not detected. Deleting the per-user directory
+  (CLI), the plugin data or reinstalling the plugin removes the floor.
+- Someone who holds the vault key can publish a manifest with a very high sequence; every device that pulls it records it
+  and then refuses honest, lower manifests. Recovery: delete the floor file and the affected `state.<h>.json` files and
+  pull again as a first pull (the floor file holds every vault's floor).
+- `--root-cid` and `--manifest` name what the gateway serves; the client does not verify the returned bytes against the
+  CID, so authenticity rests on the vault key.
+- `.ipfs-sync/tmp/` holds verified plaintext until a file is renamed or swept. A file whose size and modification time equal
+  the recorded values is not hashed, so a pull can replace an in-place edit that kept both without a conflict copy.
+- On the operator's node an unresolvable name always answers `could not resolve name`, identically for a never-published
+  name and for `dht-timeout` of 1 ms, 1 s and 10 s. The publisher's name re-check can therefore detect a move only when
+  the name resolves; a routing failure on a vault that already has a published name reads as `not-found` and the publish
+  proceeds. It is not a compare-and-swap, and a write race on the shared MFS tree is not detected.
+
+### Known limitations
+
+- Fixture vaults only; nothing here ran inside Obsidian, on a phone, or by the operator against the shared node
+  (`mvp-07b`). The plugin dialogs for pull were never opened in Obsidian.
+- Large-file pull in the plugin is not advertised as working until the `mvp-07b` operator run records the outcome. The
+  CLI streams; the plugin holds up to a 128 MiB budget (a design budget, not a measurement), its transport buffers whole
+  responses, and a gateway that ignores Range makes files above 32 MiB `unfetched`.
+- Plugin `rename` onto an existing file removes the target first, so it is not atomic.
+- A key slot above the default Argon2id cost has no confirmation dialog in the plugin.
+- Paths this device could not restore stay as the node has them in the baseline; the next publish carries them unchanged
+  and publishes nothing from this device for them.
+- Measured on an iPhone (iOS 27.2 beta, Obsidian 1.13.7 build 365; operator screenshots and reports of 2026-10-02, not
+  reproduced by an agent): the release 0.2.0 plaintext pull worked for 5 files (24 KB) and for a 50 MB and a 5 MB random
+  file; Argon2id at 64 MiB, t = 3, p = 1 took 980, 1143 and 1133 ms with a longest event-loop gap of 21, 17 and 17 ms in a
+  probe build (`0.2.1-probe.1`). The first pull crashed the app once (unexplained); the relaunch loop was an iOS
+  file-provider hang cleared by restarting the phone. The encrypted pull has not run on a phone; Android is untested.
+  Phone test installs go through BRAT from a GitHub pre-release with its own tag, fixture-only until the guard is removed.
+
 ## [Unreleased] - encrypted publish (fixture-only, after 0.2.0)
 
 **Still fixture-only. Do not use it on real notes.** Publishing is now encrypted, but the encryption is not
 independently reviewed to the standard real notes need and has never been run inside Obsidian. `publish` and `init`
 accept only a vault whose `.ipfs-sync-fixture` file holds the text `fixture`. That marker is an accident guard, not a
-control: anyone who can create the file can override the refusal. Pulling an encrypted vault is not implemented, so
-nothing published by this tree can be pulled back by it. Change: `mvp-06-encrypted-vault-publish`. Nothing here is
-tagged or released.
+control: anyone who can create the file can override the refusal. This section describes change
+`mvp-06-encrypted-vault-publish` as it stood when it was written; where the section above differs (pull of an encrypted
+vault, state format 3, history names with a sequence prefix, the exclusion list, `--repair` in the ahead case), the section
+above is current. Nothing here is tagged or released.
 
 ### Added
 
@@ -60,7 +174,8 @@ tagged or released.
 - Plugin: setup dialog (generated passphrase, re-entry, no-recovery acknowledgement), unlock dialog with a
   local probable-typo check, an in-memory session, an Encryption section in the settings tab (state and a Lock button),
   and an unlocking indicator that asks you to keep the app in the foreground. The timer never opens a dialog.
-- Pull: detects an encrypted root and stops with "pulling encrypted vaults is not supported yet"; latches that fact in
+- Pull (as of `mvp-06`; the section above supersedes this refusal): detected an encrypted root and stopped with "pulling
+  encrypted vaults is not supported yet"; latches that fact in
   `.ipfs-sync/` so a later plaintext manifest for the same destination is refused as a possible downgrade. An
   `abandoned-<h>-<ms>` backup folder also counts as latch evidence: in the CLI, and in the plugin since a correction made
   after review 5c (the plugin's folder key-value store now lists matching folders); the plugin part is covered by
@@ -103,7 +218,7 @@ tagged or released.
   directory; delete such a file by hand if you find one.
 - The plugin's `publish.lock` is created by a check and then a rename (two steps). `createExclusive`
   (`src/plugin/adapter-lock-file.ts`) reads the file back after the rename and compares the bytes, and removes its own
-  file if the read-back throws; `src/plugin/lock-token-check.ts` checks the token a second time right after acquisition
+  file if the read-back throws; the token check (then `src/plugin/lock-token-check.ts`, now `src/sync/lock-token-check.ts`) checks the token a second time right after acquisition
   and before the publish starts. There is no check immediately before each write to the node, so a CLI publish and a
   plugin publish can overlap for up to one heartbeat interval (about 60 s) on a platform where rename overwrites. The
   plugin still depends on rename semantics for that window; what `adapter.rename` does in Obsidian is unconfirmed.
@@ -139,15 +254,16 @@ tagged or released.
   feature-operation script) and 5c are done; each was a static read by one model, and the cross-model judge was not run.
   Review 5 re-read the review 4-1 fixes (C-01 to C-08) statically. Review 5c re-read the review-5 fixes R5-01 to R5-08
   the same way, with nothing executed. The corrections made for its findings (C5-01, C5-03, C5-04, C5-05) have not been
-  re-read by a reviewer, and C5-02 is open (below). There is no in-app run, no run with a real vault, and no Argon2id
-  timing on a phone. The feature-operation script ran twice against the shared node (see "Added"); kubo `files/write`
+  re-read by a reviewer, and C5-02 is open (below). There is no in-app run and no run with a real vault; Argon2id was
+  timed on an iPhone in a probe build after this entry was written (see the section above). The feature-operation script ran twice against the shared node (see "Added"); kubo `files/write`
   overwrite semantics beyond what it exercised, and whether kubo reads `arg` from a POST body, remain unverified.
 - Terminal restore of the passphrase prompt is shown only in tests with injected streams (Ctrl-C, Ctrl-D, a 257th byte,
   end of input, a failure to enter raw mode). Restore on `SIGTERM`, `SIGHUP` and `SIGTSTP` is unverified.
-- Deferred to `mvp-07`: W-14, W-15, W-16 and `prune-history` are preconditions for removing the fixture guard. The
+- Deferred to `mvp-07b`: W-14, W-15, W-16 and `prune-history` are preconditions for removing the fixture guard. The
   release tooling does not yet call `checkDistBundles` (N2-13); that blocks Release 2.
-- Pulling an encrypted vault, changing the passphrase, adding key slots, and `ipfs-sync prune-history` do not exist yet.
-  At 1,999 history files publishing to that root stops; the way on is a new MFS root and a new vault.
+- Changing the passphrase, adding key slots, and `ipfs-sync prune-history` do not exist yet (pulling an encrypted vault
+  does now; see the section above). At 1,999 history files publishing to that root stops; the way on is a new MFS root
+  and a new vault.
 - The plugin cannot repair or recover slots; use the CLI. It can clear a publish lock that is at least 15 minutes stale,
   but not one it cannot parse. `--break-lock` deletes a live lock if run while a plugin publish is running. The setup,
   unlock, abandon and clear-stale-lock dialogs have never been run inside Obsidian. After an abandon, a second Publish
