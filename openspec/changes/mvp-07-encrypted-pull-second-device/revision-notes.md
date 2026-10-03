@@ -11,7 +11,7 @@ Inputs: `critique-plan.md` (F-01..F-25), `review-0.md` (P-01..P-21 and the defer
 6. Collision policy: skip every member of a collision group.
 7. Numbers proposed without measurement: confirm above 512 MiB, segment memory budget 128 MiB, whole-body limit 32 MiB, floor capped at 64 vaults.
 8. Device store: per-user directory for the CLI, plugin data for the plugin; manifest `device` becomes `<label>-<12 hex>`.
-9. The path policy is applied in the pull, not in the manifest decoder the publisher uses, so a Linux vault with `CON.md` still publishes (with a warning).
+9. The path policy is applied in the pull, not in the manifest decoder the publisher uses, so a Linux vault with `CON.md` still publishes (with a warning). The policy is host-independent (decision D-2, 2026-10-02): `CON.md` is refused on Linux too, so no pull restores it; it is carried forward and the pull exits 1 for it.
 10. `decideThreeWay` moves to `three-way.ts` in 07a so 07b's v1 deletion moves nothing.
 11. Publish re-resolves the name once more at the start of a run that has work; a failed re-resolve refuses.
 12. The free-space check is not available in the plugin (obsidian typings 1.13.1 expose none); stated, not faked.
@@ -225,3 +225,17 @@ Verdicts being answered: 07a and 07b were PROCEED-WITH-FIXES (security-reviewer)
 - The kubo error text for a never-published name versus a routing timeout; `requestUrl` Range behaviour; `script(1)` driven from the test runner on either platform; `ssh-keygen -Y` on platforms other than this machine's macOS; the Unicode version for the fold table; that the sentences held in the checker will survive the docs task unchanged.
 - The interactive 60-question ZeeSpec session was not run for this correction or for the earlier revision (the "inline pass" above is a product-manager read, not the skill's interrogation). No `.zeespec/` manifest exists. The operator can ask for the interrogation before either change is approved for planning.
 - `openspec validate` results are reported in the dispatch result, not here.
+
+## Task 33 added (2026-09-30)
+
+Reason: operator decision of 2026-09-30. The delivery cadence needs a feature operation that drives the real entrypoint (`dist/cli/ipfs-sync.mjs`) through the read side, as mvp-06 had with `tools/feature-op-mvp-06.mjs`. The integration suite 6.1 uses the recording fake node and cannot stand in for it.
+
+What changed: one task appended as id 33 (owner ipfs-engineer, `tools/` by assignment as for the mvp-06 script; Requires 5.1, 2.1 to 2.6, 4.6c, 4.7, all checked to exist in `tasks.md`). The 32 existing ids were not renumbered, inserted into or reordered, so their positional KBD registration holds. Task 6.3 requires 33 and runs the script's `--dry-run` and `--local-stub`. Task 6.4 has the script in its review scope as a delta safety check of request policy, confinement and pre-run recording (the conditions of mvp-06 `review-5b.md`), and the shared-node run happens only after 6.4 passes. `README.md` and `proposal.md` name task 33.
+
+Consequences:
+- One more repoint of the IPNS name of the own key `obsidian-vault-sync` on the shared node when the script is run (the mvp-06 run did it once). The script prints the previous pointer before its first mutation so the operator can restore it; it never restores it.
+- One more demo root (`/obsidian-vault-sync/mvp07a-demo/<runid>`) and its pins on the shared node until the opt-in `--cleanup`.
+- The task-count statements in `proposal.md` and `README.md` now read 33. The "32 tasks" in the Correction 2 map above describes Correction 2 and is left as written.
+- The integration suite 6.1 remains fake-node only. Task 33 itself is verified offline (`--dry-run`, `--local-stub`, `--tamper`, helper tests) and is NOT run against the shared node by the task.
+- Unverified until the shared-node run: the behaviour of the real node and gateway for the pull reads, and the replay-by-name refusal against the real name (the script exercises a bad object only on the local stub).
+

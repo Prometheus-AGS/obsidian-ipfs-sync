@@ -19,9 +19,48 @@ The pull SHALL evaluate the path policy over every path of the authenticated man
 - **WHEN** an authentic manifest lists `.obsidian/app.json`
 - **THEN** the entry is skipped with severity `expected`
 
-#### Scenario: Traversal
-- **WHEN** an authentic manifest lists `../outside.md`
-- **THEN** it is skipped with severity `unsafe` and nothing is written outside the vault
+#### Scenario: Traversal (policy level)
+Policy-level scenario: it holds for a path that reaches the policy, for example a unit vector fed to `path-policy.ts` directly. In production the manifest decoder refuses such a path first (see "Decoder strictness" below and the next scenario).
+- **WHEN** the policy is given the path `../outside.md`
+- **THEN** it is skipped with severity `unsafe` (class `shape`) and nothing is written outside the vault
+
+#### Scenario: Traversal in an authentic manifest (production decode path)
+- **WHEN** an authentic manifest lists `../outside.md` among otherwise ordinary paths
+- **THEN** the decoder refuses the whole manifest as `manifest-unsupported`, no blob is requested, nothing is written, and the rest of the manifest is not restored
+
+### Requirement: Path limits
+The policy and the manifest decoder SHALL share one definition of path limits (`src/sync/path-limits.ts`, `PATH_LIMITS`): a whole path of at most 4096 UTF-8 bytes, a segment of at most 255 UTF-8 bytes, and at most 128 `/`-separated segments. The limits are checked first, before any splitting, fold key or matcher work. At policy level a path over a limit is skipped with severity `unsafe`, class `shape`, and a fixed reason by code: `path-too-long` ("path is longer than 4096 bytes"), `segment-too-long` ("a path segment is longer than 255 bytes"), `too-many-segments` ("path has more than 128 segments"). The reason never contains the path. In production the decoder refuses the whole manifest (see "Decoder strictness") with a path-free `ManifestFormatError`.
+
+#### Scenario: Over-long path (policy level)
+- **WHEN** the policy is given a path longer than 4096 UTF-8 bytes
+- **THEN** it is skipped with severity `unsafe`, class `shape`, code `path-too-long` and the fixed reason, and nothing is written
+
+#### Scenario: Over-long segment (policy level)
+- **WHEN** the policy is given a path with one segment longer than 255 UTF-8 bytes
+- **THEN** it is skipped with severity `unsafe`, class `shape`, code `segment-too-long` and the fixed reason
+
+#### Scenario: Too many segments (policy level)
+- **WHEN** the policy is given a path with more than 128 segments
+- **THEN** it is skipped with severity `unsafe`, class `shape`, code `too-many-segments` and the fixed reason
+
+#### Scenario: Path over a limit in an authentic manifest (production decode path)
+- **WHEN** an authentic manifest lists a path over any of the three limits among otherwise valid paths
+- **THEN** the decoder refuses the whole manifest with a path-free `ManifestFormatError`, nothing is requested or written, and a publish that decodes this manifest also refuses
+
+#### Scenario: Over-limit local path on the publisher side
+- **WHEN** a publish finds a local path over any of the three limits (for example a note title of about 85 CJK characters, which is over 255 UTF-8 bytes)
+- **THEN** the publish refuses, fails closed, and nothing is published; the message names the local path (control characters escaped) and the limit that was exceeded, and never says "written by a newer or incompatible version" or asks the operator to update `ipfs-sync`
+
+### Requirement: Decoder strictness
+The manifest decoder SHALL apply a strict shape check to every path (control characters, an empty, `.` or `..` segment, absolute forms, a backslash, a lowercase `.ipfs-sync` segment) and SHALL refuse the manifest as a whole, as `manifest-unsupported`, when one path fails it. This is intended: it fails closed on every device (pull and publish both stop), and the publisher decodes its own manifests with the same check. The policy-level `unsafe` skip, carry-forward and `needsAttention` outcomes apply only to paths that pass the decoder, such as `.obsidian/plugins/x/main.js`, Windows forms, fold-key matches and collisions. The cost is stated: one forged entry from a compromised device makes the vault unpullable and unpublishable until the manifest is replaced, and the message names the shape refusal rather than a version problem.
+
+#### Scenario: One malformed path refuses the manifest
+- **WHEN** an authentic manifest lists a path with a backslash, a control character or an absolute form, and 99 other valid paths
+- **THEN** none of the 100 is restored, the CLI exits non-zero with `manifest-unsupported`, and a publish from any device that decodes this manifest also refuses
+
+#### Scenario: Passing the decoder, refused by the policy
+- **WHEN** an authentic manifest lists `.obsidian/plugins/x/main.js` and 99 valid paths
+- **THEN** the decoder accepts it and the policy skips the one path with severity `unsafe`, and the rest is restored
 
 #### Scenario: Renamed configuration folder
 - **WHEN** the plugin runs in a vault whose `configDir` is `.cfg` and a manifest lists `.cfg/app.json`
@@ -82,8 +121,8 @@ Before each create, write and rename the pull SHALL refuse a path whose existing
 ### Requirement: Safe output
 Shown paths and node-supplied text SHALL have C0 and C1 control characters (including U+009B) and bidirectional override characters escaped, and notices that echo node-supplied text SHALL use fixed strings. The manifest `device` field SHALL be escaped the same way where it is displayed.
 
-#### Scenario: Control characters
-- **WHEN** a manifest path contains U+009B
+#### Scenario: Control characters (policy level)
+- **WHEN** the policy or a display sink is given a path that contains U+009B (a manifest carrying it is refused whole by the decoder, "Decoder strictness")
 - **THEN** the skip line shows it escaped
 
 ### Requirement: Publisher advisory
@@ -91,8 +130,8 @@ The publisher SHALL, without refusing, warn when it is about to publish a path t
 
 #### Scenario: Linux-only name
 - **WHEN** a vault contains `CON.md` and is published
-- **THEN** the publish succeeds and warns that other devices will not restore that path
+- **THEN** the publish succeeds and warns that no device will restore that path by pull (the policy is host-independent, so a Linux device does not either)
 
-#### Scenario: Linux-only name survives another device
+#### Scenario: Windows-form name survives another device
 - **WHEN** a device that skipped `CON.md` publishes
 - **THEN** `CON.md` remains in the manifest (see `second-device-publish`, paths this device could not restore)

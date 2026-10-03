@@ -119,7 +119,7 @@ The pull SHALL classify every manifest path as `fetched`, `unchanged`, `locally-
 - **THEN** the path is skipped with severity `unsafe` (class `shape`), nothing is written for it, it is not in the baseline, and the CLI exits 1
 
 #### Scenario: Platform skip is kept in the baseline
-- **WHEN** an authenticated manifest lists `CON.md` (written by a Linux device) and this device applies the Windows-forms rule
+- **WHEN** an authenticated manifest lists `CON.md` (written by a Linux device); the Windows-forms rule applies on every host, including Linux
 - **THEN** the path is skipped with severity `unsafe` (class `platform`), nothing is written for it, the CLI exits 1, and the node's entry for `CON.md` is in the baseline and in `unmaterialized`
 
 ### Requirement: Delta and conflict behaviour

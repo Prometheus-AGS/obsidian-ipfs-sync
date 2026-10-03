@@ -16,7 +16,7 @@ A device with a state for the vault (created by a pull or a publish), a stored k
 - **THEN** publish refuses with the existing review-pending message and its hint, and nothing is sent
 
 ### Requirement: Ahead, fork and new-device messages
-When the node is ahead of this device, the publish SHALL stop before any write and tell the user to pull first; it SHALL NOT suggest `--repair` to a device that has a usable baseline. The new-device refusal SHALL name pull instead of saying pulling arrives in a later change. The fork refusal SHALL name `pull --resolve-fork`. `--repair` SHALL refuse the ahead case, with a message that says to pull first, when a sequence floor exists for the vault's `vaultId` (read from the node's key-slot file) and when the device has a state that decodes for the same vault; it MAY offer the ahead case, behind its existing confirmation whose warning recommends pull first, only when a state file exists, does not decode, and no floor exists for the vault. Behind and rebuild repairs are unchanged.
+When the node is ahead of this device, the publish SHALL stop before any write and tell the user to pull first; it SHALL NOT suggest `--repair` to a device that has a usable baseline. The new-device refusal SHALL name pull instead of saying pulling arrives in a later change. The fork refusal SHALL name `pull --resolve-fork`. `--repair` SHALL refuse the ahead case, with a message that says to pull first, when a sequence floor exists for the vault's `vaultId` (read from the node's key-slot file) and when the device has a state that decodes for the same vault; it MAY offer the ahead case, behind its existing confirmation whose warning recommends pull first, only when a state file exists, does not decode, and no floor exists for the vault. Behind and rebuild repairs are unchanged, except that no publish and no repair goes out at or below the sequence floor: on every publish the device SHALL read the floor for the vault, and when an entry exists and the device's state is missing or holds a lower sequence, the first publish, a resumed creation, an in-step publish and a rebuild repair SHALL be refused before any write with a message that says to pull first (code `sequence-below-floor`), and a behind or rebuild repair SHALL publish at the greatest of the local, node, record and floor sequences plus one.
 
 #### Scenario: Other device published in between
 - **WHEN** device A recorded sequence 3 and device B has published sequence 4
@@ -38,12 +38,28 @@ When the node is ahead of this device, the publish SHALL stop before any write a
 - **WHEN** the state file does not decode, no floor exists for the vault, and `publish --repair` runs
 - **THEN** the ahead case is offered behind its confirmation, whose warning recommends pull first
 
+#### Scenario: Restart below the floor after the state was lost
+- **WHEN** a device that reached sequence 40 lost its state file but kept its key-slot copy and its sequence floor, and the node (hostile or wiped) shows no `manifest.enc` or no key slots, and the device publishes
+- **THEN** the publish is refused with "pull first" before any write, and sequence 1 is not published under the owned name
+
+#### Scenario: Rebuild or in-step publish below the floor
+- **WHEN** the floor for the vault is higher than the device's state (for example a pull raised the floor and stopped before its state was written) and the device publishes, or runs `publish --repair` on a node that lost `manifest.enc`
+- **THEN** the publish or the rebuild is refused with "pull first", even when the user confirms, and nothing is written
+
+#### Scenario: Behind repair above the floor
+- **WHEN** a behind repair is planned and the floor is higher than the local, node and record sequences
+- **THEN** the repair publishes at the floor's sequence plus one
+
 ### Requirement: Paths this device could not restore are carried forward
 A publish SHALL copy into the new manifest, unchanged, the node's entry for every path in the state's `unmaterialized` list (paths this device could not restore: `unfetched`, `integrity-failed`, and platform-unsafe names such as reserved names and case collisions). It SHALL NOT compare such a path with a local file, SHALL NOT count it as a removal, SHALL count its blob as named in the drift check, and SHALL list the carried paths (at most three and a count) as not published from this device. It SHALL drop a carried path that matches this device's exclusion list at publish time. A publish SHALL NOT refuse because the last pull was incomplete. The idle check SHALL compare only materialized entries with the scan.
 
 #### Scenario: Linux-only name survives a Windows device
 - **WHEN** a Linux device publishes `CON.md` and `note.md`, a Windows device pulls (skipping `CON.md` as a platform form), edits `note.md` and publishes
-- **THEN** the new manifest still lists `CON.md` with the Linux device's entry and blob, `CON.md`'s blob is not treated as a stray, and a new device restoring from the name on Linux receives `CON.md`
+- **THEN** the new manifest still lists `CON.md` with the Linux device's entry and blob, and `CON.md`'s blob is not treated as a stray
+
+#### Scenario: Windows-form name is not restored on Linux either
+- **WHEN** a fresh Linux device pulls a manifest that lists `CON.md`
+- **THEN** the path policy refuses `CON.md` on every host, so nothing is written for it, it is reported as skipped (`unsafe`, class `platform`), the CLI exits 1, and the node's entry for `CON.md` is in the baseline, in `complete`'s accounting and in `unmaterialized`
 
 #### Scenario: Collision pair survives
 - **WHEN** a manifest lists `Note.md` and `note.md`, both are skipped on a case-insensitive device, and that device publishes an unrelated edit
@@ -78,6 +94,18 @@ When a publish has work, it SHALL resolve the owned IPNS name with `nocache` and
 #### Scenario: Name moved during the publish
 - **WHEN** another device publishes between this device's first write and its `name/publish`
 - **THEN** this device does not publish, reports the situation, and a later pull shows the fork or the newer state
+
+#### Scenario: Winner completes before the name start
+- **WHEN** another device completes a publish after this device read `manifest.enc` for its sequence decision and before this device read the name, so the name start already shows the other device's root
+- **THEN** `manifest.enc` is read again after the name start, differs from the first read, and the publish is refused as overlapping before any write to the node
+
+#### Scenario: Winner's manifest.enc found at the commit
+- **WHEN** the `manifest.enc` on the node, read just before this publish overwrites it, authenticates for this vault at this publish's sequence or a later one and is not this publish's own manifest
+- **THEN** the publish is refused as overlapping without writing `manifest.enc`; the journal stays and the next pull sets it aside
+
+#### Scenario: Withdrawal is matched to the moved name
+- **WHEN** the name re-check refuses after this publish overwrote `manifest.enc`, and the file it overwrote is byte-equal to the `manifest.enc` inside the root the name now resolves to
+- **THEN** that file is put back if `manifest.enc` still holds this publish's bytes; if the root holds another file, the root cannot be read, or the withdrawal fails, nothing is put back and the overlapping-publish refusal is what the caller sees
 
 #### Scenario: Resolution fails
 - **WHEN** the second `name/resolve` times out for a vault that already has a manifest on the node

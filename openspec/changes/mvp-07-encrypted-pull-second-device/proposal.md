@@ -57,4 +57,4 @@ The uncomfortable parts:
 - Dependencies: none added.
 - Node: pull performs no mutation. Publish gains two read-only `name/resolve` requests per run that has work (none for a key created by that run).
 - Migration: states of format 2 are upgraded on first write and journals of format 1 are read and rewritten as 2; history files written by an mvp-06 dev build (`<cid>.enc`) stay readable. No released build wrote any of them.
-- Cadence: every task is inside the increment and the phase gate and the independent review are the last two; 07a has no post-finish tasks (32 tasks after Correction 2).
+- Cadence: every task is inside the increment and the phase gate and the independent review are the last two; 07a has no post-finish tasks (32 tasks after Correction 2, 33 with task 33). Task 33 adds the cadence feature operation for 07a, `tools/feature-op-mvp-07a.mjs`: a real-entrypoint run (publish, first pull, two-device edits, second-device publish, replay refusals) against the shared node, run only after the review 6.4 has passed; the integration suite 6.1 stays fake-node only.
