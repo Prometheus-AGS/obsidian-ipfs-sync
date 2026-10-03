@@ -1,6 +1,7 @@
-import { createExclusionMatcher } from "./exclusions";
+import { createExclusionMatcher, type ExclusionMatcher } from "./exclusions";
 import { readJournal } from "./journal";
 import { RootStateError } from "./local-record";
+import { untrustedPathReason } from "./manifest-paths";
 import { statIfPresent } from "./node-reader";
 import { openPublicationKey } from "./publish-key";
 import type { CheckedTarget } from "./publish-session";
@@ -24,11 +25,19 @@ import { scanVault, type ScannedFile } from "./scan";
  * Any doubt returns undefined and the normal path runs, which unlocks and decides. The check writes nothing.
  */
 
-/** Every scanned file has a manifest entry of the same size and a recorded modification time that equals its own, and nothing else is recorded. */
-function matchesRecord(state: RootState, scanned: readonly ScannedFile[]): boolean {
-  const recorded = Object.keys(state.manifest.files).length;
-  if (scanned.length !== recorded) return false;
-  return scanned.every((file) => {
+/**
+ * Every scanned file has a manifest entry of the same size and a recorded modification time that equals its own, and nothing
+ * else is recorded. Only materialized entries take part: a carried path (`unmaterialized`) is a path this device holds no
+ * current copy of, so neither its entry nor a local file at that path counts. A carried path that the exclusion list matches
+ * now, or whose shape is unsafe, is a pending change (the next publish drops it), so the record does not match.
+ */
+function matchesRecord(state: RootState, scanned: readonly ScannedFile[], excluded: ExclusionMatcher): boolean {
+  const carried = new Set(state.unmaterialized);
+  if (state.unmaterialized.some((path) => excluded(path) || untrustedPathReason(path) !== undefined)) return false;
+  const present = scanned.filter((file) => !carried.has(file.path));
+  const recorded = Object.keys(state.manifest.files).length - carried.size;
+  if (present.length !== recorded) return false;
+  return present.every((file) => {
     const entry = Object.hasOwn(state.manifest.files, file.path) ? state.manifest.files[file.path] : undefined;
     return entry !== undefined && entry.size === file.size && Object.hasOwn(state.mtimes, file.path) && state.mtimes[file.path] === file.mtimeMs;
   });
@@ -52,7 +61,8 @@ export async function idlePublishResult(deps: PublishDeps, options: PublishOptio
   const key = await openPublicationKey(deps.client, checked.keyName, options.ownedKeys, options.recordOwnedKey);
   if (key.absent) return undefined;
 
-  const scanned = await scanVault(deps.host.fs, createExclusionMatcher(options.extraExclusions));
-  if (!matchesRecord(state, scanned)) return undefined;
-  return { published: false, written: 0, removed: 0, skipped: [], keyId: key.id(), keyCreated: false, anomalies: 0, warnings: [] };
+  const excluded = createExclusionMatcher(options.extraExclusions);
+  const scanned = await scanVault(deps.host.fs, excluded);
+  if (!matchesRecord(state, scanned, excluded)) return undefined;
+  return { published: false, written: 0, removed: 0, skipped: [], carried: state.unmaterialized, dropped: [], keyId: key.id(), keyCreated: false, anomalies: 0, warnings: [] };
 }

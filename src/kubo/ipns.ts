@@ -1,9 +1,9 @@
 import { assertValidKeyName, type ResolvedEndpoint } from "../core/config";
-import { KuboError } from "./errors";
+import { KuboAuthError, KuboError, KuboHttpError } from "./errors";
 import type { Transport } from "./http";
 import { rpcCall } from "./rpc-call";
 import { malformed, stringField } from "./rpc-fields";
-import type { NodeKey, PublishedName } from "./types";
+import type { NodeKey, PublishedName, ResolveOptions } from "./types";
 
 /**
  * Key generation, pinning and name publication. Every argument travels in the
@@ -53,9 +53,52 @@ export async function publishName(
  * Always sends `nocache=true`: kubo caches IPNS lookups for the record TTL (5m), so a cached
  * resolve right after a publish returns the previous root.
  */
-export async function resolveName(endpoint: ResolvedEndpoint, name: string, transport?: Transport): Promise<string> {
+export async function resolveName(endpoint: ResolvedEndpoint, name: string, transport?: Transport, options: ResolveOptions = {}): Promise<string> {
   if (name === "") throw new KuboError(endpoint.name, endpoint.baseUrl, "name/resolve needs a key ID");
-  const args = { arg: name.startsWith("/") ? name : `/ipns/${name}`, nocache: true };
+  const args = { arg: name.startsWith("/") ? name : `/ipns/${name}`, nocache: true, "dht-timeout": options.dhtTimeout };
   const body = await rpcCall({ endpoint, command: "name/resolve", args, transport }, "ndjson-last");
   return stringField(endpoint, "name/resolve", body, "Path");
+}
+
+/** `dht-timeout` the publisher's name re-check sends (kubo duration syntax). Design decision 10.3 of mvp-07, `NAME_RESOLVE_TIMEOUT`. */
+export const NAME_RESOLVE_DHT_TIMEOUT = "10s";
+
+/**
+ * The error texts of `name/resolve`, taken from the operator's node (https://ipfs.prometheusags.ai) and from nowhere
+ * else; no entry is written from memory. Each entry is the node's own JSON `Message` of an HTTP 500 answer.
+ *
+ * - `notFound`: recorded 2026-10-01T12:25:16Z for a syntactically valid IPNS key id that was never published, request
+ *   `POST /api/v0/name/resolve?arg=/ipns/<id>&nocache=true&dht-timeout=10s`, answer HTTP 500
+ *   `{"Message":"could not resolve name","Code":0,"Type":"error"}`.
+ * - `timeout`: NOT RECORDED. A second request, the project's own key with `nocache=true&dht-timeout=1ms`
+ *   (2026-10-01T12:25:32Z), was answered HTTP 200 with the key's current path, because the node serves its own key from
+ *   its local record, so no timeout was provoked. The list stays empty until a text is recorded from the node; until then
+ *   a lookup that fails for any other reason than the entry above is `failed`, which the publisher treats as a refusal.
+ * - Observations of 2026-10-01T12:25Z and 12:49Z on the operator node: `name/resolve` of a never-published name answers
+ *   HTTP 500 `{"Message":"could not resolve name","Code":0,"Type":"error"}` identically for `dht-timeout=1ms` (0.41 s),
+ *   `1s` (1.22 s) and `10s`. So "not found" and "timed out" are indistinguishable at the RPC level, and `timeout` stays
+ *   empty. This is a statement about this node's answers only.
+ *
+ * Anything that is not in this table is `failed` (fail closed).
+ */
+export const NAME_RESOLVE_ERROR_TEXTS: { readonly notFound: readonly string[]; readonly timeout: readonly string[] } = {
+  notFound: ["could not resolve name"],
+  timeout: [],
+};
+
+/** How a `name/resolve` that did not return a path is to be read. */
+export type NameResolveFailure = { readonly kind: "not-found" } | { readonly kind: "failed"; readonly timedOut: boolean };
+
+/**
+ * Classify the error of a `name/resolve` call. Only the node's own JSON `Message` on an HTTP 500 can be `not-found` or
+ * a timeout; a proxy page, a different status, a network failure or an unlisted text is `failed`. Credentials errors and
+ * errors that are not the client's own (a bug) are rethrown: they are not a statement about name routing.
+ */
+export function classifyResolveFailure(error: unknown): NameResolveFailure {
+  if (error instanceof KuboAuthError || !(error instanceof KuboError)) throw error;
+  if (error instanceof KuboHttpError && error.status === 500 && error.nodeMessage !== undefined) {
+    if (NAME_RESOLVE_ERROR_TEXTS.notFound.includes(error.nodeMessage)) return { kind: "not-found" };
+    if (NAME_RESOLVE_ERROR_TEXTS.timeout.includes(error.nodeMessage)) return { kind: "failed", timedOut: true };
+  }
+  return { kind: "failed", timedOut: false };
 }

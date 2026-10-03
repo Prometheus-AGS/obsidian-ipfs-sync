@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { blobMfsPath } from "../../src/crypto";
+import { historyFileName } from "../../src/sync/history-names";
 import { BlobTransferError } from "../../src/sync/encrypted-transfer";
 import { WriteVerificationError } from "../../src/sync/publish-errors";
 import { ReadBackError } from "../../src/sync/publish-refusals";
@@ -213,7 +214,7 @@ describe("encrypted publish: the read-back before the pin", () => {
     const before = rig.node.files.get(`${ROOT}/manifest.enc`);
     rig.host.put("attachment.bin", new Uint8Array([9, 9]), 3000);
     rig.node.afterWrite = (path) => {
-      if (path.includes("/current/")) rig.node.files.set(`${ROOT}/manifests/${rig.node.cidOf(`${ROOT}/current`)}.enc`, new Uint8Array([1, 2, 3]));
+      if (path.includes("/current/")) rig.node.files.set(`${ROOT}/manifests/${historyFileName(2, rig.node.cidOf(`${ROOT}/current`) as string)}`, new Uint8Array([1, 2, 3]));
     };
     rig.node.calls.length = 0;
     await expect(rig.publish({ ownedKeys: rig.owned })).rejects.toMatchObject({ code: "history-conflict" });

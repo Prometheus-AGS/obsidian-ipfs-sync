@@ -1,6 +1,6 @@
 import { Setting } from "obsidian";
 import { ENCRYPTION_COPY as COPY, ENCRYPTION_SECTION } from "./encryption-copy";
-import { describeEncryption, type EncryptionStatusSource } from "./encryption-settings-model";
+import { describeEncryption, describePullRecord, type EncryptionStatusSource } from "./encryption-settings-model";
 import { addSection } from "./settings-tab-controls";
 
 const LOCK_DESC = "ipfs-sync-desc-encryption-lock";
@@ -18,6 +18,7 @@ export class EncryptionSection {
   private actionButton: HTMLButtonElement | undefined;
   private lockDescEl: HTMLElement | undefined;
   private lockButton: HTMLButtonElement | undefined;
+  private recordEl: HTMLElement | undefined;
 
   constructor(private readonly source: EncryptionStatusSource) {}
 
@@ -27,6 +28,12 @@ export class EncryptionSection {
     state.descEl.setAttr("aria-live", "polite");
     this.statusEl = state.descEl;
     this.actionHost = state.controlEl;
+    this.recordEl = undefined;
+    if (this.source.pullRecord !== undefined) {
+      const record = new Setting(section).setName(COPY.recordName);
+      record.descEl.setAttr("aria-live", "polite");
+      this.recordEl = record.descEl;
+    }
     const lock = new Setting(section).setName(COPY.lockName);
     lock.descEl.id = LOCK_DESC;
     this.lockDescEl = lock.descEl;
@@ -78,6 +85,19 @@ export class EncryptionSection {
     this.drawAction(view.action);
     this.lockDescEl?.setText(view.lockDescription);
     if (this.lockButton !== undefined) this.lockButton.disabled = !view.canLock;
+    void this.refreshRecord();
+  }
+
+  /** Read the pull record and show it as sentences. An unreadable state file is said in words, not hidden. */
+  private async refreshRecord(): Promise<void> {
+    const read = this.source.pullRecord?.bind(this.source);
+    const target = this.recordEl;
+    if (read === undefined || target === undefined) return;
+    try {
+      target.setText(describePullRecord(await read()).text);
+    } catch {
+      target.setText(COPY.recordUnreadable);
+    }
   }
 
   private drawAction(action: "setup" | "unlock" | undefined): void {

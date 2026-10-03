@@ -11,6 +11,7 @@ import {
 } from "../crypto/manifest-envelope";
 import { parseStrictJson, serializeCanonical, type JsonObject, type JsonValue } from "../crypto/strict-json";
 import { untrustedPathReason } from "./manifest-paths";
+import { PATH_LIMITS, pathLimitViolation, type PathLimitViolation } from "./path-limits";
 
 /*
  * Manifest v2 codec (spec: manifest-v2). The plaintext manifest is authenticated inside `manifest.enc`, so a
@@ -200,7 +201,16 @@ function matching(object: JsonObject, key: string, pattern: RegExp, expectation:
   return value;
 }
 
+const PATH_LIMIT_EXPECTATIONS: Readonly<Record<PathLimitViolation, string>> = {
+  "path-too-long": `is not acceptable (longer than ${PATH_LIMITS.maxPathBytes} bytes)`,
+  "segment-too-long": `is not acceptable (a segment is longer than ${PATH_LIMITS.maxSegmentBytes} bytes)`,
+  "too-many-segments": `is not acceptable (more than ${PATH_LIMITS.maxSegments} segments)`,
+};
+
 function checkPath(path: string): void {
+  // First, before any scan of the path: the length, segment and depth limits (mvp-07a final review B1-01).
+  const limit = pathLimitViolation(path);
+  if (limit !== undefined) bad("path", PATH_LIMIT_EXPECTATIONS[limit]);
   if (hasLoneSurrogate(path)) bad("path", "is not valid Unicode text");
   const reason = untrustedPathReason(path);
   if (reason !== undefined) bad("path", `is not acceptable (${reason})`);

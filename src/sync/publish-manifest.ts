@@ -6,6 +6,7 @@ import {
   type EncryptedManifest,
   type EncryptedManifestFile,
 } from "./encrypted-manifest";
+import { DEVICE_LABEL_MAX_CHARS, deviceSuffix } from "./device-store";
 import type { WrittenBlob } from "./encrypted-transfer";
 
 /**
@@ -22,16 +23,20 @@ const PLACEHOLDER_CID = `b${"a".repeat(58)}`;
 const PLACEHOLDER_FILE_ID = "0".repeat(32);
 
 /**
- * The device label from the environment, made valid: at most 64 code points, no control characters and no lone
- * surrogates. An empty or unusable value becomes the default.
+ * The manifest `device`. The label (from the environment, or the host default) is made valid: no control characters and
+ * no lone surrogates, an unusable value becomes the default. With a device id the label is cut to
+ * `DEVICE_LABEL_MAX_CHARS` code points and the first 12 hex characters of the id follow it (`<label>-<12 hex>`, at
+ * most 64 code points); without one the label stands alone, cut to 64 (a host that has no device store).
  */
-export function sanitizeDevice(raw: string | undefined): string {
+export function sanitizeDevice(raw: string | undefined, deviceId?: string): string {
+  const limit = deviceId === undefined ? MANIFEST_DEVICE_MAX_CHARS : DEVICE_LABEL_MAX_CHARS;
   const cleaned = Array.from(raw ?? "")
     .filter((char) => !/[\u0000-\u001f\u007f]/.test(char) && !hasLoneSurrogate(char))
-    .slice(0, MANIFEST_DEVICE_MAX_CHARS)
+    .slice(0, limit)
     .join("")
     .trim();
-  return cleaned === "" ? DEFAULT_DEVICE : cleaned;
+  const label = cleaned === "" ? DEFAULT_DEVICE : cleaned;
+  return deviceId === undefined ? label : `${label}-${deviceSuffix(deviceId)}`;
 }
 
 export function entryOf(blob: WrittenBlob): EncryptedManifestFile {

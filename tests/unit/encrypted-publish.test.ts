@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { blobMfsPath, blobNameFor, toHex, utf8 } from "../../src/crypto";
 import { sha256Hex } from "../../src/sync/hash";
+import { historyFileName } from "../../src/sync/history-names";
 import { readJournal } from "../../src/sync/journal";
 import { readRootState } from "../../src/sync/root-state";
 import { ROOT, SECRET_FOLDER, SECRET_TITLE, SECRET_WORD, blobPaths, createRig, decodeText, seedVault, type Rig } from "../helpers/publish-rig";
@@ -48,6 +49,8 @@ describe("encrypted publish: first publish", () => {
       "keyList",
       "stat <root>/manifest.enc",
       "ls <root>/manifests",
+      // Review-final A-01: manifest.enc is read once more after the name start and before the first write (nothing to compare on a first publish, so a stat only).
+      "stat <root>/manifest.enc",
       "keyGen obsidian-vault-sync",
       "write <root>/current/<blob>",
       "stat <root>/current/<blob>",
@@ -56,12 +59,15 @@ describe("encrypted publish: first publish", () => {
       "write <root>/current/<blob>",
       "stat <root>/current/<blob>",
       "stat <root>/current",
-      "stat <root>/manifests/<cid>.enc",
+      "stat <root>/manifests/0000000000000001-<cid>.enc",
+      // The commit tail reads manifest.enc once before it writes its own, so a refused name re-check can put back a winner's file (defect D-1).
+      // Kept on a first publish too: two first publishers can overlap, and the earlier read does not cover the time since.
+      "stat <root>/manifest.enc",
       "write <root>/manifest.enc",
       "stat <root>/manifest.enc",
-      "stat <root>/manifests/<cid>.enc",
-      "write <root>/manifests/<cid>.enc",
-      "stat <root>/manifests/<cid>.enc",
+      "stat <root>/manifests/0000000000000001-<cid>.enc",
+      "write <root>/manifests/0000000000000001-<cid>.enc",
+      "stat <root>/manifests/0000000000000001-<cid>.enc",
       "stat <root>",
       "ipfs-ls /ipfs/<cid>",
       "GET <cid> <range>",
@@ -99,7 +105,7 @@ describe("encrypted publish: first publish", () => {
   it("keeps a history file equal to manifest.enc, and the local record and journal in step", async () => {
     const rig = await published();
     const manifest = await rig.manifest();
-    expect(rig.node.files.get(`${ROOT}/manifests/${manifest.rootCID}.enc`)).toEqual(rig.node.files.get(`${ROOT}/manifest.enc`));
+    expect(rig.node.files.get(`${ROOT}/manifests/${historyFileName(manifest.sequence, manifest.rootCID)}`)).toEqual(rig.node.files.get(`${ROOT}/manifest.enc`));
     const state = await readRootState(rig.host.kv, ROOT);
     expect(state).toMatchObject({ sequence: 1, encryptedSeen: true, rootCid: rig.node.cidOf(ROOT) });
     expect(state?.manifest).toEqual(manifest);
@@ -116,7 +122,7 @@ describe("encrypted publish: first publish", () => {
     }
     expect([...rig.node.files.keys()].some((path) => path.endsWith("manifest.json"))).toBe(false);
     const writes = rig.node.calls.filter((call) => call.startsWith("write ")).map((call) => shape([call])[0]);
-    expect(new Set(writes)).toEqual(new Set(["write <root>/current/<blob>", "write <root>/manifest.enc", "write <root>/manifests/<cid>.enc"]));
+    expect(new Set(writes)).toEqual(new Set(["write <root>/current/<blob>", "write <root>/manifest.enc", "write <root>/manifests/0000000000000001-<cid>.enc"]));
   });
 
   it("writes blobs that start with the magic and have exactly 22 + 28 n + size bytes", async () => {
@@ -172,7 +178,7 @@ describe("encrypted publish: delta behaviour", () => {
 
     const changed = blobPaths(rig.node).filter((path) => rig.node.cidOf(path) !== before.get(path));
     expect(changed).toHaveLength(1);
-    expect(shape(rig.node.calls).filter((call) => call.startsWith("write "))).toEqual(["write <root>/current/<blob>", "write <root>/manifest.enc", "write <root>/manifests/<cid>.enc"]);
+    expect(shape(rig.node.calls).filter((call) => call.startsWith("write "))).toEqual(["write <root>/current/<blob>", "write <root>/manifest.enc", "write <root>/manifests/0000000000000002-<cid>.enc"]);
     const manifest = await rig.manifest();
     expect(manifest.sequence).toBe(2);
     expect(manifest.files[TITLE_PATH]?.size).toBe(utf8(`The ${SECRET_WORD} merger closed early.\n`).length);
@@ -202,7 +208,7 @@ describe("encrypted publish: delta behaviour", () => {
     expect(rig.node.files.has(gone)).toBe(false);
     expect(rig.node.calls).toContain(`rm ${gone}`);
     expect(Object.keys((await rig.manifest()).files).sort()).toEqual([PATHS[0], PATHS[1]]);
-    expect(rig.node.files.has(`${ROOT}/manifests/${first.rootCID}.enc`)).toBe(true);
+    expect(rig.node.files.has(`${ROOT}/manifests/${historyFileName(first.sequence, first.rootCID)}`)).toBe(true);
     expect(rig.events.changed.at(-1)).toEqual({ path: "attachment.bin", kind: "removed" });
   });
 

@@ -1,6 +1,7 @@
 import type { Bytes } from "../core/host-bridge";
 import { KuboResponseTooLargeError, isMissingPathError, type KuboClient, type MfsEntry } from "../kubo";
 import type { SnapshotExpectation } from "./commit-ports";
+import { historyFileName, isHistoryName } from "./history-names";
 import { ROOT_ENTRY_NAMES, readRemoteFile } from "./node-reader";
 import { PublishRefusedError, ReadBackError } from "./publish-refusals";
 import { sameBytes } from "./same-bytes";
@@ -14,7 +15,8 @@ import { sameBytes } from "./same-bytes";
  *  - `manifest.enc` equals the bytes just written (so it authenticates with the expected sequence);
  *  - `keyslots.json` equals this device's copy, byte for byte;
  *  - the CID of `current` equals the manifest's `rootCID`;
- *  - every name in `manifests/` is `<cid>.enc`, and the history file for this snapshot has the manifest's bytes;
+ *  - every name in `manifests/` is `<16-digit sequence>-<cid>.enc` or the legacy `<cid>.enc` (a file), and the history file
+ *    for this snapshot, at the name with its sequence, has the manifest's bytes;
  *  - every prefix folder touched in this run shows each blob written in this run with the CID recorded when it
  *    was written.
  *
@@ -31,7 +33,6 @@ export interface ReadBackContext {
 }
 
 const CID_SHAPE = /^[A-Za-z0-9]{10,128}$/;
-const HISTORY_NAME = /^([A-Za-z0-9]{10,128})\.enc$/;
 
 async function listSnapshot(ctx: ReadBackContext, path: string, what: string): Promise<ReadonlyMap<string, MfsEntry>> {
   let entries: readonly MfsEntry[];
@@ -79,9 +80,9 @@ async function assertFileEquals(ctx: ReadBackContext, entry: MfsEntry, expected:
 async function checkHistory(ctx: ReadBackContext, base: string, manifestEntry: MfsEntry, expected: SnapshotExpectation): Promise<void> {
   const history = await listSnapshot(ctx, `${base}/manifests`, "manifests/");
   for (const [name, entry] of history) {
-    if (!HISTORY_NAME.test(name) || entry.type !== "file") throw new ReadBackError("manifests/ holds an entry that is not a history file");
+    if (!isHistoryName(name) || entry.type !== "file") throw new ReadBackError("manifests/ holds an entry that is not a history file");
   }
-  const mine = history.get(`${expected.manifest.rootCID}.enc`);
+  const mine = history.get(historyFileName(expected.manifest.sequence, expected.manifest.rootCID));
   if (mine === undefined) throw new ReadBackError("the history file for this snapshot is missing");
   // Identical bytes imported the same way have the same CID; only when the CIDs differ are the bytes compared.
   if (mine.cid !== manifestEntry.cid) await assertFileEquals(ctx, mine, expected.manifestFile, "the history file");

@@ -70,6 +70,8 @@ interface RigOptions {
   /** Create the vault the way the setup dialog will (local key-slot copy and key slots on the node) before the run. */
   readonly vault?: boolean;
   readonly settings?: Partial<PluginSettings>;
+  /** `app.vault.configDir` as the plugin shell passes it. */
+  readonly configDir?: string;
   readonly typed?: readonly (string | undefined)[];
   readonly setup?: SessionRigOptionsSetup;
 }
@@ -89,7 +91,7 @@ async function rig(options: RigOptions = {}): Promise<Rig> {
   const createClient = (): PublishClient => hooks.client(node.client);
   const keys = sessionRig({ store, adapter, createClient, typed: options.typed, setup: options.setup });
   const lockContext = { ...createPluginLockContext(() => NOW), every: (_ms: number, task: () => void) => (heartbeats.push(task), () => undefined) };
-  const runner = createPublishRunner({ store, adapter, bus: createSyncEventBus(), session: keys.session, createClient, lockContext, now: () => new Date(NOW) });
+  const runner = createPublishRunner({ store, adapter, ...(options.configDir === undefined ? {} : { configDir: options.configDir }), bus: createSyncEventBus(), session: keys.session, createClient, lockContext, now: () => new Date(NOW) });
   await keys.session.refresh();
   argon2.calls = 0; // creating the test vault derived once; count from here
   return { adapter, node, store, data, heartbeats, hooks, sessionRig: keys, runner };
@@ -387,4 +389,39 @@ describe("the runner shows the CLI's journal, drift and read-back behaviour thro
     const idle = await manual(r);
     expect(idle.kind).toBe("unchanged");
   }, 60_000);
+});
+
+describe("mvp-07a 1.2: device id and the configuration folder", () => {
+  async function manifestOf(r: Rig): Promise<Awaited<ReturnType<typeof decodeManifestFile>>> {
+    const keys = r.sessionRig.session.provider()?.keys;
+    if (keys === undefined) throw new Error("expected an unlocked session");
+    return decodeManifestFile(keys, r.node.files.get(`${MFS_ROOT}/manifest.enc`) ?? new Uint8Array());
+  }
+
+  it("publishes the device as obsidian-<12 hex of the stored id>, and the same id again on the next publish", async () => {
+    const r = await rig({ vault: true });
+    expect((await manual(r)).kind).toBe("published");
+    const first = await manifestOf(r);
+    const stored = r.store.get().deviceStore["device-id"];
+    expect(stored).toBeDefined();
+    const id = new TextDecoder().decode(Uint8Array.from(atob(stored ?? ""), (c) => c.charCodeAt(0))).trim();
+    expect(id).toMatch(/^[0-9a-f]{32}$/);
+    expect(first.device).toBe(`obsidian-${id.slice(0, 12)}`);
+    r.adapter.put("notes/more.md", "more", 5000);
+    expect((await manual(r)).kind).toBe("published");
+    expect((await manifestOf(r)).device).toBe(first.device);
+    expect(r.store.get().deviceStore["device-id"]).toBe(stored);
+  });
+
+  it("does not publish files under a renamed configuration folder, and does publish them when the shell passes none", async () => {
+    const withDir = await rig({ vault: true, configDir: "custom-config" });
+    withDir.adapter.put("custom-config/app.json", "{}", 1000);
+    expect((await manual(withDir)).kind).toBe("published");
+    expect(Object.keys((await manifestOf(withDir)).files).sort()).toEqual(["notes/hello.md", "notes/world.md"]);
+
+    const without = await rig({ vault: true });
+    without.adapter.put("custom-config/app.json", "{}", 1000);
+    expect((await manual(without)).kind).toBe("published");
+    expect(Object.keys((await manifestOf(without)).files)).toContain("custom-config/app.json");
+  });
 });

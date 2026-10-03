@@ -112,6 +112,11 @@ export interface SessionDialogs {
   readonly callbacks: DialogCallbacks;
   /** The session with its `unlock` and `setup` wrapped so that the dialog they used is answered and closed when they end. */
   settling(session: SessionKeys): SessionKeys;
+  /**
+   * Answer the unlock dialog's pending entry from outside the session. The pull asks for its passphrase through `callbacks.unlock`
+   * and ends the sequence with this: success closes the dialog, a refusal is shown in it. No-op when no unlock dialog is waiting.
+   */
+  settleUnlock(verdict: UnlockResult): void;
   /** Close any open dialog without answering it (plugin unload). */
   dispose(): void;
 }
@@ -213,6 +218,7 @@ export function createSessionDialogs(factories: DialogFactories): SessionDialogs
   return {
     callbacks,
     settling: (session) => ({ ...session, unlock: () => settled(() => session.unlock()), setup: () => settled(() => session.setup()) }),
+    settleUnlock: (verdict) => answer(unlockFlow, verdict),
     dispose: () => {
       unlockFlow?.handle?.close();
       setupFlow?.handle?.close();

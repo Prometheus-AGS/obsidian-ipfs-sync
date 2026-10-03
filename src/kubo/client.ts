@@ -36,7 +36,7 @@ export function createKuboClient(endpoints: KuboClientEndpoints): KuboClient {
     keyGen: (name) => generateKey(rpc, name, transport),
     pinAdd: (cid) => addPin(rpc, cid, transport),
     namePublish: (key, cid, ttl) => publishName(rpc, key, cid, ttl, transport),
-    nameResolve: (name) => resolveName(rpc, name, transport),
+    nameResolve: (name, options) => resolveName(rpc, name, transport, options),
     gatewayFetch: (cid, path) => fetchGatewayBytes(gateway, cid, path, transport),
     gatewayStream: (cid, path, range) => openGatewayStream(gateway, cid, path, range, transport),
   };

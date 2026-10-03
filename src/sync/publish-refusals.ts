@@ -5,6 +5,8 @@
  */
 
 import { ABANDON_HOW } from "./abandon-hint";
+import { escapeForDisplay } from "./path-policy";
+import { PATH_LIMITS, type PathLimitViolation } from "./path-limits";
 
 export type PublishRefusalCode =
   | "sequence-behind"
@@ -23,6 +25,9 @@ export type PublishRefusalCode =
   | "lock-lost"
   | "lock-unsupported"
   | "publication-key-changed"
+  | "overlapping-publish"
+  | "sequence-below-floor"
+  | "name-routing-failed"
   | "passphrase-required"
   | "no-vault"
   | "plaintext-root"
@@ -34,7 +39,9 @@ export type PublishRefusalCode =
   | "file-changed"
   | "file-unreadable"
   | "history-full"
-  | "history-junk";
+  | "history-junk"
+  | "floor-not-recorded"
+  | "path-limit";
 
 export class PublishRefusedError extends Error {
   readonly code: PublishRefusalCode;
@@ -56,19 +63,22 @@ export function sequenceBehind(node: number, local: number): PublishRefusedError
   );
 }
 
+/** What to do when the node is ahead of this device. Never `--repair`: a device with a record or a floor catches up by pulling. */
+const PULL_FIRST = "Run pull first, then publish again.";
+
 export function sequenceAhead(node: number, local: number | undefined): PublishRefusedError {
   const seen = local === undefined ? "this device has no record of a publish to this root" : `this device's record has sequence ${local}`;
   return new PublishRefusedError(
     "sequence-ahead",
-    `the node's manifest has sequence ${node} and ${seen}; another device may have published, or a local record was restored from a backup. ` +
-      `Run publish with --repair to continue from the node's sequence (changes made by any other publisher will be discarded), or ${ABANDON}.`,
+    `the node's manifest has sequence ${node} and ${seen}; another device published sequence ${node}. ${PULL_FIRST} Nothing was written.`,
   );
 }
 
 export function sequenceFork(sequence: number): PublishRefusedError {
   return new PublishRefusedError(
     "sequence-fork",
-    `the node holds a different manifest at sequence ${sequence} than this device published; another publisher wrote to this root. The repair action does not apply; ${ABANDON}.`,
+    `the node holds a different manifest at sequence ${sequence} than this device published; another device published at the same time. ` +
+      `Run pull --resolve-fork to keep both versions of any file that differs, then publish again. Nothing was written.`,
   );
 }
 
@@ -131,6 +141,11 @@ export function repairRefused(reason: string): PublishRefusedError {
   return new PublishRefusedError("repair-refused", `--repair is not allowed here: ${reason}. The remaining option is to ${ABANDON}.`);
 }
 
+/** `--repair` refused for the ahead case: the way forward is pull, so the text does not offer abandon. */
+export function repairAheadRefused(reason: string): PublishRefusedError {
+  return new PublishRefusedError("repair-refused", `--repair is not allowed here: ${reason}. ${PULL_FIRST}`);
+}
+
 export function repairDeclined(): PublishRefusedError {
   return new PublishRefusedError("repair-declined", "--repair was not confirmed; nothing was written.");
 }
@@ -160,6 +175,96 @@ export function publicationKeyChanged(name: string): PublishRefusedError {
   return new PublishRefusedError(
     "publication-key-changed",
     `the publication key "${name}" on the node is missing, or is not the key this publish verified; nothing was published under it. Check the key on the node and the key name in the configuration.`,
+  );
+}
+
+/**
+ * The publication name does not point where it did when this publish started (or when the interrupted publish it resumes
+ * started): another device may have published in between. Nothing is published; whatever this run wrote to the node's
+ * tree stays as written, and the interrupted-publish record stays too (the next pull sets it aside).
+ */
+export function overlappingPublish(): PublishRefusedError {
+  return new PublishRefusedError(
+    "overlapping-publish",
+    "another device may have published to this vault while this publish was running: the publication name no longer points where it did when this publish started. " +
+      "Nothing was published. Run pull first, then publish again.",
+  );
+}
+
+/**
+ * This device has accepted a higher sequence of the vault than the one it would publish from (review-final A-02): its record is
+ * missing, or lower than the sequence floor, so a publish would start the vault over below what every device that holds the
+ * floor refuses. The way out is a pull; nothing was written.
+ */
+export function belowSequenceFloor(floor: number, local: number | undefined): PublishRefusedError {
+  const seen = local === undefined ? "this device has no record of a publish to this root" : `this device's record has sequence ${local}`;
+  return new PublishRefusedError(
+    "sequence-below-floor",
+    `this device has already accepted sequence ${floor} of this vault (its sequence floor) and ${seen}, so a publish from here would go out below sequence ${floor} and be refused by every device that holds the floor. ` +
+      "Run pull first, then publish again. Nothing was written.",
+  );
+}
+
+/** The publication name could not be read, so an overlapping publish could not be ruled out. Fixed text: the node's own message stays out of it. */
+export function nameRoutingFailed(): PublishRefusedError {
+  return new PublishRefusedError(
+    "name-routing-failed",
+    "the publication name could not be read (name routing did not answer in time, or answered an error this tool does not recognise), so this publish cannot rule out that another device published at the same time. " +
+      "Nothing was published. Check the node's network and publish again.",
+  );
+}
+
+/**
+ * The name was published, then the sequence floor could not be written (a device-store lock wait that timed out, a full disk;
+ * review-final N-04). The publication is real and the floor raise is deliberately after it, so the message must not claim that nothing
+ * was written. The state file was not written and the journal was kept: the next publish finishes this record (pin, name, floor, state).
+ * `reason` is the store's own message (it names the lock file, a local path).
+ */
+export function floorNotRecorded(sequence: number, reason: string, cause: unknown): PublishRefusedError {
+  return new PublishRefusedError(
+    "floor-not-recorded",
+    `the vault was published (sequence ${sequence}; the publication name now points at it), but this device could not record its sequence floor: ${reason.replace(/[.\s]+$/, "")}. ` +
+      "The local state was not written and the record of this publish was kept. Run publish again: it completes this publication without uploading anything.",
+    { cause },
+  );
+}
+
+/** A local file this device would publish, and the limit its path breaks. */
+export interface PathOverLimit {
+  readonly path: string;
+  readonly limit: PathLimitViolation;
+}
+
+const LIMIT_TEXT: Readonly<Record<PathLimitViolation, string>> = {
+  "path-too-long": `the whole path is over ${PATH_LIMITS.maxPathBytes} bytes`,
+  "segment-too-long": `a segment (one file or folder name) in it is over ${PATH_LIMITS.maxSegmentBytes} bytes`,
+  "too-many-segments": `it has more than ${PATH_LIMITS.maxSegments} segments (folders and the file name)`,
+};
+
+const SHOWN_PATH_CODE_POINTS = 120;
+
+/** A local path for a message: cut, then escaped (control and bidirectional characters become visible escapes). */
+function shownLocalPath(path: string): string {
+  const points = Array.from(path);
+  const cut = points.length > SHOWN_PATH_CODE_POINTS ? `${points.slice(0, SHOWN_PATH_CODE_POINTS).join("")}...` : path;
+  return `"${escapeForDisplay(cut)}"`;
+}
+
+/**
+ * Local files whose path is over a limit of the manifest (review-final N-01). These are this device's own paths, so they are named
+ * (cut and escaped). The refusal is written for the writer, never as "a newer or incompatible version", and is raised before anything
+ * is sent. Policy: the whole publish is refused, never a quiet exclusion, so a file that cannot be published never just fails to
+ * appear on another device. Consequence: one such file blocks every publish from this vault until it is renamed or moved.
+ */
+export function pathOverLimit(offenders: readonly PathOverLimit[]): PublishRefusedError {
+  const limit = 3;
+  const named = offenders.slice(0, limit).map((offender) => `${shownLocalPath(offender.path)} (${LIMIT_TEXT[offender.limit]})`);
+  const more = offenders.length > limit ? ` and ${offenders.length - limit} more` : "";
+  return new PublishRefusedError(
+    "path-limit",
+    `the vault was not published: ${offenders.length === 1 ? "a file in it has" : "files in it have"} a path over this tool's limits (at most ${PATH_LIMITS.maxPathBytes} bytes per path, ` +
+      `${PATH_LIMITS.maxSegmentBytes} bytes per segment and ${PATH_LIMITS.maxSegments} segments, counted in UTF-8): ${named.join(", ")}${more}. ` +
+      "Rename or move it, then publish again. Nothing was sent to the node.",
   );
 }
 

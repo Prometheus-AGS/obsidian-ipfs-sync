@@ -89,6 +89,11 @@ describe("settings migration", () => {
     expect(settings.userExclusions).toEqual(["private/"]);
   });
 
+  it("drops every legacy line under .obsidian/, including the six former defaults and the user's own, since the whole folder is a default now", () => {
+    const { settings } = loadSettings(oldData({ excludedPaths: [...OLD_DEFAULT_EXCLUDES, ".obsidian/snippets/", "private/", ".Obsidian/x"].join("\n") }));
+    expect(settings.userExclusions).toEqual(["private/", ".Obsidian/x"]);
+  });
+
   it("leaves ownedKeys empty even when the stored data has some", () => {
     const { settings } = loadSettings(oldData({ ownedKeys: ["k51stolen"] }));
     expect(settings.ownedKeys).toEqual([]);

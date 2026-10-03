@@ -67,9 +67,17 @@ describe("plugin entry: pull", () => {
     vi.unstubAllGlobals();
   });
 
-  it("registers Publish, Pull, Status, Abandon and Clear stale lock commands, and a ribbon icon for each of Publish and Pull", async () => {
+  it("registers Publish, Pull, Restore, Resolve fork, Status, Abandon and Clear stale lock commands, and a ribbon icon for each of Publish and Pull", async () => {
     const { stub } = await loadPlugin(settings(), new MemoryAdapter());
-    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual(["publish-vault:Publish vault", "pull-vault:Pull vault", "show-status:Show status", "abandon-vault:Abandon this vault", "clear-stale-lock:Clear stale publish lock"]);
+    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual([
+      "publish-vault:Publish vault",
+      "pull-vault:Pull vault",
+      "restore-version:Restore an older version",
+      "resolve-fork:Resolve fork",
+      "show-status:Show status",
+      "abandon-vault:Abandon this vault",
+      "clear-stale-lock:Clear stale publish lock",
+    ]);
     expect(stub.ribbonIcons.map((r) => r.title)).toEqual(["IPFS Sync: publish vault", "IPFS Sync: pull vault"]);
     expect(stub.statusBarItems).toHaveLength(1);
   });
@@ -97,9 +105,9 @@ describe("plugin entry: pull", () => {
     const copy = [...adapter.files.keys()].find((path) => path.startsWith("a (ipfs conflict"));
     expect(adapter.text(copy ?? "")).toBe("local text");
 
-    // Read-only: name resolve, key list and gateway GETs, all through requestUrl.
+    // Read-only: name resolve, key list, one listing of the root (the decrypting pull's first look, which finds no key slots here) and gateway GETs, all through requestUrl.
     expect(paths.length).toBeGreaterThan(0);
-    for (const path of paths) expect(path, path).toMatch(/^(POST \/api\/v0\/(key\/list|name\/resolve)|GET \/ipfs\/)/);
+    for (const path of paths) expect(path, path).toMatch(/^(POST \/api\/v0\/(key\/list|name\/resolve|ls)|GET \/ipfs\/)/);
     expect(fetchSpy).not.toHaveBeenCalled();
 
     const stored = stub.data as { lastPull?: Record<string, unknown> };
@@ -118,7 +126,7 @@ describe("plugin entry: pull", () => {
     const outcome = await plugin.pullVault();
     expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
     expect(requestUrlCalls).toEqual([]);
-    expect(Notice.shown.map((n) => n.message).join("\n")).toContain("Pull of a real vault is not available in this build");
+    expect(Notice.shown.map((n) => n.message).join("\n")).toContain("stays disabled in this build");
     expect(adapter.text("notes/real.md")).toBe("private");
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
   });
@@ -146,6 +154,20 @@ describe("plugin entry: pull", () => {
     expect(Notice.shown).toEqual([]);
   });
 
+  it("sweeps the temp folder once the layout is ready, never inside onload, and sends no request", async () => {
+    const adapter = fixtureVault();
+    adapter.put(".ipfs-sync/tmp/stale-1.part", "partial", 1000);
+    const loaded = await loadPlugin(settings({ catchUpOnLoad: false }), adapter);
+    expect(adapter.files.has(".ipfs-sync/tmp/stale-1.part")).toBe(true);
+    expect(adapter.files.has(".ipfs-sync/publish.lock")).toBe(false);
+
+    loaded.app.workspace.markLayoutReady();
+    await vi.waitFor(() => expect(adapter.files.has(".ipfs-sync/tmp/stale-1.part")).toBe(false));
+    expect(adapter.files.has(".ipfs-sync/publish.lock")).toBe(false);
+    expect(requestUrlCalls).toEqual([]);
+    expect(Notice.shown).toEqual([]);
+  });
+
   it("waits for the layout, pulls once when catch-up is on, and shows nothing when the vault is already current", async () => {
     const adapter = fixtureVault();
     const first = await loadPlugin(settings(), adapter);
@@ -157,7 +179,7 @@ describe("plugin entry: pull", () => {
     requestUrlCalls.length = 0;
     const second = await loadPlugin({ ...(first.stub.data as PluginSettings), catchUpOnLoad: true }, adapter);
     // The plugin has loaded; nothing is requested until the workspace is ready.
-    expect(second.stub.commands).toHaveLength(5);
+    expect(second.stub.commands).toHaveLength(7);
     expect(requestUrlCalls).toEqual([]);
 
     second.app.workspace.markLayoutReady();
@@ -171,7 +193,7 @@ describe("plugin entry: pull", () => {
       throw new Error("network is unreachable");
     });
     const loaded = await loadPlugin(settings({ catchUpOnLoad: true }), fixtureVault());
-    expect(loaded.stub.commands).toHaveLength(5);
+    expect(loaded.stub.commands).toHaveLength(7);
     expect(Notice.shown).toEqual([]);
 
     loaded.app.workspace.markLayoutReady();
@@ -187,7 +209,7 @@ describe("plugin entry: pull", () => {
     const loaded = await loadPlugin(settings({ catchUpOnLoad: true }), adapter);
     loaded.app.workspace.markLayoutReady();
     await vi.waitFor(() => expect(Notice.shown).toHaveLength(1));
-    expect(Notice.shown[0]?.message).toContain("Pull of a real vault is not available in this build");
+    expect(Notice.shown[0]?.message).toContain("stays disabled in this build");
     expect(requestUrlCalls).toEqual([]);
   });
 

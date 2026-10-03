@@ -5,6 +5,8 @@ import type { Bytes, HostFs } from "../core/host-bridge";
 import { BLOB_SEGMENT_OVERHEAD, CryptoError, blobMfsPath, blobNameFor, createBlobEncryption, type VaultKeys } from "../crypto";
 import { isMissingPathError, type KuboClient } from "../kubo";
 import { writeBytesToMfs } from "./chunked-write";
+import type { SkippedFile } from "./diff";
+import { FileChangedDuringReadError } from "./host-errors";
 import { runPool, type PoolFailure } from "./pool";
 import { WriteVerificationError } from "./publish-errors";
 import { PublishRefusedError, fileChangedWhileReading, fileUnreadable, remoteObjectInvalid } from "./publish-refusals";
@@ -43,6 +45,12 @@ export interface TransferContext {
   readonly concurrency?: number;
   /** Called before each request that changes the node; the publish lock check goes here. */
   readonly beforeWrite: () => void;
+  /**
+   * Called for a file that changed while it was being read for upload (`FileChangedDuringReadError`): the file is
+   * left out of this run's blobs and uploaded whole by the next run. Without it such a file stops the publish with
+   * the `file-changed` refusal, as a file that shrank does.
+   */
+  readonly onSkipped?: (file: SkippedFile) => void;
 }
 
 /** One file to encrypt and send. */
@@ -112,6 +120,7 @@ function hashingReader(fs: Pick<HostFs, "readRange">, path: string, blob: string
     try {
       chunk = await fs.readRange(path, offset, length);
     } catch (error) {
+      if (error instanceof FileChangedDuringReadError) throw error;
       throw fileUnreadable(blob, error);
     }
     hasher.update(chunk);
@@ -170,6 +179,18 @@ export async function writeEncryptedBlob(ctx: TransferContext, job: BlobJob): Pr
   return { path: job.path, blob, fileId: encryption.fileId, sha256: bytesToHex(hasher.digest()), size: job.size, cid: stat.cid };
 }
 
+/** Write one job; a file that changed during its read is reported through `onSkipped` and yields nothing (or the `file-changed` refusal when nobody listens). */
+async function writeOrSkip(ctx: TransferContext, job: BlobJob): Promise<WrittenBlob | undefined> {
+  try {
+    return await writeEncryptedBlob(ctx, job);
+  } catch (error) {
+    if (!(error instanceof FileChangedDuringReadError)) throw error;
+    if (ctx.onSkipped === undefined) throw fileChangedWhileReading();
+    ctx.onSkipped({ path: job.path, reason: "it changed while it was being read for upload; it is left out of this publish and uploaded whole by the next one" });
+    return undefined;
+  }
+}
+
 /** Write every job: small files with the configured concurrency, then large ones two at a time. After the first failure nothing new starts. */
 export async function writeEncryptedBlobs(ctx: TransferContext, jobs: readonly BlobJob[]): Promise<readonly WrittenBlob[]> {
   const groups = [
@@ -178,9 +199,9 @@ export async function writeEncryptedBlobs(ctx: TransferContext, jobs: readonly B
   ];
   const written: WrittenBlob[] = [];
   for (const group of groups) {
-    const outcome = await runPool(group.jobs, (job) => writeEncryptedBlob(ctx, job), group.lanes);
+    const outcome = await runPool(group.jobs, (job) => writeOrSkip(ctx, job), group.lanes);
     if (outcome.failures.length > 0) return raise(outcome.failures, (job) => blobNameFor(ctx.keys, job.path));
-    written.push(...outcome.completed.map(({ value }) => value));
+    written.push(...outcome.completed.flatMap(({ value }) => (value === undefined ? [] : [value])));
   }
   return written;
 }

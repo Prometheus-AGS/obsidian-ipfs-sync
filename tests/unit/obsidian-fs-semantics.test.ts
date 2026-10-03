@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Bytes } from "../../src/core/host-bridge";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
-import { HostPathError, HostReadCapError } from "../../src/sync/host-errors";
+import { FileChangedDuringReadError, HostPathError, HostReadCapError } from "../../src/sync/host-errors";
 import { MemoryAdapter } from "../support/memory-adapter";
 
 const MB = 1024 * 1024;
@@ -135,6 +135,9 @@ describe("obsidian fs semantics: read cap", () => {
     adapter.put("big.bin", new Uint8Array(9 * MB));
     const { fs } = host(adapter, 8);
     await expect(fs.readRange("big.bin", 0, 10)).rejects.toBeInstanceOf(HostReadCapError);
+    await expect(fs.readRange("big.bin", 4, 10)).rejects.toBeInstanceOf(HostReadCapError);
+    // Refused before it was loaded, at the first segment and at a later one.
+    expect(adapter.reads).toEqual([]);
     await fs.write("also-big.bin", new Uint8Array(9 * MB));
     expect(adapter.files.get("also-big.bin")?.data.byteLength).toBe(9 * MB);
   });
@@ -167,5 +170,76 @@ describe("obsidian fs semantics: bounded download", () => {
     expect(adapter.appended).toHaveLength(chunks - 1);
     expect(Math.max(...adapter.appended)).toBe(8 * MB);
     expect(adapter.total + 8 * MB).toBe(200 * MB);
+  });
+});
+
+describe("obsidian fs semantics: one read per ranged file (W-16)", () => {
+  const letters = (count: number, letter: string): string => letter.repeat(count);
+
+  it("loads the file once and serves every segment from that copy, in order or not", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.put("big.bin", "0123456789");
+    adapter.put("other.bin", "abcdef");
+    const { fs } = host(adapter);
+    expect(text(await fs.readRange("big.bin", 0, 4))).toBe("0123");
+    expect(text(await fs.readRange("other.bin", 0, 3))).toBe("abc");
+    expect(text(await fs.readRange("big.bin", 4, 4))).toBe("4567");
+    expect(text(await fs.readRange("other.bin", 3, 3))).toBe("def");
+    expect(text(await fs.readRange("big.bin", 8, 4))).toBe("89");
+    expect(adapter.reads).toEqual(["big.bin", "other.bin"]);
+  });
+
+  it("checks size and mtime before the first segment and after the last, and no sooner", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.put("big.bin", letters(10, "a"));
+    const { fs } = host(adapter);
+    adapter.calls.length = 0;
+    await fs.readRange("big.bin", 0, 4);
+    expect(adapter.calls).toEqual(["stat big.bin"]);
+    await fs.readRange("big.bin", 4, 4);
+    expect(adapter.calls).toEqual(["stat big.bin"]);
+    await fs.readRange("big.bin", 8, 4);
+    expect(adapter.calls).toEqual(["stat big.bin", "stat big.bin"]);
+  });
+
+  it("raises FileChangedDuringReadError when the mtime changed between segments, then reads the new version whole", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.put("big.bin", letters(10, "a"), 1000);
+    const { fs } = host(adapter);
+    expect(text(await fs.readRange("big.bin", 0, 4))).toBe("aaaa");
+    adapter.put("big.bin", letters(10, "b"), 2000);
+    expect(text(await fs.readRange("big.bin", 4, 4))).toBe("aaaa");
+    const error = await fs.readRange("big.bin", 8, 4).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(FileChangedDuringReadError);
+    expect((error as Error).message).toContain("big.bin");
+    // The stale copy is gone: the next pass starts at offset 0 and sees only the new version.
+    expect(text(await fs.readRange("big.bin", 0, 6))).toBe("bbbbbb");
+    expect(text(await fs.readRange("big.bin", 6, 6))).toBe("bbbb");
+    expect(adapter.reads).toEqual(["big.bin", "big.bin"]);
+  });
+
+  it("raises it when the size changed with the same mtime, and when the file was removed", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.put("grow.bin", letters(10, "a"), 1000);
+    adapter.put("gone.bin", letters(10, "a"), 1000);
+    const { fs } = host(adapter);
+    await fs.readRange("grow.bin", 0, 5);
+    await fs.readRange("gone.bin", 0, 5);
+    adapter.put("grow.bin", letters(12, "a"), 1000);
+    adapter.files.delete("gone.bin");
+    await expect(fs.readRange("grow.bin", 5, 5)).rejects.toBeInstanceOf(FileChangedDuringReadError);
+    await expect(fs.readRange("gone.bin", 5, 5)).rejects.toBeInstanceOf(FileChangedDuringReadError);
+  });
+
+  it("raises it for a file read in one call when it changed while it was being loaded", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.put("note.md", "first", 1000);
+    const readBinary = adapter.readBinary.bind(adapter);
+    adapter.readBinary = async (path) => {
+      const data = await readBinary(path);
+      adapter.put(path, "second version", 2000);
+      return data;
+    };
+    await expect(host(adapter).fs.readRange("note.md", 0, 100)).rejects.toBeInstanceOf(FileChangedDuringReadError);
   });
 });

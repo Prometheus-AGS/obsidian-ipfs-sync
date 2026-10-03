@@ -1,3 +1,4 @@
+import { mergeDeviceStore } from "./device-store-plugin";
 import { loadSettings, type LoadResult } from "./settings-migration";
 import type { PluginSettings } from "./settings-model";
 
@@ -10,7 +11,8 @@ export interface PluginDataPort {
 /**
  * The single owner of the plugin's stored data. The settings tab, the key-value capability and the
  * publish runner all change it through `update`, so no writer clobbers another: each change is applied
- * on top of the latest state, saved, and only then made visible.
+ * on top of the latest state, saved, and only then made visible. It is also the single writer of the device store
+ * section: every save keeps the per-vault maximum of the sequence floor (`mergeDeviceStore`).
  */
 export interface SettingsStore {
   get(): PluginSettings;
@@ -31,7 +33,10 @@ export function createSettingsStore(port: PluginDataPort, initial: LoadResult): 
   let queue: Promise<unknown> = Promise.resolve();
 
   async function apply(change: (settings: PluginSettings) => PluginSettings): Promise<PluginSettings> {
-    const next = change(current);
+    const changed = change(current);
+    // Whatever `change` was built from, the saved sequence floor and device id are never lowered or replaced.
+    const deviceStore = mergeDeviceStore(current.deviceStore, changed.deviceStore);
+    const next = deviceStore === changed.deviceStore ? changed : { ...changed, deviceStore };
     await port.saveData(next);
     current = next;
     return next;

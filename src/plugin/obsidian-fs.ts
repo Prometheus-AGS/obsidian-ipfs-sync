@@ -1,5 +1,5 @@
 import type { Bytes, HostFs, HostFsEntry, HostFsLstat, HostFsStat } from "../core/host-bridge";
-import { HostPathError, HostReadCapError } from "../sync/host-errors";
+import { FileChangedDuringReadError, HostPathError, HostReadCapError } from "../sync/host-errors";
 import { DEFAULT_MAX_READ_MB, readCapBytes } from "./read-cap";
 
 /**
@@ -20,6 +20,13 @@ export interface VaultAdapter {
 export interface ObsidianFsOptions {
   /** Largest file a read may load, in megabytes. Defaults to 64. */
   readonly maxReadMb?: number;
+}
+
+/** The one copy of a file that `readRange` serves from, with the size and mtime seen before it was loaded. */
+interface RangeSource {
+  readonly bytes: Uint8Array<ArrayBuffer>;
+  readonly size: number;
+  readonly mtime: number;
 }
 
 /** Obsidian's spelling of the vault root (what `normalizePath("")` returns). */
@@ -59,9 +66,13 @@ function toArrayBuffer(data: Bytes): ArrayBuffer {
 
 /**
  * Host file system over the Obsidian vault adapter. Limits, all from the adapter's API:
- * - `readRange` has no platform primitive: it reads the whole file and returns a copy of the slice, so
- *   one very large file can still exhaust mobile memory. Only one file is read per call, and a file above
- *   the read cap is refused with a `HostReadCapError` before it is loaded.
+ * - `readRange` has no platform primitive: it reads the whole file ONCE and serves the following segments of
+ *   that file from the copy, so one very large file can still exhaust mobile memory (one copy per file being
+ *   read, each bounded by the read cap). A file above the read cap is refused with a `HostReadCapError` before
+ *   it is loaded. The size and modification time are taken before the file is loaded and compared again when
+ *   the last byte has been served; a difference raises `FileChangedDuringReadError` (the copy may mix two
+ *   versions) and the copy is dropped. A read at offset 0 always loads afresh. A copy is also dropped when its
+ *   last byte is served; one left by a caller that stopped early is replaced by the next read at offset 0.
  * - `lstat` cannot see symbolic links (the adapter has no lstat); it reports what `stat` reports.
  * - `rename` onto an existing file removes the target first, so it is not atomic; a missing source is
  *   refused before the target is touched.
@@ -90,6 +101,39 @@ export function createObsidianFs(adapter: VaultAdapter, options: ObsidianFsOptio
     return new Uint8Array(await adapter.readBinary(clean));
   };
 
+  /** Copies of files being read range by range, by vault path: bytes plus the stat taken before loading. */
+  const sources = new Map<string, RangeSource>();
+
+  const loadSource = async (clean: string): Promise<RangeSource> => {
+    const info = await adapter.stat(clean);
+    if (info?.type === "file" && info.size > capBytes) throw new HostReadCapError(clean, info.size, capBytes);
+    const bytes = new Uint8Array(await adapter.readBinary(clean));
+    return { bytes, size: info?.size ?? bytes.byteLength, mtime: info?.mtime ?? Number.NaN };
+  };
+
+  const assertUnchanged = async (clean: string, source: RangeSource): Promise<void> => {
+    const after = await adapter.stat(clean);
+    if (after?.type !== "file" || after.size !== source.size || after.mtime !== source.mtime || source.bytes.byteLength !== source.size) {
+      throw new FileChangedDuringReadError(clean);
+    }
+  };
+
+  const readRange = async (path: string, offset: number, length: number): Promise<Uint8Array<ArrayBuffer>> => {
+    const clean = assertVaultPath(path);
+    let source = offset === 0 ? undefined : sources.get(clean);
+    if (source === undefined) {
+      sources.delete(clean);
+      source = await loadSource(clean);
+      sources.set(clean, source);
+    }
+    const slice = source.bytes.slice(offset, offset + length);
+    if (offset + length >= source.size) {
+      sources.delete(clean);
+      await assertUnchanged(clean, source);
+    }
+    return slice;
+  };
+
   const entryFor = async (fullPath: string): Promise<HostFsEntry | undefined> => {
     const info = await statAt(fullPath);
     return info === undefined ? undefined : { name: baseName(fullPath), ...info };
@@ -104,7 +148,7 @@ export function createObsidianFs(adapter: VaultAdapter, options: ObsidianFsOptio
     },
     stat: statAt,
     read: readAll,
-    readRange: async (path, offset, length) => (await readAll(path)).slice(offset, offset + length),
+    readRange,
     write: async (path, data) => {
       const clean = assertVaultPath(path);
       await ensureDirectory(parentOf(clean));

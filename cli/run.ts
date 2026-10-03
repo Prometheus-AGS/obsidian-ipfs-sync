@@ -1,6 +1,7 @@
 import { ConfigError } from "../src/core/config";
 import type { CanonicalPassphrase } from "../src/crypto";
 import { createKuboClient } from "../src/kubo";
+import type { FreeBytes } from "../src/sync/encrypted-pull-fetch";
 import { UsageError, parseCliArgs, type ParsedArgs } from "./args";
 import { runAbandon } from "./abandon-command";
 import { HELP_TEXT } from "./help-text";
@@ -28,6 +29,8 @@ export interface CliDeps extends ConfigDeps {
   readonly platform?: NodeJS.Platform;
   /** Default: the numeric user ID of this process, where the platform has one. */
   readonly userId?: number;
+  /** pull: free bytes on the volume of the vault. Default: Node `statfs` of the vault directory. */
+  readonly freeBytes?: FreeBytes;
 }
 
 function fileHost(deps: CliDeps): FileHost {
@@ -51,14 +54,24 @@ function checkOperands(args: ParsedArgs): string | undefined {
   return undefined;
 }
 
-/** `--name`, `--manifest`, `--manifest-file` and `--allow-plaintext-v1` belong to `pull` only. */
+/** The flags only `pull` understands; every other command refuses them. A flag that is off (a boolean left out) is `undefined` here. */
 function checkPullFlags(args: ParsedArgs): void {
   if (args.command === "pull") return;
+  const on = (flag: boolean): true | undefined => (flag ? true : undefined);
   const given = Object.entries({
     "--name": args.pull.name,
     "--manifest": args.pull.manifest,
     "--manifest-file": args.pull.manifestFile,
-    "--allow-plaintext-v1": args.pull.allowPlaintextV1 ? true : undefined,
+    "--allow-plaintext-v1": on(args.pull.allowPlaintextV1),
+    "--root-cid": args.pull.rootCid,
+    "--allow-rollback": on(args.pull.allowRollback),
+    "--resolve-fork": on(args.pull.resolveFork),
+    "--expect-min-sequence": args.pull.expectMinSequence,
+    "--expect-vault-id": args.pull.expectVaultId,
+    "--accept-first-pull": on(args.pull.acceptFirstPull),
+    "--max-bytes": args.pull.maxBytes,
+    "--accept-large": on(args.pull.acceptLarge),
+    "--list-versions": on(args.pull.listVersions),
   }).find(([, value]) => value !== undefined);
   if (given !== undefined) throw new UsageError(`${given[0]} is only valid for the pull command`);
 }
@@ -115,8 +128,9 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
     if (args.command === "init") {
       return await runInit({ config, client, io, vaultPath, env: deps.env, now: deps.now, passphraseFile: args.passphraseFile, terminal: deps.terminal, file: fileHost(deps) });
     }
+    const passphrase = deps.passphrase ?? (() => readVaultPassphrase({ ...fileHost(deps), env: deps.env, terminal: deps.terminal, warn: (text) => io.err(text) }));
     if (args.command === "pull") {
-      return await runPull({ config, client, io, vaultPath, flags: args.pull, env: deps.env, now: deps.now });
+      return await runPull({ config, client, io, vaultPath, flags: args.pull, env: deps.env, now: deps.now, passphrase, freeBytes: deps.freeBytes });
     }
     const configPath = args.configPath ?? DEFAULT_CONFIG_PATH;
     return await runPublish({
@@ -127,7 +141,7 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
       configPath,
       env: deps.env,
       now: deps.now,
-      passphrase: deps.passphrase ?? (() => readVaultPassphrase({ ...fileHost(deps), env: deps.env, terminal: deps.terminal, warn: (text) => io.err(text) })),
+      passphrase,
       flags: { breakLock: args.breakLock, repair: args.repair, recoverSlots: args.recoverSlots, allowFullReupload: args.allowFullReupload },
     });
   } finally {

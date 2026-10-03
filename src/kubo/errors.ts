@@ -1,12 +1,43 @@
 import type { EndpointName } from "../core/config";
 
-/** Base class for every failure raised by the shared client. Messages never carry credentials. */
+/**
+ * Control characters (C0, DEL, C1 with the control sequence introducer U+009B) and the bidirectional controls, as inclusive
+ * UTF-16 code unit ranges written as numbers so no invisible character sits in the source. They match `escapeForDisplay` in
+ * `sync/path-policy.ts`; this layer sits below the sync layer and cannot import it.
+ */
+const UNSAFE_RANGES: readonly (readonly [number, number])[] = [
+  [0x0000, 0x001f],
+  [0x007f, 0x009f],
+  [0x061c, 0x061c],
+  [0x200e, 0x200f],
+  [0x2028, 0x2029],
+  [0x202a, 0x202e],
+  [0x2066, 0x2069],
+];
+
+const isUnsafeUnit = (unit: number): boolean => UNSAFE_RANGES.some(([low, high]) => unit >= low && unit <= high);
+
+/**
+ * Text the node (or a proxy in front of it) supplied, made safe to print: each unsafe character becomes a backslash, `u` and four
+ * hex digits. A hostile node answering an error with terminal escape sequences could otherwise overwrite earlier lines or fake a
+ * status line. Idempotent: the backslash itself is not escaped.
+ */
+export function escapeNodeText(text: string): string {
+  let out = "";
+  for (let index = 0; index < text.length; index++) {
+    const unit = text.charCodeAt(index);
+    out += isUnsafeUnit(unit) ? `\\u${unit.toString(16).padStart(4, "0")}` : text.charAt(index);
+  }
+  return out;
+}
+
+/** Base class for every failure raised by the shared client. Messages never carry credentials, and never a raw control character. */
 export class KuboError extends Error {
   readonly endpoint: EndpointName;
   readonly url: string;
 
   constructor(endpoint: EndpointName, url: string, message: string, options?: { readonly cause?: unknown }) {
-    super(message, options);
+    super(escapeNodeText(message), options);
     this.name = new.target.name;
     this.endpoint = endpoint;
     this.url = url;

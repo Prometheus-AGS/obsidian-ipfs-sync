@@ -28,13 +28,14 @@ interface Rig {
   readonly saved: PluginSettings[];
 }
 
-function rig(options: { nodeKeys?: readonly NodeKey[] | Error; patch?: Partial<PluginSettings>; failSave?: boolean } = {}): Rig {
+function rig(options: { nodeKeys?: readonly NodeKey[] | Error; patch?: Partial<PluginSettings>; failSave?: boolean; configDir?: string } = {}): Rig {
   const store = memoryStore(options.patch, options.failSave);
   const saved: PluginSettings[] = [];
   const nodeKeys = options.nodeKeys ?? [];
   const vm = createSettingsViewModel({
     store,
     now: () => NOW,
+    ...(options.configDir === undefined ? {} : { configDir: options.configDir }),
     listNodeKeys: async () => {
       if (nodeKeys instanceof Error) throw nodeKeys;
       return nodeKeys;
@@ -193,7 +194,9 @@ describe("settings view model: exclusions", () => {
     const before = await r.vm.exclusions();
     expect(before.effective).toEqual(effectiveExclusions());
     expect(before.excludesHash).toBe(await excludesHash());
-    expect(before.effective).toContain(".obsidian/plugins/ipfs-sync/data.json");
+    expect(before.effective).toContain(".obsidian/");
+    expect(before.defaults).toContain(".obsidian/");
+    expect(before.effective).not.toContain(".obsidian/workspace.json");
 
     expect(await r.vm.addExclusion(" drafts/ ")).toEqual({ ok: true });
     const after = await r.vm.exclusions();
@@ -202,6 +205,17 @@ describe("settings view model: exclusions", () => {
     expect(after.excludesHash).not.toBe(before.excludesHash);
     expect(after.excludesHash).toBe(await excludesHash(["drafts/"]));
     expect(r.saved).toHaveLength(1);
+  });
+
+  it("adds a renamed configuration folder to the effective list and the hash, and leaves .obsidian alone", async () => {
+    const renamed = rig({ configDir: ".config-obs" });
+    const view = await renamed.vm.exclusions();
+    expect(view.effective).toContain(".config-obs/");
+    expect(view.user).toEqual([]);
+    expect(view.excludesHash).toBe(await excludesHash([".config-obs/"]));
+    const plain = await rig({ configDir: ".obsidian" }).vm.exclusions();
+    expect(plain.excludesHash).toBe(await excludesHash());
+    expect(plain.effective).toEqual(effectiveExclusions());
   });
 
   it("keeps the defaults: removing one is refused with an explanation", async () => {

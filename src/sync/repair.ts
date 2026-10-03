@@ -1,23 +1,29 @@
 import type { Bytes, HostKv } from "../core/host-bridge";
 import type { EncryptedManifest } from "./encrypted-manifest";
 import { deleteJournal } from "./journal";
-import { repairDeclined, repairRefused } from "./publish-refusals";
+import { repairAheadRefused, repairDeclined, repairRefused } from "./publish-refusals";
 import type { RootState } from "./root-state";
 import { sameBytes } from "./same-bytes";
-import type { SequenceVerdict } from "./sequence-rules";
+import type { FloorEntry } from "./sequence-floor";
+import { assertNotBelowFloor, type SequenceVerdict } from "./sequence-rules";
 
 /**
  * The explicit `--repair` action for a state refusal. It is allowed only when the node's manifest authenticates,
  * belongs to the same vault, and the node's key-slot file equals this device's copy byte for byte, and either
  * the node is behind this device (an older genuine manifest was put back) or this device's record is missing or
  * older than the node (for example a restored backup). It then publishes at the greater of the two sequences
- * plus one, through the normal drift path. The ahead case discards other publishers' changes, so it warns and
+ * plus one (and never at or below the sequence floor), through the normal drift path. The ahead case discards other publishers' changes, so it warns and
  * asks. Without these conditions the only recovery is the abandon action and a new MFS root.
  *
  * A node whose `manifest.enc` is absent or does not authenticate (for example a write that was cut short) has no
  * sequence to compare: the repair is allowed when this device has a record of publishing there (a local state or an
  * interrupted publish) and the node's key-slot file equals this device's copy; it always asks, then writes a new
  * manifest.enc at this device's sequence plus one.
+ *
+ * The ahead case is narrower than it was: a device that catches up does so by pulling. `--repair` refuses it when a
+ * sequence floor exists for the vault (this device accepted a manifest of it before, whatever happened to its state
+ * folder), when the local state decodes for the vault, and for a device with no state and no floor (a new device). It
+ * stays available only for a state file that exists and does not decode, with no floor, behind its confirmation.
  */
 
 export interface RepairFacts {
@@ -31,6 +37,10 @@ export interface RepairFacts {
   readonly vaultId: string;
   readonly nodeKeyslots: Bytes | undefined;
   readonly localKeyslots: Bytes | undefined;
+  /** The sequence floor kept for `vaultId` in the device-local store, when there is one. */
+  readonly floor?: FloorEntry | undefined;
+  /** A state file exists for this root and does not decode (so `local` is undefined). */
+  readonly stateUndecodable?: boolean | undefined;
 }
 
 export interface RepairPlan {
@@ -48,8 +58,17 @@ function aheadWarning(node: number, local: number | undefined, next: number): st
   const seen = local === undefined ? "this device has no record of a publish to this root" : `this device's record is at sequence ${local}`;
   return (
     `The node's manifest is at sequence ${node} and ${seen}. Repairing publishes this vault at sequence ${next}. ` +
-    "Changes made by any other publisher since then will be discarded."
+    "Changes made by any other publisher since then will be discarded. Pulling first is the safer route: cancel, run pull, then publish."
   );
+}
+
+/** The ahead case under `--repair`: only an undecodable state with no floor may continue (to the confirmation). */
+function assertAheadRepairable(facts: RepairFacts): void {
+  if (facts.floor !== undefined) {
+    throw repairAheadRefused(`this device already accepted sequence ${facts.floor.sequence} of this vault (its sequence floor), so the node being ahead means another device published`);
+  }
+  if (facts.local !== undefined) throw repairAheadRefused("this device has a usable record of this vault, so the node being ahead means another device published");
+  if (facts.stateUndecodable !== true) throw repairAheadRefused("this device has no record of this vault yet (a new device)");
 }
 
 function rebuildWarning(next: number): string {
@@ -70,11 +89,15 @@ export function planRepair(facts: RepairFacts): RepairPlan {
   if (rebuild && facts.recordSequence === undefined) throw repairRefused("this device has no record of publishing to this root (no local state and no interrupted publish)");
   if (node !== undefined && node.vaultId !== facts.vaultId) throw repairRefused("the node's manifest belongs to another vault");
   if (local !== undefined && local.vaultId !== facts.vaultId) throw repairRefused("this device's record belongs to another vault");
+  if (verdict.kind === "ahead") assertAheadRepairable(facts);
+  // A rebuild starts from this device's own record: with none, or one below the floor, it would write below what the device already accepted.
+  if (rebuild) assertNotBelowFloor(facts.floor, local);
   if (facts.localKeyslots === undefined) throw repairRefused("this device has no copy of the key-slot file to compare");
   if (facts.nodeKeyslots === undefined || !sameBytes(facts.nodeKeyslots, facts.localKeyslots)) {
     throw repairRefused("the node's key-slot file differs from this device's copy");
   }
-  const nextSequence = Math.max(local?.sequence ?? 0, node?.sequence ?? 0, facts.recordSequence ?? 0) + 1;
+  // The floor is a sequence this device accepted, possibly in another directory or through a pull that did not finish: never publish at or below it.
+  const nextSequence = Math.max(local?.sequence ?? 0, node?.sequence ?? 0, facts.recordSequence ?? 0, facts.floor?.sequence ?? 0) + 1;
   if (rebuild) return { kind: "rebuild", nextSequence, warning: rebuildWarning(nextSequence) };
   return {
     kind: verdict.kind as "behind" | "ahead",

@@ -1,4 +1,5 @@
 import { DEFAULT_GATEWAY_URL, DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, DEFAULT_RPC_URL, type AuthScheme } from "../core/config";
+import { PULL_CONFIRM_ABOVE_DEFAULT } from "../sync/pull-budget";
 import { DEFAULT_MAX_READ_MB } from "./read-cap";
 
 /** Version marker of the stored plugin data. Data without it is the previous plugin's form. */
@@ -8,6 +9,17 @@ export const SETTINGS_VERSION = 3;
 export const PREVIOUS_SETTINGS_VERSION = 2;
 
 export const AUTH_SCHEMES: readonly AuthScheme[] = ["none", "basic", "bearer", "header"];
+
+/** The pull ceiling: a pull that would fetch more than this many megabytes asks for confirmation first (mvp-07a design 14). The default is the pull's own ceiling, 512 MiB. */
+export const DEFAULT_PULL_CONFIRM_ABOVE_MB = PULL_CONFIRM_ABOVE_DEFAULT / (1024 * 1024);
+export const MIN_PULL_CONFIRM_ABOVE_MB = 64;
+export const MAX_PULL_CONFIRM_ABOVE_MB = 8192;
+
+export function isValidPullConfirmAboveMb(value: number): boolean {
+  return Number.isInteger(value) && value >= MIN_PULL_CONFIRM_ABOVE_MB && value <= MAX_PULL_CONFIRM_ABOVE_MB;
+}
+
+export const PULL_CONFIRM_RANGE_MESSAGE = `the pull ceiling must be a whole number of megabytes from ${MIN_PULL_CONFIRM_ABOVE_MB} to ${MAX_PULL_CONFIRM_ABOVE_MB}`;
 
 export interface EndpointSettings {
   readonly url: string;
@@ -76,10 +88,17 @@ export interface PluginSettings {
   readonly catchUpOnLoad: boolean;
   /** Largest file the plugin loads into memory, in megabytes (8 to 1024). */
   readonly maxReadMb: number;
+  /** A pull that fetches more than this many megabytes asks first (64 to 8192, default 512). Older stored data loads with the default. */
+  readonly pullConfirmAboveMb: number;
   readonly lastPull?: PullSummary;
   readonly lastPublish?: PublishSummary;
   /** Values of the key-value capability, base64. Kept in the same file as the settings. */
   readonly kv: Readonly<Record<string, string>>;
+  /**
+   * The device-local store (`src/plugin/device-store-plugin.ts`): entry name to base64 bytes. Holds the device id and the
+   * sequence floor. Only the settings store writes it, and it keeps every floor at its maximum on every save.
+   */
+  readonly deviceStore: Readonly<Record<string, string>>;
 }
 
 export function defaultSettings(): PluginSettings {
@@ -96,7 +115,9 @@ export function defaultSettings(): PluginSettings {
     pullName: "",
     catchUpOnLoad: false,
     maxReadMb: DEFAULT_MAX_READ_MB,
+    pullConfirmAboveMb: DEFAULT_PULL_CONFIRM_ABOVE_MB,
     kv: {},
+    deviceStore: {},
   };
 }
 

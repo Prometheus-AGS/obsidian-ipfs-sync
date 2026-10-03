@@ -164,6 +164,7 @@ describe("settings tab: keyboard order", () => {
       "Adopt a key by ID",
       "Adopt...",
       "Pull IPNS name",
+      "Ask before pulling more than (MB)",
       "Catch up on load",
       "Read cap (MB)",
     ];

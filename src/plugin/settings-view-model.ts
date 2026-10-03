@@ -2,7 +2,7 @@ import type { AuthScheme } from "../core/config";
 import type { NodeKey } from "../kubo";
 import { DEFAULT_EXCLUSIONS, effectiveExclusions, excludesHash } from "../sync/exclusions";
 import { createKeyAdoption, type KeyAdoption } from "./key-adoption";
-import { previewPullTarget } from "./pull-target";
+import { previewPullTarget, type PullTargetPreview } from "./pull-target";
 import { describePublish, describePull, describePullTarget, type ActivityView } from "./settings-activity";
 import {
   errorKeysOf,
@@ -16,7 +16,7 @@ import {
 } from "./settings-fields";
 import { AUTH_SCHEMES, type PluginSettings } from "./settings-model";
 import type { SettingsStore } from "./settings-store";
-import { validateSettings, type FieldError, type SettingsField } from "./settings-to-config";
+import { exclusionsWithConfigDir, validateSettings, type FieldError, type SettingsField } from "./settings-to-config";
 
 export { ADOPT_CONSEQUENCES, type AdoptState, type KeyStateView } from "./key-adoption";
 export { errorKeyOf, FIELD_IDS, PULL_FIELD_IDS, SECRET_FIELDS, type EditableFieldId, type FieldId, type PullFieldId } from "./settings-fields";
@@ -41,6 +41,11 @@ export interface SettingsViewState {
   readonly authPending: boolean;
   /** The "name that will be pulled" line, from what is stored: the entered name, the owned key's ID, or a note that none is available. */
   readonly pullTarget: string;
+  /** The same preview as data: the tab shows which of the two target kinds is in effect (an `explicit-root` gets the advanced-input note, copy in task 5.2). */
+  readonly pullTargetPreview: PullTargetPreview;
+  /** The pull ceiling in megabytes as stored, and the text of the field including an edit that could not be saved. */
+  readonly pullCeilingMb: number;
+  readonly pullCeilingText: string;
   /** The last pull and the last publish on this device: time, counts and root CID, or a note that none has run. */
   readonly lastPull: ActivityView;
   readonly lastPublish: ActivityView;
@@ -69,6 +74,8 @@ export interface SettingsViewModelDeps {
   readonly store: SettingsStore;
   readonly listNodeKeys: () => Promise<readonly NodeKey[]>;
   readonly now?: () => Date;
+  /** `vault.configDir`: added to the effective exclusions when it is not `.obsidian`, so the list and hash shown are what the engine applies. */
+  readonly configDir?: string;
   /** Called after a change was saved (the plugin re-arms its timer from it). */
   readonly onSaved?: (settings: PluginSettings) => void;
 }
@@ -79,6 +86,8 @@ export interface SettingsViewModel {
   visibleAuthFields(): readonly FieldId[];
   /** Change one field. A valid change is saved; an invalid one leaves the saved value alone and reports the error. */
   edit(field: EditableFieldId, text: string): Promise<EditResult>;
+  /** Change the pull ceiling (64 to 8192 megabytes): `edit("pullConfirmAboveMb", text)`. A valid value is saved, an invalid one reports the error under `pullConfirmAboveMb`. */
+  editPullCeiling(text: string): Promise<EditResult>;
   /** Drop unsaved edits and errors: the text goes back to what is stored. */
   reset(): SettingsViewState;
   exclusions(): Promise<ExclusionsView>;
@@ -123,6 +132,9 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       warnings: stored().warnings,
       authPending,
       pullTarget: describePullTarget(previewPullTarget(settings)),
+      pullTargetPreview: previewPullTarget(settings),
+      pullCeilingMb: settings.pullConfirmAboveMb,
+      pullCeilingText: values.pullConfirmAboveMb,
       lastPull: describePull(settings.lastPull),
       lastPublish: describePublish(settings.lastPublish),
     };
@@ -166,6 +178,7 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
     state: snapshot,
     visibleAuthFields: () => (isAuthScheme(values.authScheme) ? visibleAuthFields(values.authScheme) : []),
     edit,
+    editPullCeiling: (text) => edit("pullConfirmAboveMb", text),
     reset: () => {
       values = valuesFrom(deps.store.get());
       errors = {};
@@ -175,7 +188,8 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
 
     exclusions: async () => {
       const user = deps.store.get().userExclusions;
-      return { defaults: DEFAULT_EXCLUSIONS, user, effective: effectiveExclusions(user), excludesHash: await excludesHash(user) };
+      const applied = exclusionsWithConfigDir(user, deps.configDir);
+      return { defaults: DEFAULT_EXCLUSIONS, user, effective: effectiveExclusions(applied), excludesHash: await excludesHash(applied) };
     },
 
     addExclusion: async (raw) => {

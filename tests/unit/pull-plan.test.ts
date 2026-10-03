@@ -189,3 +189,51 @@ describe("planPull: excluded and device-local manifest paths", () => {
     expect(plan.decisions[0]).toMatchObject({ kind: "refused", reason: expect.stringContaining("plugin") });
   });
 });
+
+describe("planPull: the path policy applies to the plaintext route too (B2-01)", () => {
+  // Built from code points so no invisible or look-alike character sits in the source.
+  const DOTLESS_I = String.fromCodePoint(0x131);
+  const ZERO_WIDTH_JOINER = String.fromCodePoint(0x200d);
+  const forgedNames = [
+    `.obs${DOTLESS_I}dian/plugins/p/main.js`, // dotless i folds to i
+    ".obsidian./community-plugins.json", // trailing dot: NTFS resolves it to .obsidian
+    "OBSIDI~1/plugins/p/main.js", // 8.3 short name of .obsidian
+    `.ob${ZERO_WIDTH_JOINER}sidian/x`, // zero width joiner is ignorable
+    "CON.md",
+    "a:b",
+    ".OBSIDIAN/app.json",
+    ".git./config",
+  ];
+
+  it.each(forgedNames)("refuses %j and never reads the disk for it", async (name) => {
+    const host = createMemoryHost();
+    const plan = await planPull({ fs: host.fs, manifest: await manifestFor({ [name]: "x", "ok.md": "y" }), previous: undefined, forceVerify: false });
+    expect(plan.decisions.find((d) => d.path === name)).toMatchObject({ kind: "refused" });
+    expect(plan.decisions.find((d) => d.path === "ok.md")).toMatchObject({ kind: "fetch" });
+    expect(host.reads.count).toBe(0);
+  });
+
+  it("refuses every member of a case collision and of a file and directory prefix pair", async () => {
+    const plan = await planPull({
+      fs: createMemoryHost().fs,
+      manifest: await manifestFor({ "Notes/A.md": "1", "notes/a.md": "2", "dir": "3", "dir/child.md": "4", "fine.md": "5" }),
+      previous: undefined,
+      forceVerify: false,
+    });
+    const refused = plan.decisions.filter((d) => d.kind === "refused").map((d) => d.path);
+    expect(refused).toEqual(["Notes/A.md", "dir", "dir/child.md", "notes/a.md"]);
+    expect(plan.decisions.find((d) => d.path === "fine.md")).toMatchObject({ kind: "fetch" });
+  });
+
+  it("protects the host's configuration folder when one is given", async () => {
+    const plan = await planPull({ fs: createMemoryHost().fs, manifest: await manifestFor({ "My-Config/plugins/p/main.js": "c" }), previous: undefined, forceVerify: false, configDir: "my-config" });
+    expect(plan.decisions[0]).toMatchObject({ kind: "refused" });
+  });
+
+  it("gives a fixed reason that does not echo the path", async () => {
+    const plan = await planPull({ fs: createMemoryHost().fs, manifest: await manifestFor({ "OBSIDI~1/plugins/p/main.js": "c" }), previous: undefined, forceVerify: false });
+    const decision = plan.decisions[0];
+    expect(decision).toMatchObject({ kind: "refused" });
+    expect(decision?.kind === "refused" ? decision.reason : "").not.toContain("OBSIDI");
+  });
+});

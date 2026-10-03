@@ -12,6 +12,7 @@ import { acquirePublishLock, decodeLock, encodeLock, LOCK_STALE_MS } from "../..
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { initDiskVault, referencePassphraseSource } from "../helpers/cli-vault";
+import { stateEnv } from "../helpers/cli-state-env";
 
 const NOW = new Date("2026-09-30T12:00:00Z");
 
@@ -35,7 +36,7 @@ function sink(answer: boolean | undefined): Sink {
 }
 
 function deps(): CliDeps {
-  return { env: {}, now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource };
+  return { env: stateEnv(), now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource };
 }
 
 /** A process id that is certainly gone: a child that already exited. */

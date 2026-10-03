@@ -1,5 +1,6 @@
 import { assertMfsMutationPath } from "../core/config";
 import { KuboResponseTooLargeError, type MfsEntry } from "../kubo";
+import { compareHistoryNames, isHistoryName, parseHistoryName } from "./history-names";
 import { listIfPresent, type NodeReadClient } from "./node-reader";
 import type { TransferClient } from "./encrypted-transfer";
 import { historyFull, historyJunk, repairDeclined, repairRefused } from "./publish-refusals";
@@ -10,13 +11,12 @@ import type { ConfirmRepair } from "./repair";
  * one, and the read-back lists the folder through a client that refuses more than 2,000 entries. Left to the read-back,
  * the refusal would come after the journal, `manifest.enc` and the history file were written, and repeat forever. So the
  * folder is listed before anything is written: a warning at 1,500 entries, a refusal at 1,999 that names
- * `ipfs-sync prune-history`, and a refusal for any name that is not a history file (`<cid>.enc`, a file). Junk can be
+ * `ipfs-sync prune-history`, and a refusal for any name that is not a history file (`<16-digit sequence>-<cid>.enc` or the legacy `<cid>.enc`, a file). Junk can be
  * removed by this tool only through `--repair` and only after the user confirms.
  */
 
 export const HISTORY_WARN_AT = 1_500;
 export const HISTORY_REFUSE_AT = 1_999;
-const HISTORY_NAME = /^[A-Za-z0-9]{10,128}\.enc$/;
 const NAMES_SHOWN = 3;
 
 export interface HistoryView {
@@ -37,7 +37,16 @@ export async function listHistory(client: NodeReadClient, mfsRoot: string): Prom
 
 /** Names in `manifests/` that are not history files. */
 export function junkNames(view: HistoryView): readonly string[] {
-  return view.entries.filter((entry) => entry.type !== "file" || !HISTORY_NAME.test(entry.name)).map((entry) => entry.name).sort();
+  return view.entries.filter((entry) => entry.type !== "file" || !isHistoryName(entry.name)).map((entry) => entry.name).sort();
+}
+
+/** The history entries, oldest first: legacy names before every prefixed name, then by sequence. Entries that are not history files are left out. */
+export function sortHistory(view: HistoryView): readonly MfsEntry[] {
+  const parsed = view.entries.flatMap((entry) => {
+    const name = entry.type === "file" ? parseHistoryName(entry.name) : undefined;
+    return name === undefined ? [] : [{ entry, name }];
+  });
+  return parsed.sort((a, b) => compareHistoryNames(a.name, b.name)).map((item) => item.entry);
 }
 
 /** Refuse a folder that is too full to publish into; return a warning text for one that is getting there. */

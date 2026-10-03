@@ -1,10 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { BLOB_WRITER_EXPONENT, blobLength, blobMfsPath, decryptBlobBytes } from "../../src/crypto";
 import { sha256Hex } from "../../src/sync/hash";
-import { BlobTransferError, removeBlobPaths } from "../../src/sync/encrypted-transfer";
+import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
+import type { SkippedFile } from "../../src/sync/diff";
+import { BlobTransferError, removeBlobPaths, writeEncryptedBlobs, type TransferContext } from "../../src/sync/encrypted-transfer";
 import { PublishRefusedError } from "../../src/sync/publish-refusals";
 import { NodeKilled, createFakeNode } from "../helpers/fake-kubo";
 import { POOL_DEFAULT_CONCURRENCY } from "../../src/sync/pool";
+import { MemoryAdapter } from "../support/memory-adapter";
 import { KEY, ROOT, createRig, restoreRig, snapshotRig, type Rig, type RigSnapshot } from "../helpers/publish-rig";
 
 const SEGMENT = 2 ** BLOB_WRITER_EXPONENT;
@@ -234,4 +237,74 @@ describe("encrypted transfer: what an error may say, and which errors keep their
     expect(ranges.some((call) => call.endsWith(`bytes=0-${written}`))).toBe(true); // read-back of manifest.enc: its expected length + 1 (W-09)
     expect(ranges.some((call) => call.endsWith(`bytes=0-${64 * MIB}`))).toBe(false); // no read-back with the 64 MiB cap
   });
+});
+
+describe("encrypted transfer: a file edited while it is uploaded (W-16, Obsidian adapter)", () => {
+  async function setup(size: number, onSkipped?: (file: SkippedFile) => void) {
+    const rig = await rigWith({});
+    const adapter = new MemoryAdapter();
+    adapter.put("big.bin", patterned(size), 1000);
+    const { fs } = createObsidianHostBridge({ adapter });
+    const ctx: TransferContext = { client: rig.node.client, fs, keys: await rig.keys(), mfsRoot: ROOT, concurrency: 2, beforeWrite: () => undefined, onSkipped };
+    return { rig, adapter, fs, ctx };
+  }
+
+  it("skips a two-segment file edited between its segments with a notice, and uploads it whole on the next run", async () => {
+    const skipped: SkippedFile[] = [];
+    const { rig, adapter, fs, ctx } = await setup(SEGMENT + MIB, (file) => void skipped.push(file));
+    const readRange = fs.readRange.bind(fs);
+    let edited = false;
+    const editing: TransferContext = {
+      ...ctx,
+      fs: {
+        readRange: async (path, offset, length) => {
+          const chunk = await readRange(path, offset, length);
+          if (!edited) {
+            edited = true;
+            adapter.put("big.bin", patterned(SEGMENT + MIB), 2000);
+          }
+          return chunk;
+        },
+      },
+    };
+    const first = await writeEncryptedBlobs(editing, [{ path: "big.bin", size: SEGMENT + MIB }]);
+    expect(first).toEqual([]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]?.path).toBe("big.bin");
+    expect(skipped[0]?.reason).toContain("next one");
+
+    adapter.reads.length = 0;
+    const second = await writeEncryptedBlobs(ctx, [{ path: "big.bin", size: SEGMENT + MIB }]);
+    expect(second).toHaveLength(1);
+    expect(skipped).toHaveLength(1);
+    expect(adapter.reads).toEqual(["big.bin"]);
+    const blob = rig.node.files.get(`${ROOT}/${blobMfsPath(second[0]?.blob ?? "")}`) as Uint8Array;
+    const plain = await decryptBlobBytes(await rig.keys(), second[0]?.blob ?? "", blob, second[0]?.fileId ?? "", SEGMENT + MIB);
+    expect(await sha256Hex(plain)).toBe(second[0]?.sha256);
+  }, 30_000);
+
+  it("reads a file once per upload, however many segments it has", async () => {
+    const { adapter, ctx } = await setup(2 * SEGMENT + MIB);
+    const written = await writeEncryptedBlobs(ctx, [{ path: "big.bin", size: 2 * SEGMENT + MIB }]);
+    expect(written).toHaveLength(1);
+    expect(adapter.reads).toEqual(["big.bin"]);
+  }, 30_000);
+
+  it("stops the publish with the file-changed refusal when nobody listens for skipped files", async () => {
+    const { adapter, fs, ctx } = await setup(SEGMENT + MIB);
+    const readRange = fs.readRange.bind(fs);
+    const editing: TransferContext = {
+      ...ctx,
+      fs: {
+        readRange: async (path, offset, length) => {
+          const chunk = await readRange(path, offset, length);
+          adapter.put("big.bin", patterned(SEGMENT + MIB), 3000);
+          return chunk;
+        },
+      },
+    };
+    const error = await writeEncryptedBlobs(editing, [{ path: "big.bin", size: SEGMENT + MIB }]).then(() => undefined, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(PublishRefusedError);
+    expect(error).toMatchObject({ code: "file-changed" });
+  }, 30_000);
 });

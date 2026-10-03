@@ -59,8 +59,8 @@ describe("obsidian host bridge: fs", () => {
     expect(text(range)).toBe("3456");
     expect(range.buffer.byteLength).toBe(4);
     expect(text(await host.fs.readRange("big.bin", 8, 100))).toBe("89");
-    // Only the files that were asked for were read, one per call.
-    expect(adapter.reads).toEqual(["other.md", "big.bin", "big.bin"]);
+    // Only the files that were asked for were read; the second range is served from the copy the first one loaded.
+    expect(adapter.reads).toEqual(["other.md", "big.bin"]);
   });
 
   it("writes into a hidden folder that does not exist yet, creating each missing level", async () => {

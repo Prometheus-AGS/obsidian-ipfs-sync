@@ -46,7 +46,9 @@ describe("manifest caps", () => {
     const keys = await keysFrom(1, 2);
     const template = await entryFor(keys, "x");
     const heavy = createFilesMap();
-    for (let i = 0; i < 9; i++) heavy[`${i}${"y".repeat(1024 * 1024)}`] = template;
+    // Each path is within the 4096-byte path limit (B1-01), so it is the 8 MiB total that trips: 2,400 paths of about 3,600 bytes.
+    const deep = Array.from({ length: 14 }, () => "y".repeat(255)).join("/");
+    for (let i = 0; i < 2400; i++) heavy[`${i}/${deep}`] = template;
     const text = new TextDecoder().decode(serializeManifestV2({ ...(await manifestFor(keys, [])), files: heavy }));
     const error = await refusal(decodeManifestFile(keys, await seal(keys, text)));
     expect((error as OversizeInputError).cap).toBe("manifest-path-bytes");

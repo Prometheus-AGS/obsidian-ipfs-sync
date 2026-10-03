@@ -3,14 +3,16 @@ import type { SyncEventBus } from "../core/events";
 import type { HostBridge } from "../core/host-bridge";
 import { createKuboClient, type Transport } from "../kubo";
 import { ManifestFormatError } from "../sync/encrypted-manifest";
+import { createDeviceIdProvider } from "../sync/device-store";
 import { assertPublishMarker } from "../sync/fixture-marker";
 import { publishVault, type PublishClient, type PublishResult } from "../sync/publish";
 import { OwnedKeyNotRecordedError } from "../sync/publish-errors";
+import { withTokenCheck } from "../sync/lock-token-check";
 import { acquirePublishLock, type LockContext, type LockFile, type PublishLock } from "../sync/publish-lock";
 import { lockHeld, PublishRefusedError } from "../sync/publish-refusals";
 import { VaultKeysError } from "../sync/vault-keys";
 import { createAdapterLockFile, createPluginLockContext } from "./adapter-lock-file";
-import { withTokenCheck } from "./lock-token-check";
+import { createPluginDeviceStore } from "./device-store-plugin";
 import { requestUrlTransport } from "./request-url-transport";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
@@ -32,11 +34,11 @@ import {
 import type { SessionKeys } from "./session-keys";
 import type { PublishSummary } from "./settings-model";
 import type { SettingsStore } from "./settings-store";
-import { settingsToConfig } from "./settings-to-config";
+import { exclusionsWithConfigDir, settingsToConfig } from "./settings-to-config";
 import { saveSummary } from "./summary-store";
 import { busyNotice, createSyncLock, type SyncLock } from "./sync-lock";
 
-/** The name the manifest carries as `device` when the plugin publishes. */
+/** The label the manifest `device` starts with when the plugin publishes; the installation's device id follows it (`obsidian-<12 hex>`). */
 export const PLUGIN_DEVICE = "obsidian";
 
 export type RefusalReason =
@@ -82,6 +84,8 @@ export interface PublishRunnerDeps {
   readonly store: SettingsStore;
   /** `app.vault.adapter`. */
   readonly adapter: VaultAdapter;
+  /** `app.vault.configDir`: added to the exclusions when it is not `.obsidian`. */
+  readonly configDir?: string;
   readonly bus: SyncEventBus;
   /**
    * The key session. The engine gets its `provider`, so a run with an unlocked session performs no key derivation. The
@@ -164,6 +168,9 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
   const lock = deps.lock ?? createSyncLock();
   const lockFile = deps.lockFile ?? createAdapterLockFile(deps.adapter);
   const lockContext = deps.lockContext ?? createPluginLockContext(() => now().getTime());
+  // The device id and the sequence floor live in the plugin data, through the settings store (its only writer).
+  const deviceStore = createPluginDeviceStore(deps.store);
+  const deviceId = createDeviceIdProvider(deviceStore);
 
   const buildHost = (): HostBridge =>
     createObsidianHostBridge({
@@ -194,7 +201,14 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
     return outcome.kind === "unlocked" ? undefined : refused("cancelled", UNLOCK_CANCELLED_NOTICE);
   }
 
-  async function publishUnderLock(options: RunOptions, host: HostBridge, config: SyncConfig, client: PublishClient, fileLock: PublishLock): Promise<PublishResult> {
+  async function publishUnderLock(
+    options: RunOptions,
+    host: HostBridge,
+    config: SyncConfig,
+    client: PublishClient,
+    fileLock: PublishLock,
+    verifyHeld: () => Promise<boolean>,
+  ): Promise<PublishResult> {
     let changed = 0;
     const stop = deps.bus.on("file.changed", () => {
       changed += 1;
@@ -202,13 +216,23 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
     });
     try {
       const result = await publishVault(
-        { client, host, bus: deps.bus },
+        {
+          client,
+          host,
+          bus: deps.bus,
+          deviceId,
+          deviceStore,
+          // Awaited by the engine right before its first request that can change the node (resume, key creation or first blob, junk removal).
+          beforeFirstWrite: async () => {
+            if (!(await verifyHeld())) throw lockHeld("the lock file no longer carries this run's token");
+          },
+        },
         {
           mfsRoot: config.mfsRoot,
           keyName: config.publicationKey,
           ownedKeys: config.ownedKeys,
           recordOwnedKey,
-          extraExclusions: deps.store.get().userExclusions,
+          extraExclusions: exclusionsWithConfigDir(deps.store.get().userExclusions, deps.configDir),
           unlocked: deps.session.provider,
           assertHeld: () => fileLock.assertHeld(),
         },
@@ -239,7 +263,7 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
       // The adapter may not refuse a rename onto an existing lock file: look at the file itself before the first request
       // that can write to the node. (`assertHeld` is synchronous and only knows the last heartbeat.)
       if (!(await checked.verifyHeld())) throw lockHeld("the lock file changed hands right after it was taken");
-      result = await publishUnderLock(options, host, config, client, fileLock);
+      result = await publishUnderLock(options, host, config, client, fileLock, checked.verifyHeld);
     } catch (error) {
       await releaseLockFile(fileLock);
       throw error;

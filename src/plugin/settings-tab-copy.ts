@@ -1,6 +1,7 @@
 import { DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, FIXTURE_MARKER, type AuthScheme } from "../core/config";
 import { DEFAULT_MAX_READ_MB, MAX_MAX_READ_MB, MIN_MAX_READ_MB } from "./read-cap";
 import type { EditableFieldId } from "./settings-fields";
+import { DEFAULT_PULL_CONFIRM_ABOVE_MB, MAX_PULL_CONFIRM_ABOVE_MB, MIN_PULL_CONFIRM_ABOVE_MB } from "./settings-model";
 
 /**
  * Every visible word of the settings tab that is not produced by the view model. Direct statements, no
@@ -62,9 +63,19 @@ export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
     name: "Pull IPNS name",
     desc:
       "The IPNS name this device pulls from: a key ID, optionally starting with /ipns/. " +
-      "Leave it empty to pull from the ID of your own publication key. The grey text in the box is a hint, not a value.",
+      "Leave it empty to pull from the ID of your own publication key. " +
+      "To pull one explicit root instead, enter /ipfs/ followed by its CID: an advanced input for restoring or checking a version. " +
+      "The grey text in the box is a hint, not a value.",
     placeholder: "empty: your publication key",
     wide: true,
+  },
+  pullConfirmAboveMb: {
+    name: "Ask before pulling more than (MB)",
+    desc:
+      `A pull that would fetch more than this many megabytes asks you first, as a whole number from ${MIN_PULL_CONFIRM_ABOVE_MB} to ${MAX_PULL_CONFIRM_ABOVE_MB}. ` +
+      `Default: ${DEFAULT_PULL_CONFIRM_ABOVE_MB}. If you decline, nothing is fetched and those files stay unfinished.`,
+    placeholder: String(DEFAULT_PULL_CONFIRM_ABOVE_MB),
+    numeric: true,
   },
   catchUpOnLoad: {
     name: "Catch up on load",

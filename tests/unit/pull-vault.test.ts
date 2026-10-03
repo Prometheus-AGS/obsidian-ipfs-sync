@@ -47,7 +47,7 @@ describe("pullVault: destination guard", () => {
     await seedRemote(h.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
     h.host.put("private.md", "a real note");
     await expect(h.run()).rejects.toThrowError(PullGuardError);
-    await expect(h.run()).rejects.toThrowError(/decrypting pull arrives in a later release/);
+    await expect(h.run()).rejects.toThrowError(/Pull into a populated directory without a fixture marker stays disabled in this build/);
     expect(h.gateway.requests).toEqual([]);
     expect(h.host.mutations).toEqual([]);
     expect(h.completed).toEqual([]);

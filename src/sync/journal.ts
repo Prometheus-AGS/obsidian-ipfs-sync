@@ -1,6 +1,7 @@
 import type { Bytes, HostKv } from "../core/host-bridge";
 import type { EncryptedManifest } from "./encrypted-manifest";
 import {
+  CID_TOKEN,
   HEX32,
   HEX64,
   RootStateError,
@@ -23,7 +24,9 @@ import { stableStringify } from "./stable-json";
  * enough: the manifest file is identified by its sha256, never stored.
  */
 
-export const JOURNAL_VERSION = 1;
+export const JOURNAL_VERSION = 2;
+/** The first format: no `startRoot`. Still decoded; a journal without a known start root is written back as format 1 until it is completed. */
+const JOURNAL_VERSION_1 = 1;
 
 export interface PublishJournal {
   readonly version: typeof JOURNAL_VERSION;
@@ -44,21 +47,36 @@ export interface PublishJournal {
   };
   /** ISO-8601 UTC time the publish reached the journal step. */
   readonly startedAt: string;
+  /**
+   * What the publication name pointed at when this publish started: a root CID, or `null` for "no record". A resume
+   * compares the name with it before it adopts or finishes the pending manifest. `undefined` only for a journal read from
+   * format 1, which did not record it; the resume then uses the local state's `rootCid` in its place.
+   */
+  readonly startRoot: string | null | undefined;
 }
 
-export type PublishJournalInput = Omit<PublishJournal, "version">;
+export type PublishJournalInput = Omit<PublishJournal, "version" | "startRoot"> & { readonly startRoot?: string | null };
 
 export function buildJournal(input: PublishJournalInput): PublishJournal {
-  return { version: JOURNAL_VERSION, ...input };
+  return { version: JOURNAL_VERSION, ...input, startRoot: input.startRoot };
 }
 
 export function encodeJournal(journal: PublishJournal): Bytes {
-  return new TextEncoder().encode(`${stableStringify(journal, 2)}\n`);
+  const version = journal.startRoot === undefined ? JOURNAL_VERSION_1 : JOURNAL_VERSION;
+  return new TextEncoder().encode(`${stableStringify({ ...journal, version }, 2)}\n`);
+}
+
+function parseStartRoot(record: Readonly<Record<string, unknown>>): string | null {
+  const value = record["startRoot"];
+  if (value === null) return null;
+  if (typeof value === "string" && CID_TOKEN.test(value)) return value;
+  throw new RootStateError('journal field "startRoot" is missing or malformed');
 }
 
 export function decodeJournal(bytes: Bytes): PublishJournal {
   const record = parseJsonObject(bytes, "journal");
-  if (record["version"] !== JOURNAL_VERSION) throw new RootStateError(`journal format ${String(record["version"])} is not supported by this version`);
+  const format = record["version"];
+  if (format !== JOURNAL_VERSION && format !== JOURNAL_VERSION_1) throw new RootStateError(`journal format ${String(format)} is not supported by this version`);
   const pending = record["pending"];
   if (!isJsonRecord(pending)) throw new RootStateError("journal has no pending state");
   const manifest = parseManifestField(pending["manifest"], "journal");
@@ -75,6 +93,7 @@ export function decodeJournal(bytes: Bytes): PublishJournal {
     manifestSha256: requireText(record, "manifestSha256", HEX64, "journal"),
     pending: { manifest, mtimes: parseMtimes(pending["mtimes"], "journal") },
     startedAt: requireText(record, "startedAt", undefined, "journal"),
+    startRoot: format === JOURNAL_VERSION ? parseStartRoot(record) : undefined,
   });
 }
 
@@ -106,4 +125,25 @@ export async function writeJournal(kv: Pick<HostKv, "set">, journal: PublishJour
 
 export async function deleteJournal(kv: Pick<HostKv, "delete">, mfsRoot: string): Promise<void> {
   await kv.delete(rootFileNames(mfsRoot).journal);
+}
+
+/** `journal-set-aside.<sequence>.json`: where a journal that lost to a pulled manifest is kept. */
+export function journalSetAsideName(sequence: number): string {
+  return `journal-set-aside.${sequence}.json`;
+}
+
+/**
+ * Move the journal of `mfsRoot` aside, byte for byte, to `journal-set-aside.<sequence>.json` and remove it from its place,
+ * so publish no longer tries to resume it. Written before the original is deleted: a kill between the two leaves both.
+ * Returns the new name, or `undefined` when there was no journal. The pull calls this for a journal whose sequence is not
+ * above the pulled manifest's; a journal above it is left for publish to resume.
+ */
+export async function setAsideJournal(kv: Pick<HostKv, "get" | "set" | "delete">, mfsRoot: string, sequence: number): Promise<string | undefined> {
+  const name = rootFileNames(mfsRoot).journal;
+  const bytes = await kv.get(name);
+  if (bytes === undefined) return undefined;
+  const target = journalSetAsideName(sequence);
+  await kv.set(target, bytes);
+  await kv.delete(name);
+  return target;
 }

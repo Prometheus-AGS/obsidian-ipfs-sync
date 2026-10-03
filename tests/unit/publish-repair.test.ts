@@ -43,8 +43,8 @@ describe("sequence rules", () => {
     expect(() => assertSequenceAllowsPublish({ kind: "in-sync" })).not.toThrow();
     const cases = [
       [{ kind: "behind", node: 1, local: 3 }, "sequence-behind", true],
-      [{ kind: "ahead", node: 4, local: 2 }, "sequence-ahead", true],
-      [{ kind: "ahead", node: 4, local: undefined }, "sequence-ahead", true],
+      [{ kind: "ahead", node: 4, local: 2 }, "sequence-ahead", false],
+      [{ kind: "ahead", node: 4, local: undefined }, "sequence-ahead", false],
       [{ kind: "fork", sequence: 2 }, "sequence-fork", false],
       [{ kind: "node-manifest-missing" }, "node-manifest-missing", true],
       [{ kind: "node-manifest-unreadable" }, "node-manifest-unreadable", true],
@@ -103,32 +103,81 @@ describe("--repair", () => {
     expect(classifySequence(state, node)).toEqual({ kind: "in-sync" });
   });
 
-  it("succeeds for a restored backup (the local record is older than the node) after a confirmation that names the loss", async () => {
+  const FLOOR = { sequence: 2, identity: "a".repeat(64), at: 1 } as const;
+
+  it("a restored backup (the local record is older than the node but decodes) is refused: pull first", async () => {
     const s = await scenario();
     await publishSecond(s);
     await writeRootState(s.host.kv, s.state1); // restore the sequence-1 record
     const f = await facts(s);
     expect(f.verdict).toEqual({ kind: "ahead", node: 2, local: 1 });
-    const asked: string[] = [];
-    const plan = await authorizeRepair(s.host.kv, MFS_ROOT, f, async (warning) => (asked.push(warning), true));
-    expect(plan).toMatchObject({ kind: "ahead", nextSequence: 3 });
-    expect(asked).toHaveLength(1);
-    expect(asked[0]).toContain("Changes made by any other publisher");
-    expect(asked[0]).toContain("sequence 3");
+    const error = await Promise.resolve().then(() => planRepair(f)).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "repair-refused" });
+    expect((error as Error).message).toContain("pull first");
+    await expect(authorizeRepair(s.host.kv, MFS_ROOT, f, async () => true)).rejects.toMatchObject({ code: "repair-refused" });
   });
 
-  it("with no local record at all it is also the ahead case", async () => {
+  it("with no local record and no floor it is a new device: refused, pull first", async () => {
     const s = await scenario();
     await s.host.kv.delete(rootFileNames(MFS_ROOT).state);
     const f = await facts(s);
-    expect(planRepair(f)).toMatchObject({ kind: "ahead", nextSequence: 2 });
+    expect(() => planRepair(f)).toThrow(/pull first/);
+    expect(() => planRepair({ ...f, stateUndecodable: false })).toThrow(/new device/);
   });
 
-  it("the ahead case is refused when the user declines, and when the run cannot ask", async () => {
+  it("after .ipfs-sync/ was deleted (a floor exists, no state) the ahead case is refused: pull first", async () => {
+    const s = await scenario();
+    await s.host.kv.delete(rootFileNames(MFS_ROOT).state);
+    const f = await facts(s, { floor: FLOOR });
+    expect(() => planRepair(f)).toThrow(/sequence floor/);
+    expect(() => planRepair(f)).toThrow(/pull first/);
+    // also when a state file exists but does not decode: the floor wins
+    expect(() => planRepair({ ...f, stateUndecodable: true })).toThrow(/pull first/);
+  });
+
+  it("a floor refuses the ahead case even when the local record decodes", async () => {
     const s = await scenario();
     await publishSecond(s);
     await writeRootState(s.host.kv, s.state1);
-    const f = await facts(s);
+    const f = await facts(s, { floor: FLOOR });
+    expect(() => planRepair(f)).toThrow(/sequence floor/);
+  });
+
+  it("review-final A-02: a behind or rebuild repair publishes above the sequence floor, never at or below it", async () => {
+    const s = await scenario();
+    await publishSecond(s);
+    const high = { ...FLOOR, sequence: 9 };
+    s.node.manifestFile = s.file1;
+    const behind = await facts(s, { floor: high });
+    expect(behind.verdict).toMatchObject({ kind: "behind" });
+    expect(planRepair(behind)).toMatchObject({ kind: "behind", nextSequence: 10 });
+    // a rebuild starts from this device's record: below the floor (or with no record) it is refused, and says pull first
+    s.node.manifestFile = undefined;
+    const rebuild = await facts(s, { floor: high, recordSequence: 2 });
+    expect(() => planRepair(rebuild)).toThrow(expect.objectContaining({ code: "sequence-below-floor" }));
+    expect(() => planRepair({ ...rebuild, local: undefined, recordSequence: 2 })).toThrow(/pull first/);
+    // at or above the floor it goes ahead, and a floor below the other sequences changes nothing
+    expect(planRepair({ ...rebuild, floor: { ...FLOOR, sequence: 2 } })).toMatchObject({ kind: "rebuild", nextSequence: 3 });
+    expect(planRepair({ ...rebuild, floor: { ...FLOOR, sequence: 1 } })).toMatchObject({ kind: "rebuild", nextSequence: 3 });
+  });
+
+  it("an unreadable state file with no floor still reaches the confirmation, whose warning recommends pull", async () => {
+    const s = await scenario();
+    await s.host.kv.delete(rootFileNames(MFS_ROOT).state);
+    const f = await facts(s, { stateUndecodable: true });
+    const asked: string[] = [];
+    const plan = await authorizeRepair(s.host.kv, MFS_ROOT, f, async (warning) => (asked.push(warning), true));
+    expect(plan).toMatchObject({ kind: "ahead", nextSequence: 2 });
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain("Changes made by any other publisher");
+    expect(asked[0]).toContain("run pull");
+  });
+
+  it("the ahead case (unreadable state, no floor) is refused when the user declines, and when the run cannot ask", async () => {
+    const s = await scenario();
+    await publishSecond(s);
+    await s.host.kv.delete(rootFileNames(MFS_ROOT).state);
+    const f = await facts(s, { stateUndecodable: true });
     await expect(authorizeRepair(s.host.kv, MFS_ROOT, f, async () => false)).rejects.toMatchObject({ code: "repair-declined" });
     await expect(authorizeRepair(s.host.kv, MFS_ROOT, f, undefined)).rejects.toMatchObject({ code: "repair-refused" });
   });

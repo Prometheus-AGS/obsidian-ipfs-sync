@@ -1,11 +1,12 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { toBase32Lower, type VaultKeys } from "../../src/crypto";
 import type { Bytes } from "../../src/core/host-bridge";
-import type { CommitDeps, CommitNode, PublishTarget, SnapshotExpectation } from "../../src/sync/commit-ports";
+import type { CommitDeps, CommitNode, NameReading, NameStart, PublishTarget, SnapshotExpectation } from "../../src/sync/commit-ports";
 import { createFilesMap, decodeManifestFile, encodeManifestFile, type EncryptedManifest } from "../../src/sync/encrypted-manifest";
 import { sha256Hex } from "../../src/sync/hash";
+import { historyFileName } from "../../src/sync/history-names";
 import { ReadBackError } from "../../src/sync/publish-refusals";
-import { buildRootState, writeRootState, type RootState } from "../../src/sync/root-state";
+import { buildRootState, publishedFields, writeRootState, type RootState } from "../../src/sync/root-state";
 import { sameBytes } from "../../src/sync/same-bytes";
 import { createMemoryHost, type MemoryHost } from "./memory-host";
 import { ROOT_CID, entryFor, keysFrom } from "../vectors/manifest-helpers";
@@ -27,6 +28,9 @@ export class Killed extends Error {
   }
 }
 
+/** The node name of the history file of a manifest. */
+export const historyKey = (manifest: { readonly sequence: number; readonly rootCID: string }): string => historyFileName(manifest.sequence, manifest.rootCID);
+
 export const STEPS = [
   "journal-write",
   "manifest-write",
@@ -43,6 +47,7 @@ export type Step = (typeof STEPS)[number];
 /** The node's mutable state for one MFS root, as far as the commit protocol can see it. */
 export class FakeCommitNode implements CommitNode {
   manifestFile: Bytes | undefined;
+  /** History files by their node name (`<16-digit sequence>-<cid>.enc`). */
   readonly history = new Map<string, Bytes>();
   current: string | undefined;
   /** Objects planted at the top level of the root (must be absent at read-back). */
@@ -55,16 +60,27 @@ export class FakeCommitNode implements CommitNode {
 
   currentCid = async (): Promise<string | undefined> => this.current;
   readManifestFile = async (): Promise<Bytes | undefined> => this.manifestFile;
+  /** `manifest.enc` inside an immutable root, by root CID (A-03: what a failed name re-check resolved); a root not listed has none. */
+  readonly rootManifests = new Map<string, Bytes>();
+  /** Set to make the read of a root's manifest.enc fail. */
+  rootManifestFault: Error | undefined;
+  readManifestFileAt = async (rootCid: string): Promise<Bytes | undefined> => {
+    if (this.rootManifestFault !== undefined) throw this.rootManifestFault;
+    return this.rootManifests.get(rootCid);
+  };
+  /** Set to make the n-th `writeManifestFile` (1-based) fail after it is counted. */
+  failManifestWriteNumber: number | undefined;
   writeManifestFile = async (bytes: Bytes): Promise<void> => {
     this.calls.push("manifest-write");
     this.manifestWrites += 1;
+    if (this.manifestWrites === this.failManifestWriteNumber) throw new Error("manifest.enc write failed");
     this.manifestFile = bytes;
   };
-  readHistoryFile = async (rootCid: string): Promise<Bytes | undefined> => this.history.get(rootCid);
-  writeHistoryFile = async (rootCid: string, bytes: Bytes): Promise<void> => {
+  readHistoryFile = async (sequence: number, rootCid: string): Promise<Bytes | undefined> => this.history.get(historyFileName(sequence, rootCid));
+  writeHistoryFile = async (sequence: number, rootCid: string, bytes: Bytes): Promise<void> => {
     this.calls.push("history-write");
     this.historyWrites += 1;
-    this.history.set(rootCid, bytes);
+    this.history.set(historyFileName(sequence, rootCid), bytes);
   };
   rootCid = async (): Promise<string> => {
     this.calls.push("root-cid");
@@ -75,8 +91,17 @@ export class FakeCommitNode implements CommitNode {
     this.calls.push("pin");
     this.pins.push(rootCid);
   };
-  publishRoot = async (rootCid: string): Promise<void> => {
+  /** What the publication name reads as; the default is "no record", which matches a journal that started from none. */
+  nameReading: NameReading | undefined = { kind: "not-found" };
+  /** The `start` argument of every `publishRoot` call, in order. */
+  readonly publishStarts: (NameStart | undefined)[] = [];
+  resolveName = async (): Promise<NameReading | undefined> => {
+    this.calls.push("resolve-name");
+    return this.nameReading;
+  };
+  publishRoot = async (rootCid: string, start?: NameStart): Promise<void> => {
     this.calls.push("publish");
+    this.publishStarts.push(start);
     this.publishes.push(rootCid);
   };
 
@@ -91,7 +116,7 @@ export class FakeCommitNode implements CommitNode {
     if (this.current !== expected.manifest.rootCID) throw new ReadBackError("current differs from the manifest");
     if (this.topLevelExtras.length > 0) throw new ReadBackError("unexpected top-level entry");
     if (this.manifestFile === undefined || !sameBytes(this.manifestFile, expected.manifestFile)) throw new ReadBackError("manifest.enc differs");
-    const history = this.history.get(expected.manifest.rootCID);
+    const history = this.history.get(historyFileName(expected.manifest.sequence, expected.manifest.rootCID));
     if (history === undefined || !sameBytes(history, expected.manifestFile)) throw new ReadBackError("history file differs");
   };
 }
@@ -140,8 +165,10 @@ export function killAfter(deps: CommitDeps, step: Step): CommitDeps {
   return {
     ...deps,
     node: {
+      resolveName: deps.node.resolveName,
       currentCid: deps.node.currentCid,
       readManifestFile: deps.node.readManifestFile,
+      readManifestFileAt: deps.node.readManifestFileAt,
       readHistoryFile: deps.node.readHistoryFile,
       writeManifestFile: after("manifest-write", deps.node.writeManifestFile),
       writeHistoryFile: after("history-write", deps.node.writeHistoryFile),
@@ -177,7 +204,7 @@ export async function scenario(): Promise<Scenario> {
   const { file: file1 } = await encodeManifestFile(keys, manifest1);
   node.current = tree1;
   node.manifestFile = file1;
-  node.history.set(tree1, file1);
+  node.history.set(historyFileName(1, tree1), file1);
   const state1 = buildRootState({
     mfsRoot: MFS_ROOT,
     key: KEY,
@@ -186,6 +213,7 @@ export async function scenario(): Promise<Scenario> {
     keyslotsSha256: KEYSLOTS_SHA,
     sequence: 1,
     manifest: manifest1,
+    ...publishedFields(undefined, manifest1, []),
     mtimes: { "notes/a.md": 1, "notes/b.md": 1 },
   });
   await writeRootState(host.kv, state1);

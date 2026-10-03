@@ -2,7 +2,7 @@ import { assertMfsMutationPath, assertValidKeyName, validateMfsRoot } from "../c
 import type { HostKv } from "../core/host-bridge";
 import { openVault, VaultKeysError, type OpenedVault, type UnlockedVault } from "./vault-keys";
 import { DEFAULT_IPNS_TTL } from "../kubo";
-import type { CommitDeps, PublishTarget } from "./commit-ports";
+import type { CommitDeps, FloorPort, PublishTarget } from "./commit-ports";
 import { createCommitNode } from "./commit-node";
 import { decodeManifestFile, encodeManifestFile } from "./encrypted-manifest";
 import { assertPublishMarker } from "./fixture-marker";
@@ -14,6 +14,7 @@ import type { PublishDeps, PublishOptions } from "./publish-types";
 import { createSnapshotVerifier } from "./read-back";
 import { RootStateError } from "./local-record";
 import { readRootState, type RootState } from "./root-state";
+import { raiseFloor } from "./sequence-floor";
 import type { CanonicalPassphrase } from "../crypto";
 
 /**
@@ -102,14 +103,31 @@ async function unlock(deps: PublishDeps, options: PublishOptions, checked: Check
   }
 }
 
+/** The sequence floor as the commit protocol sees it: `finishPublish` raises it right before it writes the state. */
+function floorPort(deps: PublishDeps): FloorPort | undefined {
+  const store = deps.deviceStore;
+  if (store === undefined) return undefined;
+  return { raise: async (vaultId, sequence, identity) => void (await raiseFloor(store, vaultId, { sequence, identity, at: deps.host.timeNow() })) };
+}
+
 function commitDeps(deps: PublishDeps, checked: CheckedTarget, opened: OpenedVault, written: ReadonlyMap<string, string>, key: PublicationKey, beforeWrite: () => void): CommitDeps {
+  const floor = floorPort(deps);
   return {
-    node: createCommitNode({ client: deps.client, mfsRoot: checked.mfsRoot, key: checked.keyName, ttl: DEFAULT_IPNS_TTL, keyId: () => key.id(), beforeWrite }),
+    node: createCommitNode({
+      client: deps.client,
+      mfsRoot: checked.mfsRoot,
+      key: checked.keyName,
+      ttl: DEFAULT_IPNS_TTL,
+      keyId: () => key.id(),
+      keyCreated: () => key.created(),
+      beforeWrite,
+    }),
     kv: deps.host.kv,
     decodeManifest: (bytes) => decodeManifestFile(opened.keys, bytes),
     encodeManifest: async (manifest) => (await encodeManifestFile(opened.keys, manifest)).file,
     verifySnapshot: createSnapshotVerifier({ client: deps.client, keySlots: opened.keySlots, written }),
     now: () => deps.host.timeNow(),
+    ...(floor === undefined ? {} : { floor }),
   };
 }
 
@@ -124,6 +142,7 @@ export async function openSession(deps: PublishDeps, options: PublishOptions, ch
   const commit = commitDeps(deps, checked, opened, written, key, beforeWrite);
   // The key is created only by the first write of a fresh publish (`transfer`), never here: a refused run leaves no key behind, and a
   // resume that needs the key finds it or stops at the check before `name/publish`.
+  await deps.beforeFirstWrite?.();
   const resumed = await resumeJournal(commit, { target, state, repair: options.repair === true });
   const settled = resumed.kind === "settled" || resumed.kind === "completed" || resumed.kind === "adopted" ? resumed.state : state;
   // A resume that finished or reconciled a publish changed the node; what was listed before it is stale.

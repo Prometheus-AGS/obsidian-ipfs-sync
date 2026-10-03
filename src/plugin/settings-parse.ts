@@ -2,6 +2,7 @@ import { isValidReadCapMb } from "./read-cap";
 import {
   AUTH_SCHEMES,
   defaultSettings,
+  isValidPullConfirmAboveMb,
   SETTINGS_VERSION,
   type AuthSettings,
   type EndpointSettings,
@@ -60,6 +61,11 @@ function parseKv(value: unknown): Readonly<Record<string, string>> | undefined {
   return entries.every(([, item]) => typeof item === "string") ? (value as Readonly<Record<string, string>>) : undefined;
 }
 
+/** The device store section. Data written before it existed has none and loads with an empty one. */
+function parseDeviceStore(value: unknown): Readonly<Record<string, string>> | undefined {
+  return value === undefined ? {} : parseKv(value);
+}
+
 function count(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 }
@@ -92,15 +98,26 @@ interface PullFields {
   readonly pullName: string;
   readonly catchUpOnLoad: boolean;
   readonly maxReadMb: number;
+  readonly pullConfirmAboveMb: number;
 }
 
 /** The fields added with pull. Missing ones take their defaults; one of the wrong type makes the data unreadable. */
 function parsePullFields(stored: Stored): PullFields | undefined {
   const fallback = defaultSettings();
-  const { pullName = fallback.pullName, catchUpOnLoad = fallback.catchUpOnLoad, maxReadMb = fallback.maxReadMb } = stored;
+  const {
+    pullName = fallback.pullName,
+    catchUpOnLoad = fallback.catchUpOnLoad,
+    maxReadMb = fallback.maxReadMb,
+    pullConfirmAboveMb = fallback.pullConfirmAboveMb,
+  } = stored;
   const valid =
-    typeof pullName === "string" && typeof catchUpOnLoad === "boolean" && typeof maxReadMb === "number" && isValidReadCapMb(maxReadMb);
-  return valid ? { pullName, catchUpOnLoad, maxReadMb } : undefined;
+    typeof pullName === "string" &&
+    typeof catchUpOnLoad === "boolean" &&
+    typeof maxReadMb === "number" &&
+    isValidReadCapMb(maxReadMb) &&
+    typeof pullConfirmAboveMb === "number" &&
+    isValidPullConfirmAboveMb(pullConfirmAboveMb);
+  return valid ? { pullName, catchUpOnLoad, maxReadMb, pullConfirmAboveMb } : undefined;
 }
 
 /**
@@ -113,6 +130,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
   const gateway = parseEndpoint(stored["gateway"]);
   const auth = parseAuth(stored["auth"]);
   const kv = parseKv(stored["kv"]);
+  const deviceStore = parseDeviceStore(stored["deviceStore"]);
   const pull = parsePullFields(stored);
   const { publicationKey, mfsRoot, userExclusions, ownedKeys, publishIntervalMinutes } = stored;
   const interval = publishIntervalMinutes;
@@ -121,6 +139,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     gateway !== undefined &&
     auth !== undefined &&
     kv !== undefined &&
+    deviceStore !== undefined &&
     pull !== undefined &&
     typeof publicationKey === "string" &&
     typeof mfsRoot === "string" &&
@@ -146,5 +165,6 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     ...(lastPull === undefined ? {} : { lastPull }),
     ...(lastPublish === undefined ? {} : { lastPublish }),
     kv,
+    deviceStore,
   };
 }

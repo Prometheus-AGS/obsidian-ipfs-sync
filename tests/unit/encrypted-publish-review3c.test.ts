@@ -89,11 +89,15 @@ describe("N3-04: the idle path", () => {
     const rig = restoreRig(once);
     const same = rig.host.files.get("Daily/2026-09-30.md")?.data ?? "";
     rig.host.put("Daily/2026-09-30.md", same, 99_000);
+    const before = await readRootState(rig.host.kv, ROOT);
     const first = counter();
     const result = await rig.publish({ onUnlockProgress: first.hook });
     expect(result).toMatchObject({ published: false, written: 0, removed: 0 });
     expect(first.runs()).toBeGreaterThan(0);
-    expect((await readRootState(rig.host.kv, ROOT))?.mtimes["Daily/2026-09-30.md"]).toBe(99_000);
+    const after = await readRootState(rig.host.kv, ROOT);
+    expect(after?.mtimes["Daily/2026-09-30.md"]).toBe(99_000);
+    // finishUnchanged changes the modification times and nothing else
+    expect({ ...after, mtimes: {} }).toEqual({ ...before, mtimes: {} });
     const second = counter();
     rig.node.calls.length = 0;
     await rig.publish({ onUnlockProgress: second.hook });

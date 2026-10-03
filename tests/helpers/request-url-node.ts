@@ -1,9 +1,9 @@
 import type { NodeKey } from "../../src/kubo";
 import { stubResponse, type RequestUrlParam, type RequestUrlResponse } from "../support/obsidian-stub";
-import type { FakeGateway } from "./fake-gateway";
+import { listFakeObjects, type FakeGateway } from "./fake-gateway";
 
 /**
- * The HTTP face of a fake gateway, for the `requestUrl` stub: `key/list`, `name/resolve` and `/ipfs/<cid>/<path>`
+ * The HTTP face of a fake gateway, for the `requestUrl` stub: `key/list`, `name/resolve`, `ls` and `/ipfs/<cid>/<path>`
  * reads. Any other RPC command is answered with an error, so a test fails if the plugin tries to mutate the node.
  * Every request path is recorded.
  */
@@ -18,6 +18,14 @@ export function serveGateway(gateway: FakeGateway, keys: readonly NodeKey[]): { 
     if (url.pathname === "/api/v0/name/resolve") {
       const resolved = gateway.names.get((url.searchParams.get("arg") ?? "").replace("/ipns/", ""));
       return resolved === undefined ? stubResponse(500, '{"Message":"could not resolve name"}') : stubResponse(200, `${JSON.stringify({ Path: resolved })}\n`);
+    }
+    if (url.pathname === "/api/v0/ls") {
+      try {
+        const links = listFakeObjects(gateway.objects, url.searchParams.get("arg") ?? "").map((entry) => ({ Name: entry.name, Hash: entry.cid, Size: entry.size, Type: entry.type === "directory" ? 1 : 2 }));
+        return stubResponse(200, JSON.stringify({ Objects: [{ Hash: "listed", Links: links }] }));
+      } catch {
+        return stubResponse(500, '{"Message":"no link found"}');
+      }
     }
     if (url.pathname.startsWith("/ipfs/")) {
       const found = gateway.objects.get(decodeURIComponent(url.pathname.slice("/ipfs/".length)));

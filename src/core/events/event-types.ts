@@ -38,6 +38,22 @@ export interface PullCompleteEvent {
   /** True when a mismatch of exclusion lists forced every local file to be re-hashed. */
   readonly forcedReverify: boolean;
   readonly durationMs: number;
+  /*
+   * Added by the decrypting pull (mvp-07a, additively: the plaintext reader does not set them, and a listener must not
+   * assume them). Counts and a sequence only; no path, key, passphrase or file bytes.
+   */
+  /** Sequence of the authenticated manifest the pull settled on. */
+  readonly sequence?: number;
+  /** False when a non-restore pull left a path `integrity-failed` or `unfetched`. A restore reports the state's own value, which it does not change. */
+  readonly complete?: boolean;
+  /** Paths whose blob failed a check (tampered, replayed, wrong name, wrong size or hash). */
+  readonly integrityFailed?: number;
+  /** Paths this host could not take (ceiling declined, Range refused, could not write, not reached). */
+  readonly unfetched?: number;
+  /** Paths skipped by the path policy, `expected` and `unsafe` together. */
+  readonly policySkipped?: number;
+  /** Paths the previous pull left unmaterialized (their content was not on this device) that this pull fetched or found equal. */
+  readonly restored?: number;
 }
 
 /** Local text was preserved as a conflict copy and the remote version now sits at `path` (added in mvp-03). */

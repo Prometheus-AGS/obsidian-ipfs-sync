@@ -1,6 +1,7 @@
 import { assertMfsMutationPath, validateMfsRoot } from "../core/config";
-import { ABANDON_CONFIRMATION, abandonVault } from "../sync/vault-keys";
+import { ABANDON_CONFIRMATION, abandonVault, describeAbandonFloor, type AbandonFloor } from "../sync/vault-keys";
 import type { AbandonDialogRequest, AbandonOutcome } from "./abandon-vault-dialog";
+import { createPluginDeviceStore } from "./device-store-plugin";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
 import type { SessionKeys } from "./session-keys";
@@ -42,8 +43,8 @@ export interface AbandonFlow {
 export const NOTHING_TO_ABANDON = "this device holds no key-slot copy, state or journal for this MFS root, so nothing was moved. Check the MFS root in the settings.";
 
 /** Number of files a call moved, and the backup note the dialog passes back. */
-function backupNote(backupDir: string, count: number): string {
-  return `${count} file${count === 1 ? "" : "s"} moved to ${backupDir} in the vault folder. Nothing on the node was changed. To start a new vault, choose an empty MFS root in the settings, then run Publish.`;
+function backupNote(backupDir: string, count: number, floor: AbandonFloor): string {
+  return `${count} file${count === 1 ? "" : "s"} moved to ${backupDir} in the vault folder. Nothing on the node was changed. ${describeAbandonFloor(floor)}. To start a new vault, choose an empty MFS root in the settings, then run Publish.`;
 }
 
 export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
@@ -56,14 +57,20 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
     try {
       const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToConfig(deps.store.get(), deps.now()).mfsRoot));
       const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
-      const { backupDir, moved } = await abandonVault({ fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: deps.now().getTime() });
+      const { backupDir, moved, floor } = await abandonVault({
+        fs,
+        mfsRoot,
+        confirmation: ABANDON_CONFIRMATION,
+        nowMs: deps.now().getTime(),
+        deviceStore: createPluginDeviceStore(deps.store),
+      });
       if (moved.length === 0) return { ok: false, reason: NOTHING_TO_ABANDON };
       deps.session.lock();
       const reread = await deps.session.refresh().then(
         () => "",
         () => " The vault status could not be re-read; reload the plugin.",
       );
-      return { ok: true, backupNote: backupNote(backupDir, moved.length) + reread };
+      return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + reread };
     } catch (error) {
       return { ok: false, reason: describeDialogError(error) };
     } finally {

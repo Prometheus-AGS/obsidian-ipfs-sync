@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { blobMfsPath, decryptBlobBytes } from "../../src/crypto";
 import { decodeManifestFile } from "../../src/sync/encrypted-manifest";
+import { historyFileName } from "../../src/sync/history-names";
 import { BlobTransferError } from "../../src/sync/encrypted-transfer";
 import { sha256Hex } from "../../src/sync/hash";
 import { readJournal } from "../../src/sync/journal";
@@ -76,7 +77,7 @@ async function expectConsistent(rig: Rig, sequence: number): Promise<void> {
     expect(entry.sha256).toBe(await sha256Hex(rig.host.files.get(path)?.data ?? new Uint8Array()));
   }
   expect(Object.keys(manifest.files).sort()).toEqual([...rig.host.files.keys()].filter((path) => !path.startsWith(".")).sort());
-  expect(rig.node.files.get(`${ROOT}/manifests/${manifest.rootCID}.enc`)).toEqual(rig.node.files.get(`${ROOT}/manifest.enc`));
+  expect(rig.node.files.get(`${ROOT}/manifests/${historyFileName(sequence, manifest.rootCID)}`)).toEqual(rig.node.files.get(`${ROOT}/manifest.enc`));
   const state = await readRootState(rig.host.kv, ROOT);
   expect(state?.sequence).toBe(sequence);
   expect(classifySequence(state, manifest)).toEqual({ kind: "in-sync" });

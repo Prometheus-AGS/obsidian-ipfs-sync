@@ -28,16 +28,20 @@ Commands:
                           has been independently reviewed; a marker written by pull ("pulled-fixture"), an empty
                           marker or none is refused before any request. Creates the key when it does not exist
                           yet and records its ID in the config file (ownedKeys).
-  pull <vault>            Bring <vault> to the published state by fetching only missing or changed files. Only
-                          plaintext (version 1) publications can be pulled in this release, and only with
-                          --allow-plaintext-v1; a root that holds an encrypted vault is refused ("pull is not
-                          supported yet") and remembered, so plaintext reads of it are refused from then on.
-                          Every file is hashed against the manifest before it appears; local edits are kept
-                          as "<name> (ipfs conflict YYYY-MM-DD).<ext>" and never deleted; remote deletions
-                          are only reported. Reads only (name resolve, gateway); writes nothing to the node.
-                          The destination must be absent, empty or hold the .ipfs-sync-fixture marker ("fixture" or
-                          "pulled-fixture") until encryption exists (a pulled fresh directory gets
-                          "pulled-fixture", which pull accepts and publish refuses).
+  pull <vault>            Bring <vault> to the published state of an encrypted vault by fetching only missing or
+                          changed files. It needs the vault passphrase (see "Unlocking a vault") and takes the same
+                          publish.lock as publish. The manifest is authenticated before any file is requested; every
+                          file is decrypted and hashed before it appears; local edits are kept as
+                          "<name> (ipfs conflict YYYY-MM-DD).<ext>" and never deleted; remote deletions are only
+                          reported. A sequence lower than the one this device recorded is refused unless you restore
+                          it on purpose (--allow-rollback with --root-cid or --manifest). Reads only (name resolve,
+                          gateway); writes nothing to the node. The first pull of a vault on this device shows the
+                          sequence, date and device the vault key holder chose and asks (or needs --accept-first-pull).
+                          Output lists integrity-failed files, files not fetched and skipped paths apart. The
+                          destination must be absent, empty or hold the .ipfs-sync-fixture marker ("fixture" or
+                          "pulled-fixture") until encryption has been independently reviewed (a pulled fresh directory
+                          gets "pulled-fixture", which pull accepts and publish refuses). A root that holds a plaintext
+                          (version 1) manifest is read only with --allow-plaintext-v1, as before.
   abandon <vault>         Abandon this device's vault for the MFS root: move the local key-slot copy, sync state and
                           journal (.ipfs-sync/keyslots.<h>.json, state.<h>.json, journal.<h>.json) into
                           .ipfs-sync/abandoned-<h>-<time>/, keeping them as a backup. Use it when a refusal says to
@@ -68,11 +72,37 @@ Options:
   --auth-header-name <n>  header: header name.
   --auth-header-value <v> header: header value.
   --name <id>             pull: IPNS key ID to pull from (default: the ID of the owned key given by --key).
-  --manifest <cid>        pull: restore the snapshot published when current/ had this CID (manifests/<cid>.json).
-  --manifest-file <path>  pull: read the manifest from a local file. --manifest and --manifest-file exclude each other.
+  --root-cid <cid>        pull: pull this immutable root instead of the name. The client does not verify the bytes the
+                          gateway returns against the CID; authenticity rests on the vault key.
+  --manifest <cid>        pull: read the history entry whose manifest names this tree CID (manifests/<sequence>-<cid>.enc or
+                          <cid>.enc) under the root the name serves. For a plaintext root: the snapshot published when
+                          current/ had this CID (manifests/<cid>.json).
+  --manifest-file <path>  pull: plaintext reader only: read the manifest from a local file. --manifest, --manifest-file
+                          and --root-cid exclude each other.
+  --allow-rollback        pull: accept an older sequence as a restore. Needs --root-cid or --manifest; never accepted for
+                          the name. A restore adds and replaces files and never deletes; the recorded highest sequence
+                          stays, and the next publish makes the result a new version.
+  --resolve-fork          pull: another device published the same sequence with other content. Asks first on a terminal
+                          (it needs one). Where both devices changed a file, this device's text is kept as a dated conflict
+                          copy; files only this device changed stay and are published next. Name target only.
+  --expect-min-sequence <n>  pull: refuse a manifest whose sequence is below n.
+  --expect-vault-id <id>  pull: refuse unless the vault id (32 lowercase hex characters) matches; checked before any key
+                          derivation.
+  --accept-first-pull     pull: the non-interactive yes to the first-pull question. Without a terminal a first pull is
+                          refused without it.
+  --max-bytes <n>         pull: ask before fetching more than n bytes of file content (default 536870912, 512 MiB).
+  --accept-large          pull: the non-interactive yes to that question. Without a terminal a larger pull fetches nothing
+                          and exits 1 without it.
+  --list-versions         pull: print the newest 20 history entries by name (the sequence comes from the name; names
+                          written before the sequence prefix come last), with date and device for each file of at most
+                          8 MiB after unlocking. Reads only; writes nothing.
   --allow-plaintext-v1    pull: allow reading a plaintext (version 1) manifest, which anyone who can write to the node can
-                          forge. Never honoured for a destination that has seen an encrypted vault. Paths under
-                          .obsidian/ are refused either way.
+                          forge. Never honoured for a destination that has seen an encrypted vault. The same path
+                          policy as the encrypted reader applies: .obsidian/, .git/ and .ipfs-sync/ in any spelling
+                          (case, look-alike or invisible characters, trailing dot or space, 8.3 short names),
+                          Windows device names, colons, control characters and case collisions are refused, counted
+                          as failed (exit 1), and never fetched. The CLI knows only the default configuration folder
+                          name; a renamed Obsidian configuration folder is not protected by the CLI.
   --break-lock            publish: remove the publish lock in the vault's .ipfs-sync folder after a confirmation, then
                           continue. A lock is taken over automatically when its process is gone from this host, or when
                           it has had no heartbeat for 15 minutes. The lock is a best-effort guard, not atomic across machines.
@@ -92,11 +122,11 @@ Environment (secrets belong here, not on the command line):
   IPFS_SYNC_MFS_ROOT, IPFS_SYNC_KEY
   IPFS_SYNC_AUTH_SCHEME, IPFS_SYNC_AUTH_USER, IPFS_SYNC_AUTH_PASSWORD, IPFS_SYNC_AUTH_TOKEN,
   IPFS_SYNC_AUTH_HEADER_NAME, IPFS_SYNC_AUTH_HEADER_VALUE
-  IPFS_SYNC_PASSPHRASE_FILE, IPFS_SYNC_PASSPHRASE  (publish: the vault passphrase; set at most one)
-  IPFS_SYNC_DEVICE (publish: device name recorded in the manifest, default "cli")
+  IPFS_SYNC_PASSPHRASE_FILE, IPFS_SYNC_PASSPHRASE  (publish and pull: the vault passphrase; set at most one)
+  IPFS_SYNC_DEVICE (publish: device name recorded in the manifest, default "cli"; the manifest carries "<name>-<first 12 hex of this device's id>")
   Per-endpoint auth override: IPFS_SYNC_RPC_AUTH_* or IPFS_SYNC_GATEWAY_AUTH_* (same suffixes).
 
-Unlocking a vault (publish): the passphrase comes from exactly one of IPFS_SYNC_PASSPHRASE_FILE (a file of mode 0600
+Unlocking a vault (publish, pull): the passphrase comes from exactly one of IPFS_SYNC_PASSPHRASE_FILE (a file of mode 0600
 that you own and that is not a symbolic link), IPFS_SYNC_PASSPHRASE, or, on a terminal when neither is set, a prompt
 that does not echo. Setting both variables is an error, and text that is not a generated passphrase (wrong length,
 characters outside A-Z and 2-7, failed check) is refused before any request. Exposure: an environment variable stays
@@ -107,6 +137,9 @@ passphrase bytes it holds after key derivation, on a best-effort basis (strings 
 
 Precedence: flags > environment > config file > defaults.
 
-Exit codes: 0 ok, 1 a check, publish or pull failed (pull: a file failed verification), 2 usage, unsafe
-configuration or a refused pull destination (no request is sent).
+Exit codes: 0 ok, 1 a check, publish or pull failed, 2 usage, unsafe configuration or a refused pull destination
+(no request is sent). For pull, 1 also means: a file failed verification or was not fetched, a path was skipped as unsafe
+(a name another platform can write, or a path no honest publisher produces), or the pull stopped at a check (wrong
+passphrase, rollback, fork, a held lock, a first pull that was not confirmed); 0 also covers paths skipped as expected
+(a configuration folder or an excluded path from an older build's manifest).
 `;

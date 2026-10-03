@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GatewayRangeError, SymlinkRefusedError, TEMP_DIR, VerificationError, commitStaged, stageVerified, sweepTemp, type FetchContext } from "../../src/sync/pull-fetch";
+import { GatewayRangeError, PathRefusedError, SymlinkRefusedError, TEMP_DIR, VerificationError, commitStaged, stageVerified, sweepTemp, type FetchContext } from "../../src/sync/pull-fetch";
 import { createFakeGateway, type FakeGateway } from "../helpers/fake-gateway";
 import { createMemoryHost, type MemoryHost } from "../helpers/memory-host";
 import { FAKE_CID, decode, encode, sha } from "../helpers/pull-fixtures";
@@ -172,5 +172,28 @@ describe("sweepTemp", () => {
     expect(tempFiles(host)).toEqual([]);
     expect(host.files.has("notes/keep.md")).toBe(true);
     expect(await sweepTemp(host.fs)).toBe(0);
+  });
+});
+
+describe("the write-time path policy (B2-01)", () => {
+  it.each(["OBSIDI~1/plugins/p/main.js", `.obs${String.fromCodePoint(0x131)}dian/plugins/p/main.js`, ".obsidian./community-plugins.json", "CON.md", "a:b"])(
+    "refuses %j before a byte is requested or written",
+    async (path) => {
+      const { host, gateway, ctx } = setup();
+      const data = encode("code");
+      gateway.objects.set(`${FAKE_CID}/${path}`, data);
+      await expect(stageVerified(ctx, FAKE_CID, path, await entryFor(data))).rejects.toBeInstanceOf(PathRefusedError);
+      expect(host.files.size).toBe(0);
+    },
+  );
+
+  it("refuses at commit when a path is policy-refused, removing the staged temp file", async () => {
+    const { host, gateway, ctx } = setup();
+    const data = encode("ok");
+    gateway.objects.set(`${FAKE_CID}/a.md`, data);
+    const temp = await stageVerified(ctx, FAKE_CID, "a.md", await entryFor(data));
+    await expect(commitStaged(ctx, temp, "CON.md")).rejects.toBeInstanceOf(PathRefusedError);
+    expect(host.files.has("CON.md")).toBe(false);
+    expect(tempFiles(host)).toEqual([]);
   });
 });

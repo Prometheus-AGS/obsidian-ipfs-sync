@@ -13,7 +13,7 @@ import {
 } from "../core/config";
 import { parsePullName, PULL_NAME_MESSAGE } from "./pull-target";
 import { isValidReadCapMb, READ_CAP_RANGE_MESSAGE } from "./read-cap";
-import type { AuthSettings, EndpointSettings, PluginSettings } from "./settings-model";
+import { isValidPullConfirmAboveMb, PULL_CONFIRM_RANGE_MESSAGE, type AuthSettings, type EndpointSettings, type PluginSettings } from "./settings-model";
 
 /**
  * Settings model -> the raw config layer the CLI resolves too, so the plugin gets the same
@@ -49,6 +49,17 @@ export function settingsToConfig(settings: PluginSettings, now: Date): SyncConfi
   return resolveSyncConfig([settingsToLayer(settings)], now);
 }
 
+/**
+ * The operator's additions plus the vault's configuration folder when it is not `.obsidian` (which
+ * DEFAULT_EXCLUSIONS already covers). Obsidian lets a vault rename it (`Vault.configDir`), so the renamed
+ * folder is excluded the same way. Anchored, directory-only entry (`name/`).
+ */
+export function exclusionsWithConfigDir(userExclusions: readonly string[], configDir: string | undefined): readonly string[] {
+  const dir = (configDir ?? "").trim().replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
+  if (dir === "" || dir === ".obsidian") return userExclusions;
+  return [...userExclusions, `${dir}/`];
+}
+
 // ---------- field-level validation ----------
 
 export type SettingsField =
@@ -63,7 +74,8 @@ export type SettingsField =
   | "pullName"
   /** A toggle: it never has an error, but it is a field like the others. */
   | "catchUpOnLoad"
-  | "maxReadMb";
+  | "maxReadMb"
+  | "pullConfirmAboveMb";
 
 export interface FieldError {
   readonly field: SettingsField;
@@ -116,6 +128,10 @@ function readCapError(megabytes: number): FieldError | undefined {
   return isValidReadCapMb(megabytes) ? undefined : { field: "maxReadMb", message: READ_CAP_RANGE_MESSAGE };
 }
 
+function pullCeilingError(megabytes: number): FieldError | undefined {
+  return isValidPullConfirmAboveMb(megabytes) ? undefined : { field: "pullConfirmAboveMb", message: PULL_CONFIRM_RANGE_MESSAGE };
+}
+
 /**
  * Every field checked on its own with the shared validators, so an error is shown beside the field
  * that caused it. Messages come from the validators and never contain a secret value.
@@ -131,6 +147,7 @@ export function validateSettings(settings: PluginSettings, now: Date): SettingsV
     intervalError(settings.publishIntervalMinutes),
     pullNameError(settings.pullName),
     readCapError(settings.maxReadMb),
+    pullCeilingError(settings.pullConfirmAboveMb),
   ].filter((error): error is FieldError => error !== undefined);
   const warnings = authFailure === undefined ? authWarnings("auth", buildAuth(rawAuth(settings.auth), "auth"), now) : [];
   return { errors, warnings };

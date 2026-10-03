@@ -11,10 +11,12 @@ import { asGenerated } from "../../src/crypto/testing/generated-passphrase";
 import { createKeySlotsInternal } from "../../src/crypto/key-slots";
 import { secureRandom } from "../../src/crypto/random";
 import { sha256Hex } from "../../src/sync/hash";
+import { SEQUENCE_FLOOR_FILE, raiseFloor } from "../../src/sync/sequence-floor";
 import {
   ABANDON_CONFIRMATION,
   VaultKeysError,
   abandonVault,
+  describeAbandonFloor,
   keySlotsCopyPath,
   openVault,
   rootDigest,
@@ -22,6 +24,7 @@ import {
   type NodeAccess,
   type OpenVaultInput,
 } from "../../src/sync/vault-keys";
+import { createMemoryDeviceStore } from "../helpers/memory-device-store";
 import { createMemoryHost, type MemoryHost } from "../helpers/memory-host";
 import { countingFakeKdf } from "../vectors/slot-helpers";
 
@@ -307,5 +310,82 @@ describe("abandon", () => {
     // A fresh vault can now be created in the same root name with no local knowledge.
     const fresh = await open(nodeWith(), { create: GENERATED, createParams: FLOOR });
     expect(fresh.origin).toBe("created");
+  });
+});
+
+describe("abandon: the sequence floor it keeps", () => {
+  const floorEntry = (sequence: number) => ({ sequence, identity: "1".repeat(64), at: 1000 });
+
+  async function createdVault() {
+    const opened = await open(nodeWith(), { create: GENERATED, createParams: FLOOR });
+    return opened.vaultId;
+  }
+
+  it("returns the floor found for the vault named by the key-slot copy, and leaves the floor file byte-identical", async () => {
+    const vaultId = await createdVault();
+    const store = createMemoryDeviceStore();
+    await raiseFloor(store, vaultId, floorEntry(5));
+    await raiseFloor(store, "c".repeat(32), floorEntry(9));
+    const before = new Uint8Array(store.entries.get(SEQUENCE_FLOOR_FILE) ?? new Uint8Array());
+    store.writes.length = 0;
+    const result = await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store });
+    expect(result.floor).toEqual({ status: "kept", vaultId, sequence: 5 });
+    expect(describeAbandonFloor(result.floor)).toBe("sequence floor kept: 5");
+    expect(store.entries.get(SEQUENCE_FLOOR_FILE)).toEqual(before);
+    expect(store.writes).toEqual([]);
+    expect(await keySlotsCopyPath(ROOT).then((path) => host.files.has(path))).toBe(false);
+  });
+
+  it("reads the vault id from the state when the key-slot copy does not parse", async () => {
+    const store = createMemoryDeviceStore();
+    const vaultId = "d".repeat(32);
+    await raiseFloor(store, vaultId, floorEntry(3));
+    const digest = await rootDigest(ROOT);
+    host.put(`.ipfs-sync/keyslots.${digest}.json`, "not key slots");
+    host.put(`.ipfs-sync/state.${digest}.json`, JSON.stringify({ vaultId }));
+    const result = await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store });
+    expect(result.floor).toEqual({ status: "kept", vaultId, sequence: 3 });
+  });
+
+  it.each([
+    ["no device store is given", undefined],
+    ["the store holds no floor file", createMemoryDeviceStore()],
+  ])("says none when %s", async (_name, store) => {
+    await createdVault();
+    const result = await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, ...(store === undefined ? {} : { deviceStore: store }) });
+    expect(result.floor).toEqual({ status: "none" });
+    expect(describeAbandonFloor(result.floor)).toContain("sequence floor kept: none");
+    expect(store?.writes ?? []).toEqual([]);
+  });
+
+  it("says none for a vault that has no entry in the floor file, and for files that name no vault", async () => {
+    const store = createMemoryDeviceStore();
+    await raiseFloor(store, "c".repeat(32), floorEntry(9));
+    await createdVault();
+    expect((await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store })).floor).toEqual({ status: "none" });
+    const digest = await rootDigest("/obsidian-vault-sync/junk");
+    host.put(`.ipfs-sync/keyslots.${digest}.json`, "{}");
+    expect((await abandonVault({ fs: host.fs, mfsRoot: "/obsidian-vault-sync/junk", confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store })).floor).toEqual({ status: "none" });
+  });
+
+  it("reports a damaged floor file as unreadable, still moves the files and does not touch the floor", async () => {
+    await createdVault();
+    const store = createMemoryDeviceStore();
+    const damaged = new TextEncoder().encode("{not json");
+    store.entries.set(SEQUENCE_FLOOR_FILE, damaged);
+    const result = await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store });
+    expect(result.floor.status).toBe("unreadable");
+    expect(describeAbandonFloor(result.floor)).toContain("unreadable");
+    expect(result.moved.length).toBeGreaterThan(0);
+    expect(store.entries.get(SEQUENCE_FLOOR_FILE)).toBe(damaged);
+    expect(store.writes).toEqual([]);
+  });
+
+  it("reads nothing from the store when there is nothing to move", async () => {
+    const store = { get: vi.fn(async () => undefined), set: vi.fn(async () => undefined) };
+    const result = await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store });
+    expect(result).toMatchObject({ moved: [], floor: { status: "none" } });
+    expect(store.get).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
   });
 });

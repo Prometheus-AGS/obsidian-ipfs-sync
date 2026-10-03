@@ -9,6 +9,7 @@ import { scheduleCatchUp } from "./catch-up";
 import { flushOpenEditors } from "./editor-flush";
 import { createPublishRunner, type PublishOutcome, type PublishProgress, type PublishRunner } from "./publish-runner";
 import { readPluginSeams } from "./plugin-seams";
+import { obsidianPullDialogs } from "./pull-dialogs";
 import { createPullPresenter, type PullPresenter } from "./pull-presenter";
 import { createPullRunner, type PullOutcome, type PullRunner } from "./pull-runner";
 import { createSessionDialogs, describeDialogError, obsidianDialogFactories, type SessionDialogs } from "./session-dialogs";
@@ -91,14 +92,23 @@ export default class IpfsSyncPlugin extends Plugin {
         return dialog;
       },
     });
-    this.runner = createPublishRunner({ store, adapter, bus: this.bus, lock, session: this.session });
+    this.runner = createPublishRunner({ store, adapter, configDir: this.app.vault.configDir, bus: this.bus, lock, session: this.session });
     this.pullRunner = createPullRunner({
       store,
       adapter,
+      configDir: this.app.vault.configDir,
       bus: this.bus,
       lock,
       flushEditors: () => flushOpenEditors(this.app.workspace, adapter),
       allowPlaintextV1: () => readPluginSeams(this).allowPlaintextV1 === true,
+      session: this.session,
+      // The pull asks for its passphrase through the same unlock dialog as publish, and ends the sequence with the final verdict.
+      passphrase: {
+        ask: (request) => this.dialogs.callbacks.unlock(request),
+        progress: (fraction) => this.dialogs.callbacks.unlocking?.({ kind: "progress", fraction }),
+        settle: (verdict) => this.dialogs.settleUnlock(verdict),
+      },
+      dialogs: obsidianPullDialogs(this.app),
     });
     this.statusEl = this.addStatusBarItem();
     this.presenter = createPullPresenter({
@@ -106,20 +116,26 @@ export default class IpfsSyncPlugin extends Plugin {
       setStatus: (text) => this.statusEl.setText(text),
       schedule: (callback, delayMs) => void setTimeout(callback, delayMs),
       now: () => new Date(),
+      offerAction: (text, label, run) => this.offerAction(text, label, run),
     });
 
     this.addCommand({ id: "publish-vault", name: "Publish vault", callback: () => void this.publishVault() });
     this.addCommand({ id: "pull-vault", name: "Pull vault", callback: () => void this.pullVault() });
+    this.addCommand({ id: "restore-version", name: "Restore an older version", callback: () => void this.restoreVersion() });
+    this.addCommand({ id: "resolve-fork", name: "Resolve fork", callback: () => void this.resolveFork() });
     this.addCommand({ id: "show-status", name: "Show status", callback: () => void this.showStatus() });
     this.addCommand({ id: "abandon-vault", name: "Abandon this vault", callback: () => void this.abandonVault() });
     this.addCommand({ id: "clear-stale-lock", name: "Clear stale publish lock", callback: () => void this.clearStaleLock() });
     this.addRibbonIcon("network", "IPFS Sync: publish vault", () => void this.publishVault());
     this.addRibbonIcon("download", "IPFS Sync: pull vault", () => void this.pullVault());
-    const encryption = observer.status({
-      openSetup: () => void this.showDialogOutcome(() => this.session.setup()),
-      openUnlock: () => void this.showDialogOutcome(() => this.session.unlock()),
-      openAbandon: () => void this.abandonVault(),
-    });
+    const encryption = {
+      ...observer.status({
+        openSetup: () => void this.showDialogOutcome(() => this.session.setup()),
+        openUnlock: () => void this.showDialogOutcome(() => this.session.unlock()),
+        openAbandon: () => void this.abandonVault(),
+      }),
+      pullRecord: () => this.pullRunner.record(),
+    };
     const staleLock = { inspect: () => this.staleLockFlow.inspect(), open: async () => void (await this.clearStaleLock()) };
     this.addSettingTab(new IpfsSyncSettingTab(this.app, this, this.createSettingsViewModel(), encryption, staleLock));
     this.rearmAutoPublish();
@@ -128,6 +144,12 @@ export default class IpfsSyncPlugin extends Plugin {
       onLayoutReady: (callback) => this.app.workspace.onLayoutReady(callback),
       pull: () => this.pullVault({ quiet: true }),
       onError: (error) => new Notice(`IPFS Sync: catch-up failed: ${error instanceof Error ? error.message : "unknown error"}`, NOTICE_MS),
+    });
+    // Temp files of a pull that crashed. After the layout is ready, never inside onload: plugin loading does no storage work.
+    this.app.workspace.onLayoutReady(() => {
+      this.pullRunner.sweepTemp().catch((error: unknown) => {
+        new Notice(`IPFS Sync: could not clean up temporary files: ${error instanceof Error ? error.message : "unknown error"}`, NOTICE_MS);
+      });
     });
   }
 
@@ -153,6 +175,7 @@ export default class IpfsSyncPlugin extends Plugin {
   createSettingsViewModel(): SettingsViewModel {
     return buildSettingsViewModel({
       store: this.store,
+      configDir: this.app.vault.configDir,
       listNodeKeys: () => {
         const config = settingsToConfig(this.store.get(), new Date());
         return createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: requestUrlTransport }).keyList();
@@ -187,15 +210,48 @@ export default class IpfsSyncPlugin extends Plugin {
    */
   async pullVault(options: { readonly quiet?: boolean } = {}): Promise<PullOutcome> {
     const quiet = options.quiet === true;
+    return this.showPullAction((onProgress) => this.pullRunner.run({ onProgress, unattended: quiet }), quiet);
+  }
+
+  /** Restore: choose an older version, see what it holds as its own manifest says, confirm, then pull it. Never runs unattended. */
+  async restoreVersion(): Promise<PullOutcome> {
+    return this.showPullAction((onProgress) => this.pullRunner.restore({ onProgress }), false);
+  }
+
+  /** Resolve fork: after a confirmation, the node's version wins where the two differ and this device's text is kept as conflict copies. */
+  async resolveFork(): Promise<PullOutcome> {
+    return this.showPullAction((onProgress) => this.pullRunner.resolveFork({ onProgress }), false);
+  }
+
+  /**
+   * One pull action with its notice and status. A request made while another operation runs shows a notice and starts nothing
+   * (the runner answers busy before it opens a dialog).
+   */
+  private async showPullAction(start: (onProgress: (text: string) => void) => Promise<PullOutcome>, quiet: boolean): Promise<PullOutcome> {
     if (this.pullRunner.isRunning()) {
-      const busy = await this.pullRunner.run();
+      const busy = await start(() => undefined);
       if (!quiet) this.presenter.notify(busy.notice);
       return busy;
     }
-    const reporter = this.presenter.begin({ quiet });
-    const outcome = await this.pullRunner.run({ onProgress: reporter.onProgress });
+    const reporter = this.presenter.begin({ quiet, resolveFork: () => void this.resolveFork() });
+    const outcome = await start(reporter.onProgress);
     reporter.finish(outcome);
     return outcome;
+  }
+
+  /** A notice with one button, kept for the status-notice time. */
+  private offerAction(text: string, label: string, run: () => void): void {
+    const notice = new Notice(
+      createFragment((fragment) => {
+        fragment.createEl("span", { text: `${text} ` });
+        const button = fragment.createEl("button", { text: label });
+        button.addEventListener("click", () => {
+          notice.hide();
+          run();
+        });
+      }),
+      STATUS_NOTICE_MS,
+    );
   }
 
   /**

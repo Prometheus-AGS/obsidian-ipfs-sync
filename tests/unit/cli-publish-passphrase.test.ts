@@ -7,6 +7,7 @@ import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { initDiskVault } from "../helpers/cli-vault";
+import { stateEnv } from "../helpers/cli-state-env";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { createFakeTerminal } from "../helpers/fake-terminal";
@@ -61,7 +62,7 @@ describe("ipfs-sync publish: unlocking with a passphrase", () => {
 
   const publish = async (env: Record<string, string>, extra: string[] = [], overrides: Partial<CliDeps> = {}) => {
     const s = sink();
-    const deps: CliDeps = { env, now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent, ...overrides };
+    const deps: CliDeps = { env: stateEnv(env), now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent, ...overrides };
     const code = await runCli(["publish", vault, "--config", configPath, "--mfs-root", MFS_ROOT, ...extra], deps, s.io);
     return { code, out: s.out.join("\n"), err: s.err.join("\n"), all: [...s.out, ...s.err] };
   };

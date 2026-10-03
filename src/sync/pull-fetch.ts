@@ -4,10 +4,13 @@ import type { Bytes, HostFs } from "../core/host-bridge";
 import type { GatewayStream, KuboClient } from "../kubo";
 import { HASH_CHUNK_BYTES, SINGLE_READ_LIMIT_BYTES } from "./hash";
 import type { ManifestFile } from "./manifest";
+import { refusePath, type PathPolicyOptions } from "./path-policy";
 import { findSymlink } from "./symlink-guard";
 
-/** Vault-relative folder for in-flight downloads: same filesystem as the destination, never synced. */
-export const TEMP_DIR = ".ipfs-sync/tmp";
+import { TEMP_DIR, discardTemp } from "./temp-files";
+
+/** Kept so the v1 tests import unchanged; 07b deletes this re-export together with this file. */
+export { TEMP_DIR } from "./temp-files";
 
 /** Buffered chunks are appended to the temp file once they reach this size. */
 const FLUSH_BYTES = 1024 * 1024;
@@ -20,6 +23,25 @@ export interface FetchContext {
   readonly fs: FetchFs;
   /** Unique temp file names (a random UUID in production). */
   readonly newId: () => string;
+  /** The configuration folder and exclusions the path policy is evaluated with at write time. */
+  readonly policy?: PathPolicyOptions;
+}
+
+/** The path policy refused a destination at write time. The message is a fixed sentence: it does not echo the path. */
+export class PathRefusedError extends Error {
+  readonly path: string;
+
+  constructor(path: string, reason: string) {
+    super(`not written: ${reason} (path policy)`);
+    this.name = "PathRefusedError";
+    this.path = path;
+  }
+}
+
+/** Re-check one destination against the single-path rules of the path policy, right before bytes are requested and again before the rename. */
+function assertPolicyAllows(ctx: FetchContext, path: string): void {
+  const refusal = refusePath(path, ctx.policy);
+  if (refusal !== undefined) throw new PathRefusedError(path, refusal.reason);
 }
 
 export class VerificationError extends Error {
@@ -122,11 +144,6 @@ async function writeAndHash(
   return { sha256: bytesToHex(hasher.digest()), size };
 }
 
-/** Remove a temp file. A failure here cannot change the outcome of the file, and the next pull sweeps the folder. */
-export async function discardTemp(fs: Pick<HostFs, "remove">, temp: string): Promise<void> {
-  await fs.remove(temp).catch(() => undefined);
-}
-
 /** Delete leftovers of an earlier interrupted pull. */
 export async function sweepTemp(fs: Pick<HostFs, "stat" | "list" | "remove">): Promise<number> {
   if ((await fs.stat(TEMP_DIR))?.kind !== "directory") return 0;
@@ -141,6 +158,7 @@ export async function sweepTemp(fs: Pick<HostFs, "stat" | "list" | "remove">): P
  * removed and the destination is untouched. A symlink on the destination path fails the file first.
  */
 export async function stageVerified(ctx: FetchContext, cid: string, path: string, entry: ManifestFile): Promise<string> {
+  assertPolicyAllows(ctx, path);
   const link = await findSymlink(ctx.fs, path);
   if (link !== undefined) throw new SymlinkRefusedError(path, link);
   const temp = `${TEMP_DIR}/${ctx.newId()}.part`;
@@ -161,6 +179,7 @@ export async function stageVerified(ctx: FetchContext, cid: string, path: string
  */
 export async function commitStaged(ctx: FetchContext, temp: string, path: string): Promise<number> {
   try {
+    assertPolicyAllows(ctx, path);
     const link = await findSymlink(ctx.fs, path);
     if (link !== undefined) throw new SymlinkRefusedError(path, link);
     await ctx.fs.rename(temp, path);

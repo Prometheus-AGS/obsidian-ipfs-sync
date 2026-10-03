@@ -47,6 +47,8 @@ export interface FakeNode {
   sizeLie: ((name: string) => number | undefined) | undefined;
   /** Report another CID for a stat, by the last path segment (a node that answers with a value the manifest cannot carry). */
   cidLie: ((name: string) => string | undefined) | undefined;
+  /** Makes a `name/resolve` fail with this error (return it, do not throw), or answers normally when it returns undefined. Runs before the lookup. */
+  resolveFault: ((name: string) => Error | undefined) | undefined;
   /** CID of a file or directory at an MFS path or `/ipfs/<cid>[/...]` path, or undefined when absent. */
   cidOf(path: string): string | undefined;
   /** The bytes of the object with this CID, if it is a file the node has seen. */
@@ -198,6 +200,7 @@ export function createFakeNode(initialKeys: readonly NodeKey[] = []): FakeNode {
     afterWrite: undefined,
     sizeLie: undefined,
     cidLie: undefined,
+    resolveFault: undefined,
     cidOf,
     bytesOf: (cid) => {
       const block = blocks.get(cid);
@@ -305,7 +308,15 @@ export function createFakeNode(initialKeys: readonly NodeKey[] = []): FakeNode {
       mutated();
       return { name: found.id, value: `/ipfs/${cid}` };
     },
-    nameResolve: async (name) => published.get(name.replace("/ipns/", "")) ?? "",
+    // Like the real node: a name that was never published is an HTTP 500 with the node's own message (text recorded from the operator's node, see src/kubo/ipns.ts).
+    nameResolve: async (name, options) => {
+      record(`nameResolve ${name} dht-timeout=${options?.dhtTimeout ?? "-"}`);
+      const fault = node.resolveFault?.(name);
+      if (fault !== undefined) throw fault;
+      const value = published.get(name.replace("/ipns/", ""));
+      if (value === undefined) throw new KuboHttpError("rpc", "https://node.test", 500, "could not resolve name", "could not resolve name");
+      return value;
+    },
     gatewayFetch: async (cid, path = "") => {
       record(`GET ${cid}${path === "" ? "" : `/${path}`}`);
       return Uint8Array.from(gatewayBytes(cid, path));

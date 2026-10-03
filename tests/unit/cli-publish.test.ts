@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +9,7 @@ import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { initDiskVault, referencePassphraseSource } from "../helpers/cli-vault";
+import { stateEnv } from "../helpers/cli-state-env";
 
 const MUTATING = ["files/write", "files/rm", "key/gen", "pin/add", "name/publish"];
 const MFS_ROOT = "/obsidian-vault-sync/cli-test";
@@ -26,7 +27,7 @@ function sink(confirm?: (question: string) => Promise<boolean>): Sink {
 }
 
 function deps(overrides: Partial<CliDeps> = {}): CliDeps {
-  return { env: {}, now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent, passphrase: referencePassphraseSource, ...overrides };
+  return { env: stateEnv(), now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent, passphrase: referencePassphraseSource, ...overrides };
 }
 
 describe("ipfs-sync publish", () => {
@@ -90,6 +91,41 @@ describe("ipfs-sync publish", () => {
     expect(fetchStub).not.toHaveBeenCalled();
   });
 
+  it("mvp-07a 1.2: the manifest device is <label>-<12 hex of the stored device id>, stable across runs, in a 0700 per-user directory", async () => {
+    const state = join(dir, "xdg");
+    const env = { XDG_STATE_HOME: state, IPFS_SYNC_DEVICE: "box" };
+    expect((await publish([], { env })).code).toBe(0);
+    const id = (await readFile(join(state, "ipfs-sync", "device-id"), "utf8")).trim();
+    expect(id).toMatch(/^[0-9a-f]{32}$/);
+    const deviceOf = async (): Promise<string> => {
+      const file = (await readdir(join(vault, ".ipfs-sync"))).find((name) => /^state\.[0-9a-f]{16}\.json$/.test(name)) ?? "";
+      return (JSON.parse(await readFile(join(vault, ".ipfs-sync", file), "utf8")) as { manifest: { device: string } }).manifest.device;
+    };
+    expect(await deviceOf()).toBe(`box-${id.slice(0, 12)}`);
+    await writeFile(join(vault, "edited.md"), "edit");
+    expect((await publish([], { env })).code).toBe(0);
+    expect(await deviceOf()).toBe(`box-${id.slice(0, 12)}`);
+    expect(await readFile(join(state, "ipfs-sync", "device-id"), "utf8")).toContain(id);
+    if (process.platform !== "win32") expect((await stat(join(state, "ipfs-sync"))).mode & 0o777).toBe(0o700);
+  });
+
+  it("mvp-07a 1.2: a run that is refused before a manifest is built does not create the per-user directory", async () => {
+    const state = join(dir, "xdg-refused");
+    const real = join(dir, "real-vault");
+    await mkdir(real);
+    await writeFile(join(real, "note.md"), "private");
+    const s = sink();
+    expect(await runCli(["publish", real, "--config", configPath], deps({ env: { XDG_STATE_HOME: state } }), s.io)).toBe(2);
+    expect(await stat(state).catch(() => undefined)).toBeUndefined();
+  });
+
+  it("mvp-07a 1.2: an environment that names no per-user directory fails the publish with a message, writing nothing to the node", async () => {
+    const result = await publish([], { env: {} });
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("per-user state directory");
+    expect(mutating()).toEqual([]);
+  });
+
   it("refuses to publish without a passphrase, sends no request, and says so", async () => {
     const result = await publish([], { passphrase: undefined });
     expect(result.code).toBe(1);
@@ -115,7 +151,8 @@ describe("ipfs-sync publish", () => {
   it("publishes a fixture vault encrypted, creates the key once and records its ID in the config file", async () => {
     const first = await publish();
     expect(first.code).toBe(0);
-    expect(first.out).toMatch(/12 written, 0 removed/);
+    // 1.3: .obsidian/ is now a default exclusion, so the fixture's .obsidian/app.json is no longer published (was 12 written).
+    expect(first.out).toMatch(/11 written, 0 removed/);
     expect(first.out).toContain("root CID");
     expect(first.out).toContain("sequence  1");
     expect(requests.filter((r) => r === "key/gen")).toHaveLength(1);
@@ -215,22 +252,51 @@ describe("ipfs-sync publish: --repair, --recover-slots, --allow-full-reupload", 
     expect(repaired.out).toContain("sequence  3");
   });
 
-  it("--repair for the ahead case asks first, and a run that cannot ask refuses", async () => {
+  it("--repair for the ahead case is refused while a sequence floor exists, and says to pull first", async () => {
     expect((await run([])).code).toBe(0);
     await rmState();
+    const mutating = (): number => requests.filter((request) => MUTATING.some((name) => request.includes(name))).length;
+    const before = mutating();
+    // The floor lives in the per-user store, outside the vault: deleting the vault's state folder content does not remove it.
     const noTerminal = await run(["--repair"]);
+    expect(noTerminal.code).toBe(1);
+    expect(noTerminal.err).toContain("sequence floor");
+    expect(noTerminal.err).toContain("pull first");
+    const askedYes = await run(["--repair"], async () => true);
+    expect(askedYes.code).toBe(1);
+    expect(askedYes.err).toContain("pull first");
+    expect(mutating()).toBe(before);
+  });
+
+  it("--repair for the ahead case asks first for an unreadable state with no floor, and a run that cannot ask refuses", async () => {
+    expect((await run([])).code).toBe(0);
+    await corruptState();
+    // a per-user store that holds no floor for this vault
+    const emptyStore = async (confirm?: (question: string) => Promise<boolean>) => {
+      const s = sink(confirm);
+      const env = stateEnv({ XDG_STATE_HOME: await mkdtemp(join(tmpdir(), "ipfs-sync-empty-state-")) });
+      const code = await runCli(["publish", vault, "--config", configPath, "--mfs-root", MFS_ROOT, "--repair"], deps({ env }), s.io);
+      return { code, out: s.out.join("\n"), err: s.err.join("\n") };
+    };
+    const noTerminal = await emptyStore();
     expect(noTerminal.code).toBe(1);
     expect(noTerminal.err).toContain("confirmation");
 
     const questions: string[] = [];
-    const declined = await run(["--repair"], async (question) => (questions.push(question), false));
+    const declined = await emptyStore(async (question) => (questions.push(question), false));
     expect(declined.code).toBe(1);
     expect(questions[0]).toMatch(/discarded/);
+    expect(questions[0]).toMatch(/run pull/);
 
-    const accepted = await run(["--repair"], async () => true);
+    const accepted = await emptyStore(async () => true);
     expect(accepted.code).toBe(0);
     expect(accepted.out).toContain("sequence  2");
   });
+
+  async function corruptState(): Promise<void> {
+    const { readdir, writeFile: write } = await import("node:fs/promises");
+    for (const name of await readdir(join(vault, ".ipfs-sync"))) if (name.startsWith("state.")) await write(join(vault, ".ipfs-sync", name), "{ not json");
+  }
 
   async function rmState(): Promise<void> {
     const { readdir, rm } = await import("node:fs/promises");

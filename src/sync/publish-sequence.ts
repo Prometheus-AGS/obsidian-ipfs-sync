@@ -3,7 +3,8 @@ import type { EncryptedManifest } from "./encrypted-manifest";
 import type { Baseline } from "./publish-plan";
 import { authorizeRepair, type ConfirmRepair } from "./repair";
 import type { RootState } from "./root-state";
-import { classifySequence, refusalFor, type SequenceVerdict } from "./sequence-rules";
+import type { FloorEntry } from "./sequence-floor";
+import { assertNotBelowFloor, classifySequence, refusalFor, type SequenceVerdict } from "./sequence-rules";
 
 /**
  * Where a publish starts from: the manifest the node must be compared with, and the sequence the next manifest
@@ -33,6 +34,13 @@ export interface SequenceInput {
   readonly localKeySlots: Bytes;
   readonly repair: boolean;
   readonly confirmRepair: ConfirmRepair | undefined;
+  /**
+   * The sequence floor for `vaultId`, read on every publish by the caller (undefined when the host keeps none or has no entry). A publish
+   * that would start from a record below it is refused; the ahead repair is refused when it exists; a repair never lands at or below it.
+   */
+  readonly floor?: FloorEntry | undefined;
+  /** A state file exists for this root and does not decode (only computed under `--repair`). */
+  readonly stateUndecodable?: boolean | undefined;
 }
 
 export interface SequenceDecision {
@@ -54,13 +62,24 @@ export async function decideSequence(input: SequenceInput): Promise<SequenceDeci
   const { state } = input;
   const verdict = verdictFor(input);
   if (verdict.kind === "first-publish" || verdict.kind === "in-sync") {
+    assertNotBelowFloor(input.floor, state);
     return { baseline: state === undefined ? undefined : ownBaseline(state), nextSequence: (state?.sequence ?? 0) + 1, repaired: false };
   }
   if (!input.repair) throw refusalFor(verdict);
   const plan = await authorizeRepair(
     input.kv,
     input.mfsRoot,
-    { verdict, local: state, node: input.node, recordSequence: input.recordSequence, vaultId: input.vaultId, nodeKeyslots: input.nodeKeySlots, localKeyslots: input.localKeySlots },
+    {
+      verdict,
+      local: state,
+      node: input.node,
+      recordSequence: input.recordSequence,
+      vaultId: input.vaultId,
+      nodeKeyslots: input.nodeKeySlots,
+      localKeyslots: input.localKeySlots,
+      floor: input.floor,
+      stateUndecodable: input.stateUndecodable,
+    },
     input.confirmRepair,
   );
   const baseline: Baseline | undefined =

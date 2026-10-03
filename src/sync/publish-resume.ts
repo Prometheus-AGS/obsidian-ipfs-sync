@@ -3,6 +3,7 @@ import type { CommitDeps, PublishTarget } from "./commit-ports";
 import { sha256Hex } from "./hash";
 import { deleteJournal, readJournal, writeJournal, type PublishJournal } from "./journal";
 import { isUnreadableManifest } from "./manifest-auth";
+import { assertNameStillAt } from "./name-recheck";
 import { sameManifest } from "./local-manifest";
 import { ensureHistoryFile, finishPublish } from "./publish-commit";
 import {
@@ -15,7 +16,7 @@ import {
   nodeManifestMissing,
   sequenceAhead,
 } from "./publish-refusals";
-import { buildRootState, writeRootState, type RootState } from "./root-state";
+import { buildRootState, publishedFields, writeRootState, type RootState } from "./root-state";
 
 /**
  * Resume rules for an interrupted publish (spec: encrypted-publish, "Interrupted publishes resume"). The journal
@@ -31,8 +32,9 @@ import { buildRootState, writeRootState, type RootState } from "./root-state";
  *  - node sequence equals the journal's and the hash   -> decrypt, require vaultId, sequence, rootCID and the file
  *    of manifest.enc equals the journal's                 map to equal the journal's pending manifest, write the
  *                                                         history file from the node's bytes if absent (a file
- *                                                         with other bytes is replaced only if it is our own,
- *                                                         authentic, older manifest, else refused), read back, pin, publish,
+ *                                                         with other bytes is replaced only if it authenticates
+ *                                                         and has this vault, sequence and manifest identity, else
+ *                                                         refused), read back, pin, publish,
  *                                                         record the state, drop the journal (completed)
  *  - ... but `current` is not the manifest's rootCID   -> adopt the pending state at the journal's sequence, drop
  *    or the read-back fails                               the journal; the caller runs the drift path at
@@ -40,6 +42,11 @@ import { buildRootState, writeRootState, type RootState } from "./root-state";
  *  - node manifest.enc does not authenticate (a write   -> encrypt journal.pending.manifest again, record its hash in
  *    cut short)                                          the journal, write it, and finish as above
  *  - anything else                                     -> refuse, naming --repair
+ *
+ * Before any of the finishing or adopting paths above (and before the manifest is written again), the publication name is
+ * read (`name-recheck.ts`) and compared with the root the interrupted publish started from (`startRoot` of a format 2
+ * journal, the state's `rootCid` for a format 1 one). A name that moved is `overlapping-publish`: nothing is adopted or
+ * published and the journal stays; the next pull sets it aside. A name that cannot be read is `name-routing-failed`.
  *
  * The journal names the publication key it was going to use, and it must be the one this run verified (`target.key`): a
  * pending manifest is never published under another key. The key is looked up again right before `name/publish`.
@@ -78,6 +85,15 @@ function assertJournalMatches(journal: PublishJournal, target: PublishTarget): v
   if (journal.key !== target.key) throw journalMismatch("publication key");
 }
 
+/** Paths the baseline did not hold that the pending manifest still lists: carried entries stay carried. */
+function stillUnmaterialized(baseline: RootState | undefined, pending: PublishJournal["pending"]["manifest"]): readonly string[] {
+  return (baseline?.unmaterialized ?? []).filter((path) => Object.prototype.hasOwnProperty.call(pending.files, path));
+}
+
+/**
+ * Adopt the journal's pending manifest as the local state. `highest*` rise to it (the state claims its sequence, and
+ * `highestSequence >= sequence` must hold); the sequence floor is not written here, only by a completed publish or a pull.
+ */
 async function adopt(deps: CommitDeps, input: ResumeInput, journal: PublishJournal): Promise<ResumeOutcome> {
   const state = buildRootState({
     mfsRoot: input.target.mfsRoot,
@@ -87,6 +103,7 @@ async function adopt(deps: CommitDeps, input: ResumeInput, journal: PublishJourn
     keyslotsSha256: journal.keyslotsSha256,
     sequence: journal.sequence,
     manifest: journal.pending.manifest,
+    ...publishedFields(input.state, journal.pending.manifest, stillUnmaterialized(input.state, journal.pending.manifest)),
     mtimes: journal.pending.mtimes,
   });
   // State first, journal second: a kill between the two leaves a journal at the state's sequence, which settles.
@@ -107,16 +124,14 @@ async function discard(deps: CommitDeps, journal: PublishJournal, why: "never-wr
 }
 
 /** The node holds the manifest the journal announced: finish it, or adopt the pending state when the snapshot cannot be trusted. */
-async function finishOrAdopt(deps: CommitDeps, input: ResumeInput, journal: PublishJournal, raw: Bytes): Promise<ResumeOutcome> {
+async function finishOrAdopt(deps: CommitDeps, input: ResumeInput, journal: PublishJournal, raw: Bytes, startRoot: string | null): Promise<ResumeOutcome> {
   const manifest = journal.pending.manifest;
   try {
     await ensureHistoryFile(deps, manifest, raw);
   } catch (error) {
-    // A history file someone else put there is a fact about the snapshot, not a reason to keep the journal: adopt, and the
-    // fresh publish then refuses at its commit (`commitPublish`, before it writes a journal or manifest.enc), so no journal is
-    // left to wedge on. Blobs changed in that run were already sent by `transfer`, which runs before the commit; no published
-    // snapshot references them until a later publish succeeds. The refusal repeats on every run until the planted
-    // manifests/<cid>.enc is removed or the vault changes the tree CID.
+    // A history file someone else put at this sequence's name is a fact about the snapshot, not a reason to keep the journal:
+    // adopt, and the run continues at the next sequence, whose own name is checked by `commitPublish` before it writes a journal
+    // or manifest.enc, so no journal is left to wedge on. The planted file stays where it is until the operator removes it.
     if (error instanceof PublishRefusedError && error.code === "history-conflict") return adopt(deps, input, journal);
     throw error;
   }
@@ -128,6 +143,9 @@ async function finishOrAdopt(deps: CommitDeps, input: ResumeInput, journal: Publ
       manifestFile: raw,
       mtimes: journal.pending.mtimes,
       previousRootCid: input.state?.rootCid ?? null,
+      unmaterialized: stillUnmaterialized(input.state, manifest),
+      // The name is read once more right before `name/publish`, against the root the interrupted run started from.
+      nameStart: { root: startRoot, firstPublish: false },
     });
     return { kind: "completed", state };
   } catch (error) {
@@ -141,11 +159,14 @@ async function finishOrAdopt(deps: CommitDeps, input: ResumeInput, journal: Publ
  * likely cut short. The journal holds the manifest this publish was going to write, so it is encrypted again and
  * written (journal first: its hash is updated to the new file), and the publish then finishes as usual.
  */
-async function rewriteFromJournal(deps: CommitDeps, input: ResumeInput, journal: PublishJournal): Promise<ResumeOutcome> {
+async function rewriteFromJournal(deps: CommitDeps, input: ResumeInput, journal: PublishJournal, startRoot: string | null): Promise<ResumeOutcome> {
+  // Before anything is written: the unreadable file may be another device's write, and the name says whether another device published.
+  await assertNameStillAt(deps.node, startRoot, false);
   const file = await deps.encodeManifest(journal.pending.manifest);
-  await writeJournal(deps.kv, { ...journal, manifestSha256: await sha256Hex(file) });
+  // The journal is written again, so it is brought to format 2 here, with the start root this resume compared against.
+  await writeJournal(deps.kv, { ...journal, manifestSha256: await sha256Hex(file), startRoot });
   await deps.node.writeManifestFile(file);
-  return finishOrAdopt(deps, input, journal, file);
+  return finishOrAdopt(deps, input, journal, file, startRoot);
 }
 
 async function reconcile(deps: CommitDeps, input: ResumeInput, journal: PublishJournal): Promise<ResumeOutcome> {
@@ -158,20 +179,26 @@ async function reconcile(deps: CommitDeps, input: ResumeInput, journal: PublishJ
     if (journal.sequence === 1) return discard(deps, journal, "never-written");
     throw nodeManifestMissing();
   }
+  // Where the name stood when the interrupted publish started; a format 1 journal did not record it, so the local state's root stands in.
+  const startRoot = journal.startRoot !== undefined ? journal.startRoot : (state?.rootCid ?? null);
   let node: Awaited<ReturnType<CommitDeps["decodeManifest"]>>;
   try {
     node = await deps.decodeManifest(raw);
   } catch (error) {
     if (!isUnreadableManifest(error)) throw error;
-    return rewriteFromJournal(deps, input, journal);
+    return rewriteFromJournal(deps, input, journal, startRoot);
   }
   if (node.vaultId !== journal.vaultId) throw journalMismatch("vault");
   if (node.sequence === journal.sequence - 1) return discard(deps, journal, "never-written");
   if (node.sequence > journal.sequence) throw sequenceAhead(node.sequence, state?.sequence);
   if (node.sequence < journal.sequence) throw journalOutOfStep(journal.sequence, node.sequence);
-  if ((await sha256Hex(raw)) !== journal.manifestSha256) throw journalManifestMismatch(journal.sequence, "different-manifest");
+  // The node holds a manifest at the journal's sequence. Whether it is ours or another device's, the name decides before anything is adopted
+  // or published: a name that moved means another device published, and this device must neither adopt over its manifest nor publish.
+  const ours = (await sha256Hex(raw)) === journal.manifestSha256;
+  await assertNameStillAt(deps.node, startRoot, ours);
+  if (!ours) throw journalManifestMismatch(journal.sequence, "different-manifest");
   if (!sameManifest(node, journal.pending.manifest)) throw journalManifestMismatch(journal.sequence, "content");
-  return finishOrAdopt(deps, input, journal, raw);
+  return finishOrAdopt(deps, input, journal, raw, startRoot);
 }
 
 /**

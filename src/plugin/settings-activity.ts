@@ -1,3 +1,4 @@
+import { FIRST_PULL_GATEWAY_STATEMENT } from "../sync/encrypted-pull";
 import type { PullTargetPreview } from "./pull-target";
 import type { PublishSummary, PullSummary } from "./settings-model";
 
@@ -32,6 +33,11 @@ export function describePullTarget(preview: PullTargetPreview): string {
   switch (preview.kind) {
     case "entered":
       return `The name that will be pulled: ${preview.name} (from the pull name setting).`;
+    case "explicit-root":
+      return (
+        `An explicit root will be pulled: ${preview.cid}. It comes from the pull name setting, and no IPNS name is looked up. ` +
+        `This is an advanced input, for restoring or checking a particular version. ${FIRST_PULL_GATEWAY_STATEMENT}`
+      );
     case "owned-key":
       return `The name that will be pulled: ${preview.name} (the ID of your publication key).`;
     case "owned-key-from-node":

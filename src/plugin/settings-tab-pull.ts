@@ -5,8 +5,9 @@ import type { SettingsViewState } from "./settings-view-model";
 
 /**
  * The Pull, Memory and Last activity sections. Pull holds the name to pull from (with the name that will
- * actually be used, in words) and the per-device catch-up switch; Memory holds the read cap; Last activity is
- * read-only text about the last publish and the last pull on this device.
+ * actually be used, in words, and for an explicit root the advanced-input note), the size above which a pull asks
+ * first, and the per-device catch-up switch; Memory holds the read cap; Last activity is read-only text about the
+ * last publish and the last pull on this device.
  */
 export class PullSections {
   private targetEl: HTMLElement | undefined;
@@ -17,6 +18,7 @@ export class PullSections {
     const pull = addSection(root, "ipfs-sync-section-pull", SECTIONS.pull);
     addTextField(pull, "pullName", ctx);
     this.targetEl = this.summaryRow(pull, COPY.targetName, PULL_TARGET_ID, true);
+    addTextField(pull, "pullConfirmAboveMb", ctx);
     addToggleField(pull, "catchUpOnLoad", ctx);
     const memory = addSection(root, "ipfs-sync-section-memory", SECTIONS.memory);
     addTextField(memory, "maxReadMb", ctx);

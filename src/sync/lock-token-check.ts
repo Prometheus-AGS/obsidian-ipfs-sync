@@ -1,4 +1,4 @@
-import { decodeLock, type LockFile } from "../sync/publish-lock";
+import { decodeLock, type LockFile } from "./publish-lock";
 
 /**
  * A lock file that remembers the token of the record it created, so the holder can ask, at any moment, whether the file

@@ -55,11 +55,14 @@ function normalizeEntry(entry: string): string {
   return entry.trim().replaceAll("\\", "/");
 }
 
-/** Lines of the old exclusion text that are not already default exclusions, in order, without duplicates. */
+/** The whole configuration folder is a default exclusion now (mvp-07a 1.3); the old build listed six `.obsidian/…` defaults, which would otherwise read as the user's own lines. */
+const CONFIG_FOLDER_PREFIX = ".obsidian/";
+
+/** Lines of the old exclusion text that are not already default exclusions and not under the configuration folder, in order, without duplicates. */
 function userExclusionsFrom(excludedPaths: string | undefined): readonly string[] {
   if (excludedPaths === undefined) return [];
   const defaults = new Set(DEFAULT_EXCLUSIONS);
-  const lines = excludedPaths.split("\n").map(normalizeEntry).filter((line) => line !== "" && !defaults.has(line));
+  const lines = excludedPaths.split("\n").map(normalizeEntry).filter((line) => line !== "" && !defaults.has(line) && !line.startsWith(CONFIG_FOLDER_PREFIX));
   return [...new Set(lines)];
 }
 

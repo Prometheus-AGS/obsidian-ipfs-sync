@@ -198,7 +198,10 @@ describe("encrypted publish: hostile objects on the node", () => {
 describe("encrypted publish: caps and formats are checked before any blob is written", () => {
   it("refuses a vault whose paths exceed the manifest's path-byte cap, naming the cap", async () => {
     const rig = await ready();
-    for (let index = 0; index < 9; index += 1) rig.host.put(`${"x".repeat(1_000_000)}${index}.md`, "a", 1000);
+    // Each path is within the per-path limits (about 3.7 KB, 15 segments of 239 bytes). The writer-side per-path check (N-01) runs before the
+    // total cap, on purpose: an over-limit path is named; only a vault of many valid paths reaches the total cap. 2400 x ~3.7 KB is over 8 MiB.
+    const folder = Array.from({ length: 15 }, () => "x".repeat(239)).join("/");
+    for (let index = 0; index < 2400; index += 1) rig.host.put(`${folder}/${index}.md`, "a", 1000);
     const error = await rejection(rig.publish());
     expect(error).toBeInstanceOf(OversizeInputError);
     expect(error).toMatchObject({ cap: "manifest-path-bytes" });

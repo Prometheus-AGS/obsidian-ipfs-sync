@@ -33,13 +33,14 @@ async function encryptedRoot(h: Harness, present: readonly string[] = ["keyslots
 
 describe("pull of an encrypted root", () => {
   it.each([[["keyslots.json"]], [["manifest.enc"]], [["keyslots.json", "manifest.enc"]]] as const)(
-    "stops with the not-supported-yet error when the root holds %j, writes nothing to the vault and sets the latch",
+    "stops with the plaintext-reader-does-not-read-it error when the root holds %j, writes nothing to the vault and sets the latch",
     async (present) => {
       const h = harness();
       await encryptedRoot(h, present);
       const error = await h.run().then(() => undefined, (failure: unknown) => failure);
       expect(error).toBeInstanceOf(EncryptedVaultError);
-      expect((error as Error).message).toMatch(/encrypted vault.*not supported yet/);
+      expect((error as Error).message).toMatch(/encrypted vault.*the plaintext reader does not read/);
+      expect((error as Error).message).not.toMatch(/next change|not supported yet|mvp-07/);
       expect(h.host.mutations).toEqual([]);
       expect(h.host.files.size).toBe(0);
       expect(h.host.kvStore.has(LATCH_KEY)).toBe(true);

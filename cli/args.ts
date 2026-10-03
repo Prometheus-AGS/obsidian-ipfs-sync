@@ -30,6 +30,22 @@ export interface PullFlags {
   readonly name: string | undefined;
   readonly manifest: string | undefined;
   readonly manifestFile: string | undefined;
+  /** `--root-cid <cid>`: pull an explicit immutable root instead of the name (encrypted vaults). */
+  readonly rootCid: string | undefined;
+  /** `--allow-rollback`: with `--root-cid` or `--manifest`, accept an older sequence as a restore. */
+  readonly allowRollback: boolean;
+  /** `--resolve-fork`: merge the node's state into this device's after a fork (name target only). */
+  readonly resolveFork: boolean;
+  readonly expectMinSequence: number | undefined;
+  readonly expectVaultId: string | undefined;
+  /** `--accept-first-pull`: the non-interactive yes to the first-pull question. */
+  readonly acceptFirstPull: boolean;
+  /** `--max-bytes <n>`: plaintext bytes above which the pull asks (default 512 MiB). */
+  readonly maxBytes: number | undefined;
+  /** `--accept-large`: the non-interactive yes to the large-pull question. */
+  readonly acceptLarge: boolean;
+  /** `--list-versions`: print the newest history entries and stop. */
+  readonly listVersions: boolean;
 }
 
 export class UsageError extends Error {
@@ -65,6 +81,15 @@ const OPTIONS = {
   name: { type: "string" },
   manifest: { type: "string" },
   "manifest-file": { type: "string" },
+  "root-cid": { type: "string" },
+  "allow-rollback": { type: "boolean" },
+  "resolve-fork": { type: "boolean" },
+  "expect-min-sequence": { type: "string" },
+  "expect-vault-id": { type: "string" },
+  "accept-first-pull": { type: "boolean" },
+  "max-bytes": { type: "string" },
+  "accept-large": { type: "boolean" },
+  "list-versions": { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -131,6 +156,38 @@ function parseStrict(argv: readonly string[]) {
   }
 }
 
+const HEX32 = /^[0-9a-f]{32}$/;
+
+/** A positive whole number written in decimal digits only, or undefined when the flag is absent. */
+function positiveInteger(flag: string, text: string | undefined): number | undefined {
+  if (text === undefined) return undefined;
+  const value = Number(text);
+  if (!/^[0-9]+$/.test(text) || !Number.isSafeInteger(value) || value < 1) throw new UsageError(`${flag} needs a positive whole number, got "${text}"`);
+  return value;
+}
+
+function pullFlags(values: ReturnType<typeof parseStrict>["values"]): PullFlags {
+  const expectVaultId = values["expect-vault-id"];
+  if (expectVaultId !== undefined && !HEX32.test(expectVaultId)) {
+    throw new UsageError("--expect-vault-id needs 32 lowercase hexadecimal characters (the vault id the key slots carry)");
+  }
+  return {
+    allowPlaintextV1: values["allow-plaintext-v1"] ?? false,
+    name: values.name,
+    manifest: values.manifest,
+    manifestFile: values["manifest-file"],
+    rootCid: values["root-cid"],
+    allowRollback: values["allow-rollback"] ?? false,
+    resolveFork: values["resolve-fork"] ?? false,
+    expectMinSequence: positiveInteger("--expect-min-sequence", values["expect-min-sequence"]),
+    expectVaultId,
+    acceptFirstPull: values["accept-first-pull"] ?? false,
+    maxBytes: positiveInteger("--max-bytes", values["max-bytes"]),
+    acceptLarge: values["accept-large"] ?? false,
+    listVersions: values["list-versions"] ?? false,
+  };
+}
+
 /** Parse argv (without node and script). Throws UsageError on unknown flags; each command checks its own operands. */
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   const parsed = parseStrict(argv);
@@ -148,6 +205,6 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     passphraseFile: parsed.values["passphrase-file"],
     configPath: parsed.values.config,
     flagsLayer: toLayer(parsed.values),
-    pull: { allowPlaintextV1: parsed.values["allow-plaintext-v1"] ?? false, name: parsed.values.name, manifest: parsed.values.manifest, manifestFile: parsed.values["manifest-file"] },
+    pull: pullFlags(parsed.values),
   };
 }

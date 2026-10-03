@@ -6,7 +6,9 @@ import { AbandonVaultDialog } from "../../src/plugin/abandon-vault-dialog";
 import { ABANDON_COPY } from "../../src/plugin/encryption-copy";
 import { defaultSettings } from "../../src/plugin/settings-model";
 import type { SettingsStore } from "../../src/plugin/settings-store";
+import { bytesToBase64 } from "../../src/plugin/base64";
 import { createSyncLock } from "../../src/plugin/sync-lock";
+import { SEQUENCE_FLOOR_FILE, SEQUENCE_FLOOR_VERSION, encodeFloor } from "../../src/sync/sequence-floor";
 import { rootDigest } from "../../src/sync/vault-keys";
 import { byId, type FakeEl } from "../support/fake-dom";
 import { MemoryAdapter } from "../support/memory-adapter";
@@ -178,6 +180,45 @@ describe("abandon flow", () => {
     const result = await d.request()?.abandon();
     expect(result).toMatchObject({ ok: false });
     expect(d.lock).not.toHaveBeenCalled();
+  });
+
+  describe("sequence floor", () => {
+    const VAULT_ID = "e".repeat(32);
+
+    function storeWithFloor(sequence: number | undefined) {
+      const floors = sequence === undefined ? {} : { [VAULT_ID]: { sequence, identity: "1".repeat(64), at: 1000 } };
+      const deviceStore = { [SEQUENCE_FLOOR_FILE]: bytesToBase64(encodeFloor({ version: SEQUENCE_FLOOR_VERSION, floors })) };
+      const update = vi.fn();
+      const store = { get: () => ({ ...defaultSettings(), deviceStore }), update } as unknown as SettingsStore;
+      return { store, update, deviceStore };
+    }
+
+    async function seedVault(adapter: MemoryAdapter): Promise<void> {
+      const digest = await rootDigest(defaultSettings().mfsRoot);
+      adapter.put(`.ipfs-sync/state.${digest}.json`, JSON.stringify({ vaultId: VAULT_ID }));
+      adapter.put(`.ipfs-sync/journal.${digest}.json`, "journal-body");
+    }
+
+    it("puts 'sequence floor kept: N' in the notice text and does not write the settings", async () => {
+      const { store, update, deviceStore } = storeWithFloor(7);
+      const d = deps({ store });
+      await seedVault(d.adapter);
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toMatchObject({ ok: true });
+      expect((result as { backupNote: string }).backupNote).toContain("sequence floor kept: 7");
+      expect(update).not.toHaveBeenCalled();
+      expect(store.get().deviceStore).toBe(deviceStore);
+    });
+
+    it("says none when the device holds no floor for the vault", async () => {
+      const { store } = storeWithFloor(undefined);
+      const d = deps({ store });
+      await seedVault(d.adapter);
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect((result as { backupNote: string }).backupNote).toContain("sequence floor kept: none");
+    });
   });
 
   it("closes an open dialog when disposed", () => {

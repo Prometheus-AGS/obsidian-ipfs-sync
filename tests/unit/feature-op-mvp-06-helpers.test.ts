@@ -201,7 +201,7 @@ describe("fault schedule (faultStep)", () => {
     { command: "files/write", arg: `${root}/current/ab/${"a".repeat(52)}` },
     { command: "files/stat", arg: `${root}/current` },
     { command: "files/write", arg: `${root}/manifest.enc` },
-    { command: "files/write", arg: `${root}/manifests/${CID}.enc` },
+    { command: "files/write", arg: `${root}/manifests/0000000000000002-${CID}.enc` },
     { command: "files/stat", arg: root },
     { command: "pin/add", arg: CID },
     { command: "name/publish", arg: `/ipfs/${CID}` },
@@ -286,11 +286,25 @@ describe("layout rule (checkNodeLayout)", () => {
     ],
     current: [{ name: "ab", type: "directory" as const }],
     prefixes: new Map([["ab", [{ name: `ab${name.slice(2)}`, type: "file" as const }]]]),
-    manifests: [{ name: `${CID}.enc`, type: "file" as const }],
+    manifests: [{ name: `0000000000000002-${CID}.enc`, type: "file" as const }],
   });
 
   it("accepts the encrypted layout", () => {
     expect(h.checkNodeLayout(good())).toEqual([]);
+  });
+
+  it("accepts prefixed, legacy and mixed history names and still reports a malformed prefix", () => {
+    const legacy = good();
+    legacy.manifests = [{ name: `${CID}.enc`, type: "file" as const }];
+    expect(h.checkNodeLayout(legacy)).toEqual([]);
+    const mixed = good();
+    mixed.manifests.push({ name: `${CID}.enc`, type: "file" as const });
+    expect(h.checkNodeLayout(mixed)).toEqual([]);
+    for (const bad of [`123-${CID}.enc`, `00000000000000002-${CID}.enc`, `0000000000000002-${CID}.txt`, `0000000000000002_${CID}.enc`]) {
+      const broken = good();
+      broken.manifests.push({ name: bad, type: "file" as const });
+      expect(h.checkNodeLayout(broken).join("\n")).toMatch(/anomaly in manifests\//);
+    }
   });
 
   it("reports a flipped listing name, a stray file in a prefix folder, an extra root entry and a plaintext-looking name", () => {

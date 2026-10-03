@@ -1,6 +1,7 @@
 import type { EncryptedManifest } from "./encrypted-manifest";
-import { nodeManifestMissing, nodeManifestUnreadable, sequenceAhead, sequenceBehind, sequenceFork, type PublishRefusedError } from "./publish-refusals";
+import { belowSequenceFloor, nodeManifestMissing, nodeManifestUnreadable, sequenceAhead, sequenceBehind, sequenceFork, type PublishRefusedError } from "./publish-refusals";
 import type { RootState } from "./root-state";
+import type { FloorEntry } from "./sequence-floor";
 
 /**
  * The sequence rules of a publish: the node's authenticated manifest against this device's record. Only equal
@@ -47,6 +48,16 @@ export function refusalFor(verdict: RefusingVerdict): PublishRefusedError {
     case "node-manifest-unreadable":
       return nodeManifestUnreadable();
   }
+}
+
+/**
+ * A publish starts from this device's own record. If the device has accepted a higher sequence of the vault (its sequence floor) than
+ * that record holds, or has no record at all, publishing from here would go out below the floor and every device that holds the floor
+ * would refuse it (review-final A-02: a wiped device state, a node that shows no `manifest.enc`, or a pull that raised the floor and
+ * stopped before its state). Throws `sequence-below-floor`, which says to pull first. A host that keeps no floor passes `undefined`.
+ */
+export function assertNotBelowFloor(floor: FloorEntry | undefined, state: RootState | undefined): void {
+  if (floor !== undefined && (state === undefined || state.sequence < floor.sequence)) throw belowSequenceFloor(floor.sequence, state?.sequence);
 }
 
 /** Throw the refusal for a verdict that does not allow a publish; return for `first-publish` and `in-sync`. */

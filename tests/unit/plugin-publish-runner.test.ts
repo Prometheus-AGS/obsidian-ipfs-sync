@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createNodeHostBridge } from "../../cli/node-host-bridge";
 import { createSyncEventBus } from "../../src/core/events";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
@@ -52,15 +52,21 @@ interface Rig {
 
 type Adapter = MemoryAdapter | ReturnType<typeof createNodeFsAdapter>;
 
+/** The node client with every request held until `gate` settles: a run that has taken the sync lock stays inside it. */
+function gatedClient(client: FakeNode["client"], gate: Promise<void>): FakeNode["client"] {
+  const held = Object.entries(client).map(([name, member]) => [name, typeof member === "function" ? async (...args: unknown[]) => (await gate, (member as (...a: unknown[]) => unknown)(...args)) : member]);
+  return Object.fromEntries(held) as FakeNode["client"];
+}
+
 /** The runner over a vault whose encrypted vault already exists (the setup dialog or `init` creates it before any publish). */
-async function rig(adapter: Adapter, store: SettingsStore, node = createFakeNode(), options: { readonly cancelUnlock?: boolean; readonly init?: boolean } = {}): Promise<Rig> {
+async function rig(adapter: Adapter, store: SettingsStore, node = createFakeNode(), options: { readonly cancelUnlock?: boolean; readonly init?: boolean; readonly gate?: Promise<void> } = {}): Promise<Rig> {
   const progress: number[] = [];
   if (options.init !== false) await initVault(createObsidianHostBridge({ adapter }).fs, node, MFS_ROOT);
   const runner = createPublishRunner({
     store,
     adapter,
     bus: createSyncEventBus(),
-    createClient: () => node.client,
+    createClient: () => (options.gate === undefined ? node.client : gatedClient(node.client, options.gate)),
     session: sessionRig({ store, adapter, createClient: () => node.client, typed: options.cancelUnlock === true ? [undefined] : undefined }).session,
     now: () => new Date(1_800_000_000_000),
   });
@@ -124,12 +130,20 @@ describe("plugin publish runner", () => {
   });
 
   it("stops before any write when the new key ID cannot be recorded, and shows the ID", async () => {
-    const r = await rig(fixtureVault(), storeWith({}, true));
+    // 1.2: the device id is saved to the same plugin data before the key is created, so it is stored already; only the key ID cannot be saved.
+    const r = await rig(fixtureVault(), storeWith({ deviceStore: { "device-id": btoa(`${"ab".repeat(16)}\n`) } }, true));
     const outcome = await publish(r);
     const keyId = r.node.keys[0]?.id ?? "";
     expect(outcome).toMatchObject({ kind: "refused", reason: "key-not-recorded" });
     expect(outcome.notice).toContain(keyId);
     expect(r.node.calls.filter((call) => MUTATING.test(call))).toEqual([`keyGen ${KEY}`]);
+  });
+
+  it("1.2: when the plugin data cannot be saved, the device id fails the publish before the key is created or anything is written", async () => {
+    const r = await rig(fixtureVault(), storeWith({}, true));
+    const outcome = await publish(r);
+    expect(outcome.kind).toBe("failed");
+    expect(r.node.calls.filter((call) => MUTATING.test(call))).toEqual([]);
   });
 
   it("refuses when the unlock dialog is cancelled, saying so and sending nothing", async () => {
@@ -141,11 +155,17 @@ describe("plugin publish runner", () => {
   });
 
   it("ignores a second publish while one is running, then allows the next", async () => {
-    const r = await rig(fixtureVault(), storeWith());
+    // The marker guard, settings and session steps run before the lock is taken, so the first run is held inside the
+    // engine (its node requests wait on the gate) and the second starts only once the first demonstrably holds the lock.
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const r = await rig(fixtureVault(), storeWith(), createFakeNode(), { gate });
     const first = publish(r);
+    await vi.waitFor(() => expect(r.runner.isRunning()).toBe(true));
     const second = await publish(r);
     expect(second).toMatchObject({ kind: "refused", reason: "busy" });
     expect(r.runner.isRunning()).toBe(true);
+    open();
     expect((await first).kind).toBe("published");
     expect(r.runner.isRunning()).toBe(false);
     expect((await publish(r)).kind).toBe("unchanged");

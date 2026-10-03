@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { parsePullName, previewPullTarget, resolvePullTarget, NO_PULL_TARGET_MESSAGE } from "../../src/plugin/pull-target";
+import { parsePullName, previewPullTarget, resolvePullTarget, NO_PULL_TARGET_MESSAGE, PULL_NAME_MESSAGE } from "../../src/plugin/pull-target";
 import { isValidReadCapMb, parseReadCapMb, READ_CAP_RANGE_MESSAGE } from "../../src/plugin/read-cap";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings, SETTINGS_VERSION, type PluginSettings, type PullSummary } from "../../src/plugin/settings-model";
+import { parsePullCeilingField } from "../../src/plugin/settings-fields";
+import {
+  defaultSettings,
+  DEFAULT_PULL_CONFIRM_ABOVE_MB,
+  isValidPullConfirmAboveMb,
+  PULL_CONFIRM_RANGE_MESSAGE,
+  SETTINGS_VERSION,
+  type PluginSettings,
+  type PullSummary,
+} from "../../src/plugin/settings-model";
+import { settingsToConfig, validateSettings } from "../../src/plugin/settings-to-config";
 
 const KEY_ID = "k51qzi5uqu5dhjghbrp9iqsoa6b3ob3i3jnljq09d3a4j9j4a5c7t";
 const OTHER_ID = "k51qzi5uqu5dlfgjhskdfhj2389sdfhjk23489sdhfjkshdf28sd";
@@ -110,11 +120,85 @@ describe("pull name", () => {
   });
 
   it("rejects spaces, several names, other schemes, paths and short tokens", () => {
-    for (const bad of [`${KEY_ID} ${OTHER_ID}`, "two words", `/ipfs/${KEY_ID}`, `${KEY_ID}/sub`, "k51", "example.com", "/ipns/"]) {
+    for (const bad of [`${KEY_ID} ${OTHER_ID}`, "two words", `${KEY_ID}/sub`, "k51", "example.com", "/ipns/"]) {
       const parsed = parsePullName(bad);
       expect(parsed.ok, bad).toBe(false);
       if (!parsed.ok) expect(parsed.message).toContain("IPNS key ID");
     }
+  });
+});
+
+describe("pull name: explicit root", () => {
+  const ROOT = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+
+  it("accepts /ipfs/<cid> and stores it with the prefix", () => {
+    expect(parsePullName(`/ipfs/${ROOT}`)).toEqual({ ok: true, name: `/ipfs/${ROOT}` });
+    expect(parsePullName(`  /ipfs/${ROOT}  `)).toEqual({ ok: true, name: `/ipfs/${ROOT}` });
+  });
+
+  it("rejects /ipfs/ with nothing, a non-CID, a path or spaces, with the existing message", () => {
+    for (const bad of ["/ipfs/", "/ipfs/not a cid", "/ipfs/k51", `/ipfs/${ROOT}/sub`, `/ipfs/${ROOT} ${ROOT}`, "/ipfs/bad!cid!bad!cid", "/ipfs//"]) {
+      expect(parsePullName(bad), bad).toEqual({ ok: false, message: PULL_NAME_MESSAGE });
+    }
+  });
+
+  it("keeps a token and /ipns/<token> as before", () => {
+    expect(parsePullName(KEY_ID)).toEqual({ ok: true, name: KEY_ID });
+    expect(parsePullName(`/ipns/${KEY_ID}`)).toEqual({ ok: true, name: KEY_ID });
+  });
+
+  it("validates, round-trips through stored data and previews as an explicit root", () => {
+    const stored: PluginSettings = { ...defaultSettings(), pullName: `/ipfs/${ROOT}` };
+    expect(validateSettings(stored, new Date("2026-10-01T00:00:00Z")).errors).toEqual([]);
+    expect(loadSettings(JSON.parse(JSON.stringify(stored))).settings.pullName).toBe(`/ipfs/${ROOT}`);
+    expect(previewPullTarget(stored)).toEqual({ kind: "explicit-root", cid: ROOT });
+  });
+
+  it("maps to the pull target as an explicit root and asks the node for no key", () => {
+    const input = { pullName: `/ipfs/${ROOT}`, publicationKey: "obsidian-vault-sync", ownedKeys: [KEY_ID] };
+    expect(resolvePullTarget(input, [])).toEqual({ kind: "resolved", name: `/ipfs/${ROOT}`, source: "explicit-root", rootCid: ROOT });
+    expect(() => settingsToConfig({ ...defaultSettings(), pullName: `/ipfs/${ROOT}` }, new Date("2026-10-01T00:00:00Z"))).not.toThrow();
+  });
+});
+
+describe("pull ceiling setting", () => {
+  it("defaults to 512 and accepts 64 to 8192 whole megabytes only", () => {
+    expect(defaultSettings().pullConfirmAboveMb).toBe(512);
+    expect(DEFAULT_PULL_CONFIRM_ABOVE_MB).toBe(512);
+    for (const ok of ["64", "512", "8192", " 1024 "]) expect(parsePullCeilingField(ok).kind, ok).toBe("ok");
+    for (const bad of ["63", "8193", "0", "-64", "512.5", "", "abc", "1e3", "100000"]) {
+      expect(parsePullCeilingField(bad), bad).toEqual({ kind: "invalid", error: { field: "pullConfirmAboveMb", message: PULL_CONFIRM_RANGE_MESSAGE } });
+    }
+    expect([63, 64, 8192, 8193].map(isValidPullConfirmAboveMb)).toEqual([false, true, true, false]);
+    expect(PULL_CONFIRM_RANGE_MESSAGE).toContain("64 to 8192");
+  });
+
+  it("is checked in the stored settings too", () => {
+    const found = validateSettings({ ...defaultSettings(), pullConfirmAboveMb: 63 }, new Date("2026-10-01T00:00:00Z"));
+    expect(found.errors.map((e) => e.field)).toEqual(["pullConfirmAboveMb"]);
+  });
+
+  it("loads with the default from stored data that lacks it, version 3 and version 2", () => {
+    const { pullConfirmAboveMb: _c, ...v3 } = defaultSettings();
+    const current = loadSettings(JSON.parse(JSON.stringify(v3)));
+    expect(current.outcome).toBe("current");
+    expect(current.settings.pullConfirmAboveMb).toBe(512);
+    const upgraded = loadSettings(version2());
+    expect(upgraded.outcome).toBe("upgraded");
+    expect(upgraded.settings.pullConfirmAboveMb).toBe(512);
+  });
+
+  it("keeps a stored value and treats an out-of-range or wrongly typed one as unreadable", () => {
+    expect(loadSettings(JSON.parse(JSON.stringify({ ...defaultSettings(), pullConfirmAboveMb: 2048 }))).settings.pullConfirmAboveMb).toBe(2048);
+    for (const bad of [63, 8193, 512.5, "512"]) {
+      const result = loadSettings({ ...defaultSettings(), pullConfirmAboveMb: bad });
+      expect(result.outcome, String(bad)).toBe("unreadable");
+      expect(result.persist).toBe(false);
+    }
+  });
+
+  it("is untouched by the legacy migration, which loads the default", () => {
+    expect(loadSettings({ rpcUrl: "https://rpc.example.org", keyName: "obsidian-vault" }).settings.pullConfirmAboveMb).toBe(512);
   });
 });
 

@@ -24,10 +24,37 @@ export interface BlobListing {
 export interface Diagnosis {
   /** Vault paths whose recorded blob is missing or has another CID on the node. */
   readonly rewrite: readonly string[];
-  /** `xx/<name>` of blob-shaped files that the new manifest does not list. */
+  /** `xx/<name>` of blob-shaped files that the new manifest does not list and that this publish may remove. */
   readonly strays: readonly string[];
-  /** Entries in `current/` that are not blob-shaped, reported and left in place. */
+  /**
+   * `xx/<name>` of blob-shaped files the new manifest does not list but that are left alone because another device may
+   * own them (see `DeviceGuard`). Empty when the guard allows removal. Also part of `anomalies`, so they are reported.
+   */
+  readonly held: readonly string[];
+  /** Entries in `current/` that are not blob-shaped, and the `held` blobs: reported and left in place. */
   readonly anomalies: readonly string[];
+}
+
+/**
+ * What the drift path knows about other publishers (spec: second-device-publish, "The drift path does not delete
+ * another device's blobs"). Strays are removed only when no other device was ever seen and the node's latest
+ * manifest names this device. Concurrent publishes remain detected only at a later pull: a device that has never seen
+ * another device's manifest is not protected, and the first overlap can still make the other device's read-back fail
+ * (that publish fails and is retried). No node-side marker exists.
+ */
+export interface DeviceGuard {
+  /** The manifest `device` value this publish writes. */
+  readonly device: string;
+  /** The state's `devicesSeen` (this device's own value included). */
+  readonly devicesSeen: readonly string[];
+  /** The `device` of the node's latest authenticated manifest, or undefined when the node has none. */
+  readonly nodeDevice: string | undefined;
+}
+
+/** May the blob-shaped names the new manifest does not list be removed? Only a lone publisher may remove them. */
+export function mayRemoveStrays(guard: DeviceGuard): boolean {
+  const otherKnown = guard.devicesSeen.some((seen) => seen !== guard.device);
+  return !otherKnown && guard.nodeDevice === guard.device;
 }
 
 function classify(prefix: string, entry: MfsEntry, blobs: Map<string, string>, anomalies: string[]): void {
@@ -70,13 +97,21 @@ const nodeKey = (blob: string): string => `${blob.slice(0, 2)}/${blob}`;
 
 /**
  * Compare the node's blobs with the entries the new manifest keeps unchanged (`kept`, by vault path) and with the
- * node names it will contain (`manifestNames`, kept and to-be-written alike).
+ * node names it will contain (`manifestNames`, kept, carried and to-be-written alike: a carried entry's blob is named).
+ * Without a `guard` every unnamed blob is a stray (the single-publisher flow); with one, `mayRemoveStrays` decides
+ * whether they are strays or are held back and reported.
  */
-export function diagnose(listing: BlobListing, kept: ReadonlyMap<string, EncryptedManifestFile>, manifestNames: ReadonlySet<string>): Diagnosis {
+export function diagnose(
+  listing: BlobListing,
+  kept: ReadonlyMap<string, EncryptedManifestFile>,
+  manifestNames: ReadonlySet<string>,
+  guard?: DeviceGuard,
+): Diagnosis {
   const rewrite = [...kept]
     .filter(([, entry]) => listing.blobs.get(nodeKey(entry.blob)) !== entry.cid)
     .map(([path]) => path)
     .sort();
-  const strays = [...listing.blobs.keys()].filter((key) => !manifestNames.has(key.slice(3))).sort();
-  return { rewrite, strays, anomalies: listing.anomalies };
+  const unnamed = [...listing.blobs.keys()].filter((key) => !manifestNames.has(key.slice(3))).sort();
+  if (guard === undefined || mayRemoveStrays(guard)) return { rewrite, strays: unnamed, held: [], anomalies: listing.anomalies };
+  return { rewrite, strays: [], held: unnamed, anomalies: [...listing.anomalies, ...unnamed].sort() };
 }

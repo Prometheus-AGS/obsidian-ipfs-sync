@@ -9,10 +9,11 @@ import { preserveLocalCopy } from "./pull-conflict";
 import { PullSourceError, PullTargetError } from "./pull-errors";
 import { commitStaged, stageVerified, sweepTemp, type FetchContext } from "./pull-fetch";
 import { assertPullDestination, writeFixtureMarker, type GuardFs } from "./pull-guard";
-import { planPull, type PullDecision, type PullPlan } from "./pull-plan";
+import { planPull, policyOptionsFor, type PullDecision, type PullPlan } from "./pull-plan";
 import { screenRoot } from "./pull-screen";
 import { mergeRecord } from "./pull-record";
-import { chooseIpnsName, isCid, isIpnsName, loadManifest, resolveRootCid, type ManifestSelector } from "./pull-target";
+import { loadManifest, type ManifestSelector } from "./pull-target";
+import { chooseIpnsName, isCid, isIpnsName, resolveRootCid } from "./target-resolution";
 import { encodeState, readState, writeState, type LocalState } from "./state";
 
 /** The kubo operations a pull uses. Note what is absent: every write, pin, key and publish operation. */
@@ -50,6 +51,8 @@ export interface PullOptions {
   readonly name?: string;
   readonly selector: ManifestSelector;
   readonly extraExclusions?: readonly string[];
+  /** The host's configuration folder name when it is not `.obsidian` (the plugin passes `vault.configDir`); the path policy protects it. */
+  readonly configDir?: string;
   readonly concurrency?: number;
   /**
    * `--allow-plaintext-v1`: let the plaintext (version 1) reader run. Off by default, and refused whatever this says once an
@@ -200,11 +203,11 @@ async function warnOnDivergence(deps: PullDeps, manifest: Manifest, extra: reado
   return true;
 }
 
-function newRun(deps: PullDeps, manifest: Manifest): Run {
+function newRun(deps: PullDeps, manifest: Manifest, options: PullOptions): Run {
   const newId = deps.newId ?? ((): string => crypto.randomUUID());
   return {
     deps,
-    fetch: { client: deps.client, fs: deps.host.fs, newId },
+    fetch: { client: deps.client, fs: deps.host.fs, newId, policy: policyOptionsFor(options) },
     manifest,
     dateStamp: localDateStamp(deps.host.timeNow()),
     // Manifest paths are reserved so a conflict copy can never take the name of a file about to be fetched.
@@ -258,9 +261,16 @@ export async function pullVault(deps: PullDeps, options: PullOptions): Promise<P
   await sweepTemp(deps.host.fs);
 
   deps.onPhase?.({ kind: "comparing", files: Object.keys(source.manifest.files).length });
-  const plan = await planPull({ fs: deps.host.fs, manifest: source.manifest, previous, forceVerify: forced, extraExclusions: options.extraExclusions });
+  const plan = await planPull({
+    fs: deps.host.fs,
+    manifest: source.manifest,
+    previous,
+    forceVerify: forced,
+    extraExclusions: options.extraExclusions,
+    configDir: options.configDir,
+  });
   deps.onPhase?.({ kind: "fetching", total: plan.decisions.filter(isWritable).length });
-  const tally = await execute(newRun(deps, source.manifest), plan, options.concurrency);
+  const tally = await execute(newRun(deps, source.manifest, options), plan, options.concurrency);
   const target = { mfsRoot: options.mfsRoot, key: options.keyName, rootCid: source.rootCid };
   if (source.isLatest) {
     await saveRecord(deps, previous, mergeRecord({ previous, manifest: source.manifest, target, synced: tally.synced }));

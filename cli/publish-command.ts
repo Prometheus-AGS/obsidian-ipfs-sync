@@ -5,6 +5,7 @@ import { createSyncEventBus } from "../src/core/events";
 import type { HostBridge } from "../src/core/host-bridge";
 import { CryptoError, describeKdfCost, wipe, type CanonicalPassphrase, type KdfParams } from "../src/crypto";
 import { KuboError, type KuboClient } from "../src/kubo";
+import { createDeviceIdProvider, DeviceStoreError, type DeviceStore } from "../src/sync/device-store";
 import { BlobTransferError } from "../src/sync/encrypted-transfer";
 import { assertPublishMarker } from "../src/sync/fixture-marker";
 import { ManifestFormatError } from "../src/sync/encrypted-manifest";
@@ -12,11 +13,14 @@ import { HostNotImplementedError } from "../src/sync/host-errors";
 import { publishVault, type PublishOptions, type PublishResult } from "../src/sync/publish";
 import { EmptyVaultError, OwnedKeyNotRecordedError, WriteVerificationError } from "../src/sync/publish-errors";
 import { acquirePublishLock, breakPublishLock, type LockFile, type PublishLock } from "../src/sync/publish-lock";
-import { PublishRefusedError, ReadBackError } from "../src/sync/publish-refusals";
+import { lockHeld, PublishRefusedError, ReadBackError } from "../src/sync/publish-refusals";
 import { RootStateError } from "../src/sync/root-state";
+import { SequenceFloorError } from "../src/sync/sequence-floor";
 import { VaultKeysError } from "../src/sync/vault-keys";
+import { withTokenCheck } from "../src/sync/lock-token-check";
 import { UsageError } from "./args";
-import { EXIT_CHECK_FAILED, EXIT_OK, type CliIo } from "./io";
+import { createLazyDeviceStore } from "./device-store-node";
+import { EXIT_CHECK_FAILED, EXIT_OK, stripControlCharacters, type CliIo } from "./io";
 import { HostPathError, createNodeHostBridge } from "./node-host-bridge";
 import { PassphraseInputError } from "./passphrase-errors";
 import { recordOwnedKey } from "./owned-keys-store";
@@ -44,6 +48,8 @@ export interface PublishContext {
   /** Yields the canonicalised vault passphrase, or undefined when none is available (publish then refuses, sending nothing). */
   readonly passphrase?: () => Promise<CanonicalPassphrase | undefined>;
   readonly flags: PublishFlags;
+  /** The device-local store (device id, sequence floor). Defaults to the per-user directory computed from `env`. */
+  readonly deviceStore?: DeviceStore;
 }
 
 /** Failures a publish reports as a plain message with exit code 1. */
@@ -53,6 +59,8 @@ const REPORTED_FAILURES = [
   OwnedKeyNotRecordedError,
   EmptyVaultError,
   RootStateError,
+  DeviceStoreError,
+  SequenceFloorError,
   PublishRefusedError,
   ReadBackError,
   VaultKeysError,
@@ -86,6 +94,25 @@ function printResult(io: CliIo, result: PublishResult): void {
   for (const warning of result.warnings) io.err(`warning: ${warning}`);
   if (result.anomalies > 0) io.out(`note: ${result.anomalies} unexpected ${result.anomalies === 1 ? "entry" : "entries"} in current/ on the node were left in place`);
   io.out(`${result.written} written, ${result.removed} removed`);
+  printPathLists(io, result);
+}
+
+const LISTED_PATHS = 3;
+
+/** At most three names, control characters replaced (a carried name comes from the node), and the count of the rest. */
+function namesText(paths: readonly string[]): string {
+  const listed = paths.slice(0, LISTED_PATHS).map((path) => JSON.stringify(stripControlCharacters(path)));
+  return `${listed.join(", ")}${paths.length > LISTED_PATHS ? ` and ${paths.length - LISTED_PATHS} more` : ""}`;
+}
+
+/** Paths left out of, or kept unchanged in, this publish: names only. */
+export function printPathLists(io: CliIo, result: PublishResult): void {
+  const lists: readonly (readonly [number, string, readonly string[]])[] = [
+    [result.carried.length, "not published from this device (no current copy here; kept as the node has them)", result.carried],
+    [result.dropped.length, "dropped from the manifest (excluded here or unsafe path)", result.dropped.map((entry) => entry.path)],
+    [result.skipped.length, "skipped (over the host's read cap, or changed while being read)", result.skipped.map((file) => file.path)],
+  ];
+  for (const [count, what, paths] of lists) if (count > 0) io.out(`note: ${count} path${count === 1 ? "" : "s"} ${what}: ${namesText(paths)}`);
 }
 
 /** Answers for the questions the engine may ask. A run that cannot ask (no terminal) answers no. */
@@ -101,7 +128,16 @@ function askingOptions(ctx: PublishContext): Pick<PublishOptions, "confirmRepair
   };
 }
 
-async function publishWithHosts(ctx: PublishContext, host: HostBridge, lock: PublishLock): Promise<PublishResult> {
+/**
+ * The device-local store (device id, sequence floor). The per-user directory is located and created only when the store is
+ * first used: when a manifest is built, when the floor is raised, or when `--repair` reads the floor.
+ */
+function deviceStoreFor(ctx: PublishContext): DeviceStore {
+  // The lazy node store carries `exclusive`: the floor raise must run under the cross-process lock (review-final A-08).
+  return ctx.deviceStore ?? createLazyDeviceStore(ctx.env);
+}
+
+async function publishWithHosts(ctx: PublishContext, host: HostBridge, lock: PublishLock, verifyHeld: () => Promise<boolean>): Promise<PublishResult> {
   const now = (): number => ctx.now().getTime();
   const configFile = resolve(ctx.configPath);
   const configHost = createNodeHostBridge({ root: dirname(configFile), env: ctx.env, now });
@@ -111,8 +147,19 @@ async function publishWithHosts(ctx: PublishContext, host: HostBridge, lock: Pub
   // The passphrase is asked for only now: after the marker check and the lock, and never held longer than this call.
   const passphrase = await ctx.passphrase?.();
   try {
+    const deviceStore = deviceStoreFor(ctx);
     return await publishVault(
-      { client: ctx.client, host, bus },
+      {
+        client: ctx.client,
+        host,
+        bus,
+        deviceId: createDeviceIdProvider(deviceStore),
+        deviceStore,
+        // Re-reads the token over the lock file right before the engine's first request that can change the node.
+        beforeFirstWrite: async () => {
+          if (!(await verifyHeld())) throw lockHeld("the lock file no longer carries this run's token");
+        },
+      },
       {
         mfsRoot: ctx.config.mfsRoot,
         keyName: ctx.config.publicationKey,
@@ -155,9 +202,10 @@ export async function runPublish(ctx: PublishContext): Promise<number> {
   const file = createNodeLockFile(vault);
   try {
     await breakLockIfAsked(ctx, file);
-    const lock = await acquirePublishLock(file, createNodeLockContext(() => ctx.now().getTime()));
+    const checked = withTokenCheck(file);
+    const lock = await acquirePublishLock(checked.file, createNodeLockContext(() => ctx.now().getTime()));
     try {
-      printResult(ctx.io, await publishWithHosts(ctx, host, lock));
+      printResult(ctx.io, await publishWithHosts(ctx, host, lock, checked.verifyHeld));
       return EXIT_OK;
     } finally {
       await lock.release();

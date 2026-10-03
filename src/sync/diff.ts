@@ -1,6 +1,6 @@
 import type { HostFs } from "../core/host-bridge";
 import { hashFile } from "./hash";
-import { HostReadCapError } from "./host-errors";
+import { FileChangedDuringReadError, HostReadCapError } from "./host-errors";
 import type { ManifestFile } from "./manifest";
 import type { ScannedFile } from "./scan";
 
@@ -39,6 +39,22 @@ export interface DeltaPlan<E extends DeltaEntry = ManifestFile> {
    * was published before keeps its previous entry, so the node is never told it was deleted.
    */
   readonly skipped: readonly SkippedFile[];
+  /**
+   * The baseline's entries for the carried paths (paths this device could not restore, see `planDelta`'s `carried`
+   * option), as they are. They are neither classified against a local file nor reported in `removed`.
+   */
+  readonly carried: Readonly<Record<string, E>>;
+}
+
+export interface DeltaOptions {
+  readonly singleReadLimit?: number;
+  /**
+   * Paths of the baseline whose content this device does not hold at that version (`RootState.unmaterialized`). A
+   * carried path that is in the baseline is not compared with a local file (none is hashed, none can be a write),
+   * is not in `removed` and is returned in `carried` with the baseline's entry. A path that is not in the baseline is
+   * not carried: it is an ordinary file.
+   */
+  readonly carried?: ReadonlySet<string>;
 }
 
 export interface SkippedFile {
@@ -70,7 +86,8 @@ async function classify<E extends DeltaEntry>(
   try {
     sha256 = await hashFile(fs, file.path, file.size, singleReadLimit);
   } catch (error) {
-    if (error instanceof HostReadCapError) return { kind: "skipped", file, reason: error.message, entry };
+    // A file over the read cap, or one that changed while it was read, is left out of this run (and uploaded whole by the next).
+    if (error instanceof HostReadCapError || error instanceof FileChangedDuringReadError) return { kind: "skipped", file, reason: error.message, entry };
     throw error;
   }
   if (entry !== undefined && entry.sha256 === sha256) return { kind: "unchanged", file, entry, hashed: true };
@@ -87,14 +104,16 @@ export async function planDelta<E extends DeltaEntry = ManifestFile>(
   fs: Pick<HostFs, "read" | "readRange">,
   scanned: readonly ScannedFile[],
   previous: DeltaBaseline<E> | undefined,
-  options: { readonly singleReadLimit?: number } = {},
+  options: DeltaOptions = {},
 ): Promise<DeltaPlan<E>> {
+  const carriedEntries = carriedFrom(previous, options.carried);
   const classified: Classified<E>[] = [];
-  for (const file of scanned) classified.push(await classify(fs, file, previous, options.singleReadLimit));
+  // A carried path is never read: this device holds no current copy, so a local file there is not an edit to publish.
+  for (const file of scanned) if (!Object.hasOwn(carriedEntries, file.path)) classified.push(await classify(fs, file, previous, options.singleReadLimit));
 
   const present = new Set(scanned.map((file) => file.path));
   const removed = Object.keys(previous?.manifest.files ?? {})
-    .filter((path) => !present.has(path))
+    .filter((path) => !present.has(path) && !Object.hasOwn(carriedEntries, path))
     .sort();
   const kept = classified.flatMap((item) => {
     if (item.kind === "unchanged") return [[item.file.path, item.entry] as const];
@@ -107,8 +126,21 @@ export async function planDelta<E extends DeltaEntry = ManifestFile>(
     unchanged: Object.fromEntries(kept),
     removed,
     // A skipped file keeps no new mtime, so the next run hashes it again instead of trusting a stale record.
-    mtimes: Object.fromEntries(scanned.filter((file) => !isSkipped.has(file.path)).map((file) => [file.path, file.mtimeMs] as const)),
+    // A carried path keeps none either: the state holds no mtime for a file this device did not write.
+    mtimes: Object.fromEntries(
+      scanned.filter((file) => !isSkipped.has(file.path) && !Object.hasOwn(carriedEntries, file.path)).map((file) => [file.path, file.mtimeMs] as const),
+    ),
     hashed: classified.filter((item) => item.kind === "write" || (item.kind === "unchanged" && item.hashed)).length,
     skipped,
+    carried: carriedEntries,
   };
+}
+
+/** The baseline's entry for each requested carried path that the baseline actually holds. */
+function carriedFrom<E extends DeltaEntry>(previous: DeltaBaseline<E> | undefined, carried: ReadonlySet<string> | undefined): Readonly<Record<string, E>> {
+  if (previous === undefined || carried === undefined) return {};
+  return Object.fromEntries([...carried].sort().flatMap((path) => {
+    const entry = lookup(previous.manifest.files, path);
+    return entry === undefined ? [] : [[path, entry] as const];
+  }));
 }

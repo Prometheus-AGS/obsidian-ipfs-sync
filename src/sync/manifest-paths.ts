@@ -2,9 +2,14 @@
  * Untrusted-path rules for manifest paths (pure: no I/O, no imports). Shared by the plaintext-era pull planner
  * and the encrypted manifest codec. Moved verbatim from pull-plan.ts; behaviour is unchanged.
  *
- * Carry-forward (mvp-07): the state-folder comparison uses `toLowerCase()`, which does not fold every alias a
- * case-insensitive volume may treat as equal, and Windows trailing dots and spaces, `::$DATA` and 8.3 names are
- * not covered. The exclusion list and `.obsidian/plugins/` are applied by the pull planner, not here.
+ * This is the decoder's rule and it stays minimal on purpose: the publisher decodes its own manifests with it, so it must
+ * keep accepting names an honest Linux vault can hold (for example `CON.md`). The state-folder comparison uses
+ * `toLowerCase()`, which does not fold every alias a case-insensitive volume may treat as equal, and Windows trailing
+ * dots and spaces, `::$DATA` and 8.3 names are not covered here. They are covered by the pull's path policy
+ * (`path-policy.ts`, mvp-07a 3.1b: fold key, Windows forms, reserved names, collision groups, C1 controls, the
+ * exclusion list through a fold-aware pull-only matcher), which the pull applies over the whole manifest; the
+ * publisher only warns through `adviseUnrestorablePaths`. The exclusion list and `.obsidian/plugins/` are applied by
+ * the pull planner, not here.
  */
 
 /** Vault-relative folder that holds the sync record and temporary files. Manifest paths may never point into it. */

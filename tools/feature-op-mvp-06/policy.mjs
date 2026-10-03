@@ -254,7 +254,7 @@ export function checkNodeLayout({ root, current, prefixes, manifests }) {
     }
   }
   for (const entry of manifests) {
-    if (entry.type !== "file" || !/^[A-Za-z0-9]+\.enc$/.test(entry.name)) problems.push(`anomaly in manifests/: ${entry.type} "${entry.name}"`);
+    if (entry.type !== "file" || !/^(?:[0-9]{16}-)?[A-Za-z0-9]+\.enc$/.test(entry.name)) problems.push(`anomaly in manifests/: ${entry.type} "${entry.name}"`);
   }
   return problems.map(stripControl);
 }

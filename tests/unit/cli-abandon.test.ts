@@ -6,7 +6,10 @@ import type { CliIo } from "../../cli/io";
 import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
+import { SEQUENCE_FLOOR_FILE, raiseFloor } from "../../src/sync/sequence-floor";
 import { rootDigest } from "../../src/sync/vault-keys";
+import { stateEnv } from "../helpers/cli-state-env";
+import { createNodeDeviceStore, deviceStoreDirectory } from "../../cli/device-store-node";
 
 const MFS_ROOT = "/obsidian-vault-sync/abandon-test";
 const OTHER_ROOT = "/obsidian-vault-sync/other-root";
@@ -164,6 +167,44 @@ describe("ipfs-sync abandon", () => {
     const other = sink();
     expect(await runCli(["publish", vault, "--yes-abandon"], deps(), other.io)).toBe(2);
     expect(other.err.join("\n")).toContain("--yes-abandon is only valid for the abandon command");
+  });
+
+  describe("sequence floor", () => {
+    const VAULT_ID = "e".repeat(32);
+    const env = stateEnv();
+    const floorPath = join(deviceStoreDirectory(env), SEQUENCE_FLOOR_FILE);
+
+    async function seedFloor(sequence: number): Promise<void> {
+      await writeFile(stateFile("state"), JSON.stringify({ vaultId: VAULT_ID }));
+      await raiseFloor(createNodeDeviceStore({ directory: deviceStoreDirectory(env) }), VAULT_ID, { sequence, identity: "1".repeat(64), at: 1000 });
+    }
+
+    it("prints 'sequence floor kept: N' and leaves the floor file byte-identical", async () => {
+      await seedFloor(5);
+      const before = await readFile(floorPath);
+      const s = sink(["abandon"]);
+      expect(await runCli(["abandon", vault, "--mfs-root", MFS_ROOT], { ...deps(), env }, s.io)).toBe(0);
+      expect(s.out).toContain("sequence floor kept: 5");
+      expect(await readFile(floorPath)).toEqual(before);
+      expect(await exists(stateFile("state"))).toBe(false);
+    });
+
+    it("says none when this device has no floor for the vault", async () => {
+      await writeFile(stateFile("state"), JSON.stringify({ vaultId: "f".repeat(32) }));
+      const s = sink(["abandon"]);
+      expect(await runCli(["abandon", vault, "--mfs-root", MFS_ROOT], { ...deps(), env }, s.io)).toBe(0);
+      expect(s.out.join("\n")).toContain("sequence floor kept: none");
+    });
+
+    it("reports a damaged floor file as unreadable and does not change it", async () => {
+      await seedFloor(5);
+      await writeFile(floorPath, "{not json");
+      const s = sink(["abandon"]);
+      expect(await runCli(["abandon", vault, "--mfs-root", MFS_ROOT], { ...deps(), env }, s.io)).toBe(0);
+      expect(s.out.join("\n")).toContain("sequence floor kept: unreadable");
+      expect(await readFile(floorPath, "utf8")).toBe("{not json");
+      await rm(floorPath);
+    });
   });
 
   it("is in the help text", async () => {

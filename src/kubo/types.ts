@@ -44,6 +44,11 @@ export interface RemoveOptions {
   readonly recursive?: boolean;
 }
 
+export interface ResolveOptions {
+  /** kubo duration for `name/resolve`'s `dht-timeout` argument (for example `10s`). Omitted: kubo's default. */
+  readonly dhtTimeout?: string;
+}
+
 /** The one client both the plugin and the CLI use to reach a kubo node and its gateway. */
 export interface KuboClient {
   id(): Promise<NodeIdentity>;
@@ -66,8 +71,11 @@ export interface KuboClient {
   pinAdd(cid: string): Promise<void>;
   /** Publishes `/ipfs/<cid>` under `key` (name validated; ownership is the caller's check). `ttl` defaults to 5m. */
   namePublish(key: string, cid: string, ttl?: string): Promise<PublishedName>;
-  /** Resolves a key ID or `/ipns/...` name to `/ipfs/<cid>`. */
-  nameResolve(name: string): Promise<string>;
+  /**
+   * Resolves a key ID or `/ipns/...` name to `/ipfs/<cid>`, always with `nocache=true`. `dhtTimeout` (kubo duration
+   * syntax, for example `10s`) bounds the routing lookup; without it kubo's own default applies (1m0s).
+   */
+  nameResolve(name: string, options?: ResolveOptions): Promise<string>;
   gatewayFetch(cid: string, path?: string): Promise<Uint8Array>;
   /** Read-only. Opens `/ipfs/<cid>[/<path>]` as chunks, with an HTTP `Range` request when `range` is given (added in mvp-03). */
   gatewayStream(cid: string, path?: string, range?: GatewayRange): Promise<GatewayStream>;

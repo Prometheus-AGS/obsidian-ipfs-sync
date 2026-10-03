@@ -97,6 +97,45 @@ describe("settings view model: catch-up and read cap", () => {
   });
 });
 
+describe("settings view model: explicit root and pull ceiling", () => {
+  const ROOT = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
+
+  it("accepts /ipfs/<cid>, stores it and previews an explicit root", async () => {
+    const r = rig();
+    const result = await r.vm.edit("pullName", `/ipfs/${ROOT}`);
+    expect(result.saved).toBe(true);
+    expect(r.store.get().pullName).toBe(`/ipfs/${ROOT}`);
+    expect(r.vm.state().pullTargetPreview).toEqual({ kind: "explicit-root", cid: ROOT });
+    expect(r.vm.state().pullTarget).toContain(ROOT);
+  });
+
+  it("rejects /ipfs/ plus a non-CID with the pull-name error and stores nothing", async () => {
+    const r = rig({ pullName: OTHER_ID });
+    const result = await r.vm.edit("pullName", "/ipfs/not a cid");
+    expect(result.saved).toBe(false);
+    expect(result.state.errors.pullName).toContain("IPNS key ID");
+    expect(r.store.get().pullName).toBe(OTHER_ID);
+  });
+
+  it("shows the ceiling, saves a valid value and keeps an invalid one out of the store", async () => {
+    const r = rig();
+    expect(r.vm.state().pullCeilingMb).toBe(512);
+    expect(r.vm.state().pullCeilingText).toBe("512");
+    expect((await r.vm.editPullCeiling("1024")).saved).toBe(true);
+    expect(r.store.get().pullConfirmAboveMb).toBe(1024);
+    for (const bad of ["63", "8193"]) {
+      const result = await r.vm.editPullCeiling(bad);
+      expect(result.saved, bad).toBe(false);
+      expect(result.state.errors.pullConfirmAboveMb, bad).toContain("64 to 8192");
+      expect(result.state.pullCeilingText).toBe(bad);
+      expect(result.state.pullCeilingMb).toBe(1024);
+    }
+    expect(r.store.get().pullConfirmAboveMb).toBe(1024);
+    expect((await r.vm.editPullCeiling("64")).state.errors.pullConfirmAboveMb).toBeUndefined();
+    expect(r.vm.reset().pullCeilingText).toBe("64");
+  });
+});
+
 describe("settings view model: last activity", () => {
   const pull: PullSummary = {
     at: new Date(2026, 8, 30, 14, 5).toISOString(),

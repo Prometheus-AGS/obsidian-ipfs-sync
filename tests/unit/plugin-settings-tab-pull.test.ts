@@ -3,7 +3,7 @@ import type { PluginSettings } from "../../src/plugin/settings-model";
 import { byId, focusOrder, referencedText, type FakeEl } from "../support/fake-dom";
 import { controlFor, flush, labelOf, open, OWNED_ID, type } from "../support/settings-tab-rig";
 
-const PULL_LABELS = ["Pull IPNS name", "Catch up on load", "Read cap (MB)"] as const;
+const PULL_LABELS = ["Pull IPNS name", "Ask before pulling more than (MB)", "Catch up on load", "Read cap (MB)"] as const;
 const PEER_NAME = "k51peerpeerpeerpeer";
 
 const describedText = (root: FakeEl, label: string): string => referencedText(root, controlFor(root, label).getAttr("aria-describedby"));
@@ -19,7 +19,7 @@ describe("settings tab: pull section", () => {
   it("adds a labelled, described control for each new field, after the owned keys and in reading order", async () => {
     const { root } = await open();
     const labels = focusOrder(root).map((el) => labelOf(root, el));
-    expect(labels.slice(-3)).toEqual([...PULL_LABELS]);
+    expect(labels.slice(-4)).toEqual([...PULL_LABELS]);
     for (const label of PULL_LABELS) {
       expect(controlFor(root, label).getAttr("aria-describedby"), label).toContain("ipfs-sync-error-");
       expect(describedText(root, label), label).not.toBe("");

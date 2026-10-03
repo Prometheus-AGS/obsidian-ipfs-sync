@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { blobMfsPath } from "../../src/crypto";
 import type { SnapshotExpectation } from "../../src/sync/commit-ports";
+import { historyFileName } from "../../src/sync/history-names";
 import { createSnapshotVerifier } from "../../src/sync/read-back";
 import { ReadBackError } from "../../src/sync/publish-refusals";
 import { restoreNode, snapshotNode, type FakeNode, type NodeSnapshot } from "../helpers/fake-kubo";
@@ -51,6 +52,8 @@ async function fixture(): Promise<Fixture> {
   };
 }
 
+const historyName = (f: Fixture): string => historyFileName(f.expected.manifest.sequence, f.expected.manifest.rootCID);
+
 const verifier = (f: Fixture, overrides: { readonly written?: ReadonlyMap<string, string>; readonly keySlots?: Uint8Array<ArrayBuffer> } = {}) =>
   createSnapshotVerifier({ client: f.rig.node.client, keySlots: overrides.keySlots ?? f.keySlots, written: overrides.written ?? f.written });
 
@@ -96,18 +99,43 @@ describe("the read-back before the pin", () => {
 
   it("stops when the history file for the snapshot is missing", async () => {
     const f = await fixture();
-    f.rig.node.files.delete(`${ROOT}/manifests/${f.expected.manifest.rootCID}.enc`);
+    f.rig.node.files.delete(`${ROOT}/manifests/${historyName(f)}`);
     const root = f.rig.node.cidOf(ROOT) as string;
     await expect(verifier(f)(root, f.expected)).rejects.toThrow(/history file/);
   });
 
   it("stops when the history file holds other bytes than the manifest", async () => {
     const f = await fixture();
-    f.rig.node.files.set(`${ROOT}/manifests/${f.expected.manifest.rootCID}.enc`, new Uint8Array([1, 2, 3]));
+    f.rig.node.files.set(`${ROOT}/manifests/${historyName(f)}`, new Uint8Array([1, 2, 3]));
     await expect(verifier(f)(f.rig.node.cidOf(ROOT) as string, f.expected)).rejects.toThrow(/history file/);
   });
 
-  it("stops when manifests/ holds a name that is not <cid>.enc", async () => {
+  it("accepts prefixed names, legacy names and a mix of both next to the snapshot\x27s own file", async () => {
+    const f = await fixture();
+    const root = f.rig.node.cidOf(ROOT) as string;
+    await expect(verifier(f)(root, f.expected)).resolves.toBeUndefined();
+    f.rig.node.files.set(`${ROOT}/manifests/b${"l".repeat(58)}.enc`, new Uint8Array([1]));
+    f.rig.node.files.set(`${ROOT}/manifests/0000000000000007-b${"p".repeat(58)}.enc`, new Uint8Array([1]));
+    await expect(verifier(f)(f.rig.node.cidOf(ROOT) as string, f.expected)).resolves.toBeUndefined();
+  });
+
+  it("does not take a legacy file for the snapshot\x27s history file: the prefixed name with its sequence is required", async () => {
+    const f = await fixture();
+    const bytes = f.rig.node.files.get(`${ROOT}/manifests/${historyName(f)}`) as Uint8Array;
+    f.rig.node.files.delete(`${ROOT}/manifests/${historyName(f)}`);
+    f.rig.node.files.set(`${ROOT}/manifests/${f.expected.manifest.rootCID}.enc`, bytes);
+    await expect(verifier(f)(f.rig.node.cidOf(ROOT) as string, f.expected)).rejects.toThrow(/history file/);
+  });
+
+  it("stops on a malformed prefix, a wrong-width prefix and a prefix without a CID", async () => {
+    for (const junk of [`123-b${"a".repeat(58)}.enc`, `00000000000000007-b${"a".repeat(58)}.enc`, `000000000000000x-b${"a".repeat(58)}.enc`, "0000000000000007-.enc", `9999999999999999-b${"a".repeat(58)}.enc`]) {
+      const f = await fixture();
+      f.rig.node.files.set(`${ROOT}/manifests/${junk}`, new Uint8Array([1]));
+      await expect(verifier(f)(f.rig.node.cidOf(ROOT) as string, f.expected)).rejects.toThrow(/manifests\//);
+    }
+  });
+
+  it("stops when manifests/ holds a name that is not a history name", async () => {
     const f = await fixture();
     f.rig.node.files.set(`${ROOT}/manifests/notes.txt`, new Uint8Array([1]));
     await expect(verifier(f)(f.rig.node.cidOf(ROOT) as string, f.expected)).rejects.toThrow(/manifests\//);
@@ -125,7 +153,7 @@ describe("the read-back before the pin", () => {
 
   it("reports a listing over the client cap as a ReadBackError, so a cap can never wedge a journal", async () => {
     const f = await fixture();
-    for (let index = 0; index < 2001; index += 1) f.rig.node.files.set(`${ROOT}/manifests/b${index.toString(32).padStart(58, "w")}.enc`, new Uint8Array([1]));
+    for (let index = 0; index < 2001; index += 1) f.rig.node.files.set(`${ROOT}/manifests/${String(index + 100).padStart(16, "0")}-b${index.toString(32).padStart(58, "w")}.enc`, new Uint8Array([1]));
     const failure = await verifier(f)(f.rig.node.cidOf(ROOT) as string, f.expected).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(ReadBackError);
     expect((failure as Error).message).toMatch(/manifests\/ is too large to list/);

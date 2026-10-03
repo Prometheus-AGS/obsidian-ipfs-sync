@@ -159,7 +159,8 @@ describe("ipfs-sync pull", () => {
     await writeFile(join(vault, "private.md"), "my real notes");
     const result = await pull();
     expect(result.code).toBe(2);
-    expect(result.err).toContain("decrypting pull arrives in a later release");
+    expect(result.err).toContain("Pull into a populated directory without a fixture marker stays disabled in this build");
+    expect(result.err).not.toContain("arrives in a later release");
     expect(fetchStub).not.toHaveBeenCalled();
     expect(await readFile(join(vault, "private.md"), "utf8")).toBe("my real notes");
   });
@@ -226,25 +227,32 @@ describe("ipfs-sync pull", () => {
     };
     const manifestReads = (): string[] => requests.filter((r) => r.endsWith("manifest.json") || r.includes("/manifests/"));
 
-    it("stops at an encrypted root with the not-supported-yet error, exit 2, the destination unchanged and the latch set", async () => {
+    // mvp-07a 5.1: an encrypted root goes to the decrypting reader (the stub node has no `ls`, so that reader stops at its first listing),
+    // never to the plaintext reader. The old outcome, "pull is not supported yet" with the latch set, no longer exists.
+    it("hands an encrypted root to the decrypting reader: exit 1, no plaintext manifest read, the destination holds no vault file and no latch", async () => {
       encryptRoot();
       await mkdir(vault);
       const result = await pull();
-      expect(result.code).toBe(2);
-      expect(result.err).toContain("encrypted vault");
-      expect(result.err).toContain("not supported yet");
-      expect(await readdir(vault)).toEqual([".ipfs-sync"]); // no marker, no file: only the latch
-      expect(await readdir(join(vault, ".ipfs-sync"))).toEqual(["encrypted-seen.json"]);
-      const latch = JSON.parse(await readFile(join(vault, ".ipfs-sync", "encrypted-seen.json"), "utf8")) as { encryptedSeen: boolean };
-      expect(latch.encryptedSeen).toBe(true);
+      expect(result.code).toBe(1);
+      expect(result.err).toContain("pull failed");
+      expect(result.err).not.toContain("the plaintext reader does not read");
+      expect(requests).toContain("POST /api/v0/ls");
+      expect(await readdir(vault)).toEqual([".ipfs-sync"]); // no marker, no file
+      expect(await readdir(join(vault, ".ipfs-sync"))).toEqual([]); // no latch, and the lock is gone
       expect(manifestReads()).toEqual([]);
-      expect(requests.filter((r) => !r.startsWith("POST ")).every((r) => r.startsWith("GET /ipfs/"))).toBe(true);
     });
 
-    it("does not create the destination just to record what it saw", async () => {
+    it("an encrypted root that stops the pull leaves no vault file and no marker in a destination that did not exist", async () => {
       encryptRoot();
       const result = await pull();
+      expect(result.code).toBe(1);
+      expect(await readdir(vault)).toEqual([".ipfs-sync"]);
+    });
+
+    it("refuses a sequence expectation on a plaintext root, which has no sequence to check", async () => {
+      const result = await pull(["--expect-min-sequence", "2"]);
       expect(result.code).toBe(2);
+      expect(result.err).toContain("--expect-min-sequence applies to encrypted vaults only");
       await expect(stat(vault)).rejects.toThrow();
     });
 
@@ -257,10 +265,10 @@ describe("ipfs-sync pull", () => {
     });
 
     it("refuses a plaintext root once an encrypted vault was seen, even with the flag", async () => {
-      encryptRoot();
-      await mkdir(vault);
-      expect((await pull()).code).toBe(2);
-      // the node now serves a plaintext manifest again
+      // The decrypting reader no longer writes the latch on a stop; a destination is latched by what an encrypted pull or publish left in it.
+      await mkdir(join(vault, ".ipfs-sync"), { recursive: true });
+      await writeFile(join(vault, ".ipfs-sync", "encrypted-seen.json"), JSON.stringify({ version: 1, encryptedSeen: true, sightings: [] }));
+      // the node serves a plaintext manifest
       await seedRemote({ objects, names }, FILES, { tree: "bafytreetwo000000000000", root: "bafyroottwo000000000000" });
       for (const path of ["keyslots.json", "manifest.enc"]) objects.delete(`bafyroottwo000000000000/${path}`);
       const downgraded = await pull();
@@ -280,6 +288,41 @@ describe("ipfs-sync pull", () => {
       expect(result.err).toContain("Obsidian configuration folder");
       await expect(stat(join(vault, ".obsidian"))).rejects.toThrow();
       expect(requests.some((r) => r.includes("app.json"))).toBe(false);
+    });
+
+    it("refuses forged alias forms of the configuration folder, device names and collisions, writes none and fetches none (B2-01)", async () => {
+      // Built from code points so no look-alike or invisible character sits in the source.
+      const dotlessI = String.fromCodePoint(0x131);
+      const joiner = String.fromCodePoint(0x200d);
+      const forged = [`.obs${dotlessI}dian/plugins/p/main.js`, ".obsidian./community-plugins.json", "OBSIDI~1/plugins/p/main.js", `.ob${joiner}sidian/x`, "CON.md", "a:b", "Case/X.md", "case/x.md"];
+      await seedRemote({ objects, names }, { ...FILES, ...Object.fromEntries(forged.map((path) => [path, "forged"])) }, { tree: TREE, root: ROOT });
+      const result = await pull();
+      expect(result.code).toBe(1);
+      expect(result.out).toContain(`${forged.length} failed`);
+      expect((await readdir(vault)).sort()).toEqual([".ipfs-sync", ".ipfs-sync-fixture", "c.md", "notes"]);
+      for (const path of forged) expect(requests.some((r) => r.includes(encodeURI(path)) || r.includes(path))).toBe(false);
+    });
+
+    it("escapes control characters in a failed path and its reason on the terminal (B2-05)", async () => {
+      const override = String.fromCodePoint(0x202e);
+      await seedRemote({ objects, names }, { ...FILES, [`a\u009b2Jb${override}.md`]: "x" }, { tree: TREE, root: ROOT });
+      const result = await pull();
+      expect(result.code).toBe(1);
+      expect(result.err).toContain("a\\u009b2Jb\\u202e.md");
+      expect(`${result.out}${result.err}`).not.toMatch(new RegExp(`[\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f${override}]`));
+    });
+
+    it("escapes node-supplied error text before it reaches the terminal (B2-02)", async () => {
+      const hostile = "\u001b[2K\u001b]0;owned\u0007\u009b31m\u001b[Aipfs-sync: pull complete";
+      const inner = stubNode(objects, names, requests);
+      fetchStub.mockImplementation(async (input: string | URL, init: RequestInit = {}) =>
+        new URL(String(input)).pathname === "/api/v0/name/resolve" ? new Response(hostile, { status: 500 }) : inner(input, init),
+      );
+      const result = await pull();
+      expect(result.code).toBe(1);
+      expect(result.err).toContain("pull failed");
+      expect(result.err).toContain("\\u001b");
+      expect(`${result.out}${result.err}`).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
     });
   });
 });

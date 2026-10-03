@@ -6,9 +6,15 @@ import type { PublishClient, PublishOptions } from "./publish-types";
  * The pre-flight of `manifests/` for one publish: junk is refused (or, with `--repair` and a yes, removed and the folder
  * listed again), then the count is checked. Returns the warnings to show. Nothing has been uploaded when this refuses.
  */
-export async function assertHistoryReady(client: PublishClient, options: PublishOptions, session: PublishSession): Promise<readonly string[]> {
+export async function assertHistoryReady(
+  client: PublishClient,
+  options: PublishOptions,
+  session: PublishSession,
+  beforeFirstWrite?: () => Promise<void>,
+): Promise<readonly string[]> {
   let history = await session.inspector.history();
   if (junkNames(history).length > 0) {
+    await beforeFirstWrite?.();
     await clearJunk(history, { client, mfsRoot: session.target.mfsRoot, repair: options.repair === true, confirm: options.confirmRepair, beforeWrite: session.beforeWrite });
     history = await listHistory(client, session.target.mfsRoot);
   }

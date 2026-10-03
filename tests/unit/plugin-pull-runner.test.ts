@@ -20,7 +20,7 @@ describe("plugin pull runner: destination guard", () => {
 
     const outcome = await rig.pull();
     expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(outcome.notice).toContain("Pull of a real vault is not available in this build");
+    expect(outcome.notice).toContain("Pull into a populated directory without a fixture marker stays disabled in this build");
     expect(outcome.notice).toContain(".ipfs-sync-fixture");
     expect(rig.gateway.requests).toEqual([]);
     expect(adapter.calls.filter((call) => /^(write|remove|rename|mkdir)/.test(call))).toEqual([]);
@@ -319,22 +319,22 @@ describe("plugin pull runner: encrypted roots and the plaintext reader", () => {
     rig.gateway.objects.set("bafyrootone000000000000/manifest.enc", new Uint8Array([1]));
   };
 
-  it("refuses an encrypted vault with a notice that says pull is not supported yet, changes no file and sets the latch", async () => {
+  it("sends a root with key slots to the decrypting pull instead of refusing it: unreadable slots stop it, nothing is written and the lock is released", async () => {
     const adapter = freshVault();
     const rig = pullRig({ adapter });
     await seed(rig, FILES_V1);
     encrypt(rig);
-    adapter.calls.length = 0;
 
     const outcome = await rig.pull();
-    expect(outcome).toMatchObject({ kind: "refused", reason: "encrypted-vault" });
-    expect(outcome.notice).toContain("not supported yet");
-    // Only the latch is written, in the state folder.
-    expect(adapter.calls.filter((call) => /^(remove|rename)/.test(call))).toEqual([]);
-    expect(adapter.calls.filter((call) => /^mkdir/.test(call))).toEqual(["mkdir .ipfs-sync"]);
+    expect(outcome.kind).toBe("stopped");
+    expect(outcome.notice).toContain("pull stopped");
+    expect(outcome.notice).toContain("Nothing was written to your vault");
+    expect(outcome.notice).not.toContain("does not read encrypted vaults");
     expect(adapter.files.has("notes/a.md")).toBe(false);
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
-    expect(adapter.files.has(".ipfs-sync/encrypted-seen.json")).toBe(true);
+    // The plaintext reader never ran, so it set no latch; the file lock was taken and released.
+    expect(adapter.files.has(".ipfs-sync/encrypted-seen.json")).toBe(false);
+    expect(adapter.files.has(".ipfs-sync/publish.lock")).toBe(false);
     expect(rig.store.get().lastPull).toBeUndefined();
   });
 
@@ -347,15 +347,12 @@ describe("plugin pull runner: encrypted roots and the plaintext reader", () => {
     expect(rig.gateway.requests.some((request) => request.includes("manifest.json"))).toBe(false);
   });
 
-  it("names a downgrade when an encrypted vault was seen before", async () => {
+  it("names a downgrade when an encrypted vault was seen here before and the node now serves a plaintext root", async () => {
     const adapter = freshVault();
+    // What an encrypted publish or pull leaves behind (the plaintext reader no longer sets it itself, once an encrypted root goes to the decrypting pull).
+    adapter.put(".ipfs-sync/encrypted-seen.json", JSON.stringify({ version: 1, encryptedSeen: true, sightings: [] }), 1000);
     const rig = pullRig({ adapter });
     await seed(rig, FILES_V1);
-    encrypt(rig);
-    await rig.pull();
-    await seed(rig, FILES_V1);
-    rig.gateway.objects.delete("bafyrootone000000000000/keyslots.json");
-    rig.gateway.objects.delete("bafyrootone000000000000/manifest.enc");
     const outcome = await rig.pull();
     expect(outcome).toMatchObject({ kind: "refused", reason: "plaintext-v1-off" });
     expect(outcome.notice).toContain("downgrade");

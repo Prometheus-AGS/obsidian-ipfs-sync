@@ -19,6 +19,40 @@ export interface EncryptionStatusSource {
   openUnlock?(): void;
   /** Optional: open the abandon-vault confirmation. When absent, no Abandon row is shown. */
   openAbandon?(): void;
+  /** Optional: what this device's state file records about pulls. When absent, no Pull record row is shown. */
+  pullRecord?(): Promise<PullRecordInput | undefined>;
+}
+
+/**
+ * What the state file says about this vault, as plain numbers: the runner reads the state and passes these. No path
+ * and no identity reaches the settings tab.
+ */
+export interface PullRecordInput {
+  /** The highest sequence this directory has accepted (`highestSequence`). */
+  readonly highestSequence: number;
+  /** False when the last pull left files unfetched or failed. */
+  readonly complete: boolean;
+  /** Paths this device could not restore and keeps as the node has them (`unmaterialized`). */
+  readonly unfinished: number;
+  /** The lowest sequence a deliberate restore accepted since the last normal pull. */
+  readonly restoredFrom: number | undefined;
+}
+
+export interface PullRecordView {
+  readonly exists: boolean;
+  /** The record as sentences; the state is in words, never in colour. */
+  readonly text: string;
+}
+
+export function describePullRecord(record: PullRecordInput | undefined): PullRecordView {
+  if (record === undefined) return { exists: false, text: ENCRYPTION_COPY.noRecord };
+  const parts = [`Highest sequence recorded: ${record.highestSequence}.`];
+  parts.push(record.complete ? "The last pull was complete." : "The last pull was incomplete.");
+  if (record.unfinished > 0) {
+    parts.push(`${record.unfinished} ${record.unfinished === 1 ? "file is" : "files are"} unfinished: ${ENCRYPTION_COPY.unfinishedKept}`);
+  }
+  if (record.restoredFrom !== undefined) parts.push(`A restore took sequence ${record.restoredFrom}; your next publish makes it a new version.`);
+  return { exists: true, text: parts.join(" ") };
 }
 
 export interface EncryptionView {

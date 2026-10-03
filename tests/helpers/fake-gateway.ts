@@ -1,6 +1,25 @@
-import { KuboHttpError, type GatewayRange, type GatewayStream, type KuboClient, type NodeKey } from "../../src/kubo";
+import { KuboHttpError, type GatewayRange, type GatewayStream, type KuboClient, type MfsEntry, type NodeKey } from "../../src/kubo";
 
-export type FakeReadClient = Pick<KuboClient, "gatewayStream" | "gatewayFetch" | "nameResolve" | "keyList">;
+export type FakeReadClient = Pick<KuboClient, "gatewayStream" | "gatewayFetch" | "nameResolve" | "keyList" | "ipfsLs">;
+
+/**
+ * What `ls` shows for `/ipfs/<cid>[/<path>]` over objects keyed `<cid>/<path>`: the direct children. A child's `cid` is
+ * its own key, so a read of it (`gatewayStream(cid)`) finds the object. Not recorded as a request: the plaintext
+ * pull's tests count the requests the plaintext reader makes, and the decrypting pull's first look at a root is not one of them.
+ */
+export function listFakeObjects(objects: ReadonlyMap<string, Uint8Array>, ipfsPath: string): readonly MfsEntry[] {
+  const prefix = ipfsPath.replace(/^\/ipfs\//, "").replace(/\/+$/, "");
+  const children = new Map<string, MfsEntry>();
+  for (const [key, data] of objects) {
+    if (!key.startsWith(`${prefix}/`)) continue;
+    const [name, ...rest] = key.slice(prefix.length + 1).split("/");
+    if (name === undefined || name === "") continue;
+    if (rest.length > 0) children.set(name, { name, type: "directory", size: 0, cid: `${prefix}/${name}` });
+    else if (!children.has(name)) children.set(name, { name, type: "file", size: data.length, cid: `${prefix}/${name}` });
+  }
+  if (children.size === 0) throw new KuboHttpError("rpc", "https://rpc.test", 500, "no link found");
+  return [...children.values()];
+}
 
 export interface FakeGatewayOptions {
   /** Bytes per chunk the gateway sends. Default 7, to exercise buffering. */
@@ -73,6 +92,7 @@ export function createFakeGateway(options: FakeGatewayOptions = {}): FakeGateway
   }
 
   const client: FakeReadClient = {
+    ipfsLs: async (path) => listFakeObjects(objects, path),
     keyList: async () => {
       requests.push("keyList");
       return (options.keys ?? []).map((key) => ({ ...key }));

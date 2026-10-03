@@ -2,9 +2,9 @@ import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE, PULLED_MARKER_VALUE, type MarkerS
 import type { HostFs } from "../core/host-bridge";
 import { REMARK_PULL_HINT, enablesPull, legacyMarkerProblem, readLegacyMarker, readMarkerState } from "./fixture-marker";
 import { PullGuardError } from "./pull-errors";
-import { TEMP_DIR } from "./pull-fetch";
 import { STATE_FOLDER } from "./manifest-paths";
 import { findSymlink } from "./symlink-guard";
+import { TEMP_DIR } from "./temp-files";
 
 const MARKER_TEXT = `${PULLED_MARKER_VALUE}\n`;
 
@@ -41,7 +41,7 @@ export async function assertPullDestination(fs: GuardFs): Promise<{ readonly nee
   const entries = await fs.list("");
   if (entries.every((entry) => entry.name.toLowerCase() === STATE_FOLDER)) return { needsMarker: true };
   throw new PullGuardError(
-    `this directory is not empty and has no ${FIXTURE_MARKER} marker. Pull of a real vault is not available in this build: it refuses encrypted roots, and decrypting pull arrives in a later release`,
+    `this directory is not empty and has no ${FIXTURE_MARKER} marker. Pull into a populated directory without a fixture marker stays disabled in this build`,
     "real-vault",
   );
 }
@@ -80,7 +80,7 @@ export async function assertVaultPullDestination(fs: GuardFs): Promise<{ readonl
   await refuseUnusableMarker(fs, marker);
   if ((await firstNoteFile(fs)) === undefined) return { needsMarker: true };
   throw new PullGuardError(
-    `this vault has files outside .obsidian/ and .ipfs-sync/ and no ${FIXTURE_MARKER} marker. Pull of a real vault is not available in this build: it refuses encrypted roots, and decrypting pull arrives in a later release`,
+    `this vault has files outside .obsidian/ and .ipfs-sync/ and no ${FIXTURE_MARKER} marker. Pull into a populated directory without a fixture marker stays disabled in this build`,
     "real-vault",
   );
 }

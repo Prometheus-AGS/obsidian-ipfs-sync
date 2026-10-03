@@ -46,3 +46,19 @@ export class HostReadCapError extends Error {
     this.capBytes = capBytes;
   }
 }
+
+/**
+ * A file's size or modification time differed between the start and the end of one ranged read (the plugin reads
+ * a file once and serves its segments from that copy, so a different stat means the copy may mix two versions).
+ * Callers skip the file for this run; the next run sees the new modification time and reads it again. The message
+ * names the file and carries no file content.
+ */
+export class FileChangedDuringReadError extends Error {
+  readonly path: string;
+
+  constructor(path: string) {
+    super(`"${path}" changed while it was being read`);
+    this.name = "FileChangedDuringReadError";
+    this.path = path;
+  }
+}

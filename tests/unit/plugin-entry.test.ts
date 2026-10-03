@@ -34,9 +34,17 @@ describe("plugin entry", () => {
     vi.unstubAllGlobals();
   });
 
-  it("registers the Publish, Pull, Status, Abandon and Clear stale lock commands and one ribbon icon for each of Publish and Pull", async () => {
+  it("registers the Publish, Pull, Restore, Resolve fork, Status, Abandon and Clear stale lock commands and one ribbon icon for each of Publish and Pull", async () => {
     const { stub } = await loadPlugin(null);
-    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual(["publish-vault:Publish vault", "pull-vault:Pull vault", "show-status:Show status", "abandon-vault:Abandon this vault", "clear-stale-lock:Clear stale publish lock"]);
+    expect(stub.commands.map((c) => `${c.id}:${c.name}`)).toEqual([
+      "publish-vault:Publish vault",
+      "pull-vault:Pull vault",
+      "restore-version:Restore an older version",
+      "resolve-fork:Resolve fork",
+      "show-status:Show status",
+      "abandon-vault:Abandon this vault",
+      "clear-stale-lock:Clear stale publish lock",
+    ]);
     expect(stub.ribbonIcons).toHaveLength(2);
     expect(stub.statusBarItems).toHaveLength(1);
   });

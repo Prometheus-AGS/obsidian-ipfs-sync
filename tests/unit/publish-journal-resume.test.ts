@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { CryptoError } from "../../src/crypto";
 import { decodeManifestFile } from "../../src/sync/encrypted-manifest";
+import { historyFileName } from "../../src/sync/history-names";
 import { readJournal } from "../../src/sync/journal";
 import { commitPublish } from "../../src/sync/publish-commit";
 import { resumeJournal } from "../../src/sync/publish-resume";
 import { PublishRefusedError } from "../../src/sync/publish-refusals";
 import { rootFileNames } from "../../src/sync/root-files";
-import { readRootState } from "../../src/sync/root-state";
+import { manifestIdentity } from "../../src/sync/manifest-identity";
+import { buildRootState, readRootState, writeRootState } from "../../src/sync/root-state";
 import { classifySequence } from "../../src/sync/sequence-rules";
-import { KEYSLOTS_SHA, Killed, MFS_ROOT, STEPS, cidFor, killAfter, scenario, type Scenario, type Step } from "../helpers/commit-scenario";
+import { KEYSLOTS_SHA, Killed, MFS_ROOT, STEPS, cidFor, historyKey, killAfter, scenario, type Scenario, type Step } from "../helpers/commit-scenario";
 
 const PATHS_V2 = ["notes/a.md", "notes/b.md", "notes/c.md"] as const;
 
@@ -51,7 +53,7 @@ describe("commitPublish: the fixed write order", () => {
   it("refuses before writing anything when the history file already holds different bytes", async () => {
     const s = await scenario();
     const { manifest, file } = await s.next(2, PATHS_V2);
-    s.node.history.set(manifest.rootCID, new Uint8Array([1, 2, 3]));
+    s.node.history.set(historyKey(manifest), new Uint8Array([1, 2, 3]));
     const attempt = commitPublish(s.deps, { target: s.target, manifest, manifestFile: file, mtimes: {}, previousRootCid: null });
     await expect(attempt).rejects.toMatchObject({ code: "history-conflict" });
     expect(await journalPresent(s)).toBe(false);
@@ -121,10 +123,10 @@ describe("resumeJournal: a kill after each step of the write order", () => {
 
   it("a kill between manifest.enc and its history file: the history file is written from the node's bytes", async () => {
     const { s, file2 } = await killedAt("manifest-write");
-    expect(s.node.history.has(s.node.current ?? "")).toBe(false);
+    expect(s.node.history.has(historyFileName(2, s.node.current ?? ""))).toBe(false);
     const outcome = await resume(s);
     expect(outcome.kind).toBe("completed");
-    expect(s.node.history.get(s.node.current ?? "")).toEqual(file2);
+    expect(s.node.history.get(historyFileName(2, s.node.current ?? ""))).toEqual(file2);
     expect(s.node.publishes).toHaveLength(1);
   });
 });
@@ -152,6 +154,48 @@ describe("resumeJournal: refusals and reconciliation", () => {
     expect(next.sequence).toBe(3);
   });
 
+  it("adopt writes the format 3 fields from the pending manifest, raises highest and touches nothing but the state and the journal", async () => {
+    const { s } = await killedAt("manifest-write");
+    s.node.plantUnderCurrent();
+    const written: string[] = [];
+    const kv = {
+      get: s.deps.kv.get,
+      set: async (key: string, value: Uint8Array<ArrayBuffer>) => {
+        written.push(key);
+        await s.deps.kv.set(key, value);
+      },
+      delete: async (key: string) => {
+        written.push(key);
+        await s.deps.kv.delete(key);
+      },
+    };
+    const outcome = await resumeJournal({ ...s.deps, kv }, { target: s.target, state: await readRootState(s.host.kv, MFS_ROOT) });
+    expect(outcome.kind).toBe("adopted");
+    const state = await readRootState(s.host.kv, MFS_ROOT);
+    const pending = await decodeManifestFile(s.keys, s.node.manifestFile ?? new Uint8Array());
+    expect(state).toMatchObject({
+      sequence: 2,
+      highestSequence: 2,
+      manifestIdentity: manifestIdentity(pending),
+      highestIdentity: manifestIdentity(pending),
+      previousIdentity: s.state1.manifestIdentity,
+      complete: true,
+      unmaterialized: [],
+    });
+    // no sequence floor (or any other device-local file) is written by an adoption
+    expect(written).toEqual([rootFileNames(MFS_ROOT).state, rootFileNames(MFS_ROOT).journal]);
+  });
+
+  it("adopt keeps a carried path carried while the pending manifest still lists it", async () => {
+    const { s } = await killedAt("manifest-write");
+    s.node.plantUnderCurrent();
+    const base = await readRootState(s.host.kv, MFS_ROOT);
+    if (base === undefined) throw new Error("state expected");
+    await writeRootState(s.host.kv, buildRootState({ ...base, unmaterialized: ["notes/a.md"] }));
+    await resumeJournal(s.deps, { target: s.target, state: await readRootState(s.host.kv, MFS_ROOT) });
+    expect((await readRootState(s.host.kv, MFS_ROOT))?.unmaterialized).toEqual(["notes/a.md"]);
+  });
+
   it("a read-back failure on resume adopts the pending state instead of locking the publisher out", async () => {
     const { s } = await killedAt("manifest-write");
     s.node.topLevelExtras.push("stray.txt");
@@ -162,7 +206,7 @@ describe("resumeJournal: refusals and reconciliation", () => {
 
   it("adopts, instead of wedging on the journal, when the history file holds different bytes than the node's manifest.enc", async () => {
     const { s } = await killedAt("manifest-write");
-    s.node.history.set(s.node.current ?? "", new Uint8Array([9, 9, 9]));
+    s.node.history.set(historyFileName(2, s.node.current ?? ""), new Uint8Array([9, 9, 9]));
     expect((await resume(s)).kind).toBe("adopted");
     expect(await journalPresent(s)).toBe(false);
     expect((await readRootState(s.host.kv, MFS_ROOT))?.sequence).toBe(2);
@@ -179,13 +223,14 @@ describe("resumeJournal: refusals and reconciliation", () => {
     expect(await journalPresent(s)).toBe(true);
   });
 
-  it("refuses when the node is ahead of the interrupted publish, and names --repair", async () => {
+  it("refuses when the node is ahead of the interrupted publish, and says to pull first", async () => {
     const { s } = await killedAt("manifest-write");
     const { file } = await s.next(5, PATHS_V2);
     s.node.manifestFile = file;
     const error = await resume(s).catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "sequence-ahead" });
-    expect((error as Error).message).toContain("--repair");
+    expect((error as Error).message).toContain("pull first");
+    expect((error as Error).message).not.toContain("--repair");
   });
 
   it("refuses when the node is more than one behind the journal, and names --repair", async () => {

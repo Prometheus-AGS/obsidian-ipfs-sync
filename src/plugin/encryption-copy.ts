@@ -86,4 +86,8 @@ export const ENCRYPTION_COPY = {
   abandonButton: "Abandon...",
   setUpButton: "Set up...",
   unlockButton: "Unlock...",
+  recordName: "Pull record",
+  noRecord: "This device has no pull record for this vault yet.",
+  recordUnreadable: "The pull record could not be read. The state file for this vault may be damaged.",
+  unfinishedKept: "your next publish keeps them as the node has them, and publishes nothing from this device for them.",
 } as const;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createAdapterLockFile, createPluginLockContext } from "../../src/plugin/adapter-lock-file";
-import { withTokenCheck } from "../../src/plugin/lock-token-check";
+import { withTokenCheck } from "../../src/sync/lock-token-check";
 import { LOCK_HEARTBEAT_MS, LOCK_STALE_MS, acquirePublishLock, decodeLock, encodeLock } from "../../src/sync/publish-lock";
 import { MemoryAdapter } from "../support/memory-adapter";
 

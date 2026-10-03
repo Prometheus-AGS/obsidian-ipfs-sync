@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { encodeManifestFile } from "../../src/sync/encrypted-manifest";
+import { historyFileName } from "../../src/sync/history-names";
 import { readJournal } from "../../src/sync/journal";
 import { rootFileNames } from "../../src/sync/root-files";
 import { buildRootState, readRootState, writeRootState } from "../../src/sync/root-state";
@@ -60,32 +61,35 @@ describe("W-01: --repair reaches a journal that resume refuses", () => {
     rig.node.files.set(`${ROOT}/manifest.enc`, forged.file);
   }
 
-  it("sequence-ahead: refused without --repair; with it and a yes the publish completes at the node's sequence plus one; without a yes it refuses naming the condition", async () => {
+  it("sequence-ahead: refused without --repair, saying to pull first; --repair is refused too while the local record decodes, with or without a yes, and the journal stays", async () => {
+    // Task 2.1: the device has a decodable record, so the node being ahead means another device published; the old test lifted this with --repair.
     const rig = await killedAfterManifest(once);
     await forgeNodeManifest(rig, (m) => ({ ...m, sequence: 5 }));
-    await expect(rig.publish({ ownedKeys: rig.owned })).rejects.toMatchObject({ code: "sequence-ahead" });
+    const refused = await rejection(rig.publish({ ownedKeys: rig.owned }));
+    expect(refused).toMatchObject({ code: "sequence-ahead" });
+    expect((refused as Error).message).toContain("pull first");
     expect((await readJournal(rig.host.kv, ROOT)).kind).toBe("ok");
     await expect(rig.publish({ ownedKeys: rig.owned, repair: true })).rejects.toMatchObject({ code: "repair-refused" });
+    await expect(rig.publish({ ownedKeys: rig.owned, repair: true, confirmRepair: yes })).rejects.toMatchObject({ code: "repair-refused" });
     expect((await readJournal(rig.host.kv, ROOT)).kind).toBe("ok");
-    const result = await rig.publish({ ownedKeys: rig.owned, repair: true, confirmRepair: yes });
-    expect(result).toMatchObject({ published: true, sequence: 6 });
-    expect(await readJournal(rig.host.kv, ROOT)).toEqual({ kind: "none" });
   });
 
   it("journal-manifest-mismatch: the node holds a different manifest at the journal's sequence", async () => {
     const rig = await killedAfterManifest(once);
     await forgeNodeManifest(rig, (m) => ({ ...m, rootCID: `b${"a".repeat(58)}` }));
     await expect(rig.publish({ ownedKeys: rig.owned })).rejects.toMatchObject({ code: "journal-manifest-mismatch" });
-    const result = await rig.publish({ ownedKeys: rig.owned, repair: true, confirmRepair: yes });
-    expect(result).toMatchObject({ published: true, sequence: 3 });
-    expect(await readJournal(rig.host.kv, ROOT)).toEqual({ kind: "none" });
+    // Task 2.1: the foreign manifest sits above this device's decodable record, which is the ahead case; --repair no longer lifts it.
+    const refused = await rejection(rig.publish({ ownedKeys: rig.owned, repair: true, confirmRepair: yes }));
+    expect(refused).toMatchObject({ code: "repair-refused" });
+    expect((refused as Error).message).toContain("pull first");
+    expect((await readJournal(rig.host.kv, ROOT)).kind).toBe("ok");
   });
 
   it("journal-conflict (the record is already past the journal): the journal is dropped and the publish continues", async () => {
     const rig = await killedAfterManifest(once);
     const state = await readRootState(rig.host.kv, ROOT);
     if (state === undefined) throw new Error("state expected");
-    await writeRootState(rig.host.kv, buildRootState({ ...state, sequence: 3, manifest: { ...state.manifest, sequence: 3 } }));
+    await writeRootState(rig.host.kv, buildRootState({ ...state, sequence: 3, highestSequence: 3, manifest: { ...state.manifest, sequence: 3 } }));
     await expect(rig.publish({ ownedKeys: rig.owned })).rejects.toMatchObject({ code: "journal-conflict" });
     const result = await rig.publish({ ownedKeys: rig.owned, repair: true });
     expect(result).toMatchObject({ published: true, sequence: 4 });
@@ -127,17 +131,17 @@ describe("W-01: --repair reaches a journal that resume refuses", () => {
 });
 
 describe("W-02: a planted history file cannot wedge the journal", () => {
-  it("adopts around a planted manifests/<currentCID>.enc, refuses the fresh publish before writing, and works once the tree changes", async () => {
+  it("adopts around a file planted at the sequence-2 name; the next publish uses its own sequence-3 name and the planted file stays", async () => {
     const rig = await killedAfterManifest(await publishedOnce());
-    rig.node.files.set(`${ROOT}/manifests/${rig.node.cidOf(`${ROOT}/current`)}.enc`, new Uint8Array([1, 2, 3]));
-    const error = await rejection(rig.publish({ ownedKeys: rig.owned }));
-    expect(error).toMatchObject({ code: "history-conflict" });
+    const planted = new Uint8Array([1, 2, 3]);
+    const plantedPath = `${ROOT}/manifests/${historyFileName(2, rig.node.cidOf(`${ROOT}/current`) as string)}`;
+    rig.node.files.set(plantedPath, planted);
+    const outcome = await rig.publish({ ownedKeys: rig.owned });
     expect(await readJournal(rig.host.kv, ROOT)).toEqual({ kind: "none" });
-    expect((await readRootState(rig.host.kv, ROOT))?.sequence).toBe(2);
-    expect(rig.node.calls.filter((call) => MUTATING.test(call))).toEqual([]);
-
-    rig.host.put("notes/new.md", "the tree changes", 6000);
-    expect(await rig.publish({ ownedKeys: rig.owned })).toMatchObject({ published: true, sequence: 3 });
+    expect(outcome).toMatchObject({ published: true, sequence: 3 });
+    expect((await readRootState(rig.host.kv, ROOT))?.sequence).toBe(3);
+    expect(rig.node.files.get(plantedPath)).toEqual(planted);
+    expect(rig.node.files.has(`${ROOT}/manifests/${historyFileName(3, rig.node.cidOf(`${ROOT}/current`) as string)}`)).toBe(true);
   });
 });
 
@@ -150,7 +154,7 @@ describe("W-03: manifests/ is looked at before anything is written", () => {
   /** A published vault whose manifests/ holds exactly `count` history files (one is the real one) plus `extra` entries. */
   function withHistory(count: number, extra: Record<string, Uint8Array> = {}): Rig {
     const rig = restoreRig(base);
-    for (let index = 1; index < count; index += 1) rig.node.files.set(`${ROOT}/manifests/b${index.toString(32).padStart(58, "w")}.enc`, new Uint8Array([1]));
+    for (let index = 1; index < count; index += 1) rig.node.files.set(`${ROOT}/manifests/${String(index + 100).padStart(16, "0")}-b${index.toString(32).padStart(58, "w")}.enc`, new Uint8Array([1]));
     for (const [name, data] of Object.entries(extra)) rig.node.files.set(`${ROOT}/manifests/${name}`, data);
     rig.host.put("notes/new.md", "one more", 7000);
     rig.node.calls.length = 0;
@@ -162,6 +166,26 @@ describe("W-03: manifests/ is looked at before anything is written", () => {
     expect(result).toMatchObject({ published: true });
     expect(result.warnings).toEqual([]);
   }, 30_000);
+
+  it("counts legacy and prefixed names together: 1,499 mixed publishes silently, 1,999 mixed refuses", async () => {
+    const legacyFolder = (count: number): Rig => {
+      const rig = withHistory(1);
+      for (let index = 1; index < count; index += 1) rig.node.files.set(`${ROOT}/manifests/b${index.toString(32).padStart(58, "w")}.enc`, new Uint8Array([1]));
+      return rig;
+    };
+    const ok = await legacyFolder(1499).publish({ ownedKeys: [OWNED] });
+    expect(ok).toMatchObject({ published: true });
+    expect(ok.warnings).toEqual([]);
+    await expect(legacyFolder(1999).publish({ ownedKeys: [OWNED] })).rejects.toMatchObject({ code: "history-full" });
+  }, 60_000);
+
+  it("accepts a folder of legacy names only (besides the new file) and a folder of prefixed names only", async () => {
+    const legacyOnly = withHistory(1);
+    legacyOnly.node.files.set(`${ROOT}/manifests/b${"l".repeat(58)}.enc`, new Uint8Array([1]));
+    expect(await legacyOnly.publish({ ownedKeys: [OWNED] })).toMatchObject({ published: true, sequence: 2 });
+    const prefixedOnly = withHistory(3);
+    expect(await prefixedOnly.publish({ ownedKeys: [OWNED] })).toMatchObject({ published: true, sequence: 2 });
+  }, 60_000);
 
   it("publishes with 1,500 and warns, naming ipfs-sync prune-history", async () => {
     const result = await withHistory(1500).publish({ ownedKeys: [OWNED] });

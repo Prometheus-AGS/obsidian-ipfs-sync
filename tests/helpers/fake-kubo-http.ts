@@ -76,6 +76,16 @@ export function fakeNodeFetch(node: FakeNode, requests: string[]): (input: strin
         case "pin/add":
           await node.client.pinAdd(arg);
           return json({ Pins: [arg] });
+        case "name/resolve": {
+          // The node's own error body for a name it cannot resolve (an HTTP 500 with its Message), not the generic mapping below.
+          const dhtTimeout = url.searchParams.get("dht-timeout");
+          try {
+            return json({ Path: await node.client.nameResolve(arg, dhtTimeout === null ? undefined : { dhtTimeout }) });
+          } catch (error) {
+            if (error instanceof KuboHttpError && error.nodeMessage !== undefined) return json({ Message: error.nodeMessage, Code: 0, Type: "error" }, 500);
+            throw error;
+          }
+        }
         case "name/publish": {
           const published = await node.client.namePublish(url.searchParams.get("key") ?? "", arg.replace("/ipfs/", ""), url.searchParams.get("ttl") ?? undefined);
           return json({ Name: published.name, Value: published.value });

@@ -5,6 +5,8 @@ import { HostReadCapError } from "./host-errors";
 import type { Manifest, ManifestFile } from "./manifest";
 import type { LocalState } from "./state";
 import { findSymlink, type SymlinkCache } from "./symlink-guard";
+import { evaluatePathPolicy, type PathPolicyOptions } from "./path-policy";
+import { decideThreeWay, type ThreeWayOutcome } from "./three-way";
 
 import { STATE_FOLDER, untrustedPathReason } from "./manifest-paths";
 
@@ -28,21 +30,8 @@ export function excludedPathReason(path: string, extraExclusions: readonly strin
   return isExcluded(path, extraExclusions) ? "matches the exclusion list; a legitimate manifest never contains it" : undefined;
 }
 
-export type ThreeWayOutcome = "fetch" | "unchanged" | "replace" | "locally-modified" | "conflict";
-
-/**
- * The decision table. `local` (L) is undefined when the file is missing, `base` (B) when the path is
- * untracked, `remote` (R) is the manifest sha256.
- * - L missing: fetch.  - L = R: unchanged.  - L = B: replace (no local edit).
- * - B = R (and L differs): locally modified, leave it.  - otherwise (including B absent): conflict.
- */
-export function decideThreeWay(local: string | undefined, base: string | undefined, remote: string): ThreeWayOutcome {
-  if (local === undefined) return "fetch";
-  if (local === remote) return "unchanged";
-  if (base !== undefined && local === base) return "replace";
-  if (base !== undefined && base === remote) return "locally-modified";
-  return "conflict";
-}
+// The decision table moved to three-way.ts (mvp-07a task 4.5) so the encrypted planner shares it; re-exported so existing imports keep working.
+export { decideThreeWay, type ThreeWayOutcome };
 
 export type PullDecision =
   | { readonly kind: "unchanged"; readonly path: string; readonly entry: ManifestFile; readonly mtimeMs: number }
@@ -70,6 +59,13 @@ export interface PlanInput {
   readonly forceVerify: boolean;
   /** This device's additions to the default exclusions; manifest paths matching the effective list are refused. */
   readonly extraExclusions?: readonly string[];
+  /** The host's configuration folder name when it is not `.obsidian` (the plugin's `vault.configDir`); the path policy protects it too. */
+  readonly configDir?: string;
+}
+
+/** The options the path policy is evaluated with, for the plan and for the write-time re-check. */
+export function policyOptionsFor(input: { readonly configDir?: string; readonly extraExclusions?: readonly string[] }): PathPolicyOptions {
+  return { configDir: input.configDir, extraExclusions: input.extraExclusions };
 }
 
 /** Own-property lookup, so a manifest path such as `constructor` cannot match an inherited member. */
@@ -110,8 +106,9 @@ async function decideFile(
   path: string,
   entry: ManifestFile,
   cache: SymlinkCache,
+  policyReason: string | undefined,
 ): Promise<{ readonly decision: PullDecision; readonly hashed: boolean }> {
-  const untrusted = untrustedPathReason(path) ?? excludedPathReason(path, input.extraExclusions ?? []);
+  const untrusted = untrustedPathReason(path) ?? excludedPathReason(path, input.extraExclusions ?? []) ?? policyReason;
   if (untrusted !== undefined) return { decision: { kind: "refused", path, reason: untrusted }, hashed: false };
   const link = await findSymlink(input.fs, path, cache);
   if (link !== undefined) return { decision: { kind: "refused", path, reason: `symlink at "${link}"` }, hashed: false };
@@ -143,11 +140,14 @@ function toDecision(outcome: ThreeWayOutcome, path: string, entry: ManifestFile,
 export async function planPull(input: PlanInput): Promise<PullPlan> {
   const cache: SymlinkCache = new Map();
   const paths = Object.keys(input.manifest.files).sort();
+  // The same path policy the decrypting pull applies, over the whole manifest before anything is read from disk or fetched: alias
+  // forms of the protected folders, Windows forms, short names and the collision groups. Every refusal is a failed path here.
+  const policyReasons = new Map(evaluatePathPolicy(paths, policyOptionsFor(input)).refusals.map((refusal) => [refusal.path, refusal.reason] as const));
   const decisions: PullDecision[] = [];
   let hashed = 0;
   for (const path of paths) {
     const entry = input.manifest.files[path] as ManifestFile;
-    const result = await decideFile(input, path, entry, cache);
+    const result = await decideFile(input, path, entry, cache, policyReasons.get(path));
     decisions.push(result.decision);
     if (result.hashed) hashed += 1;
   }

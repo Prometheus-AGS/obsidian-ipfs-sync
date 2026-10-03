@@ -85,7 +85,8 @@ describe("scan", () => {
       host.put(path, "x");
     }
     const scanned = await scanVault(host.fs, createExclusionMatcher());
-    expect(scanned.map((f) => f.path)).toEqual([".obsidian/app.json", "notes/a.md", "z.md"]);
+    // 1.3: .obsidian/ is now a default exclusion, so .obsidian/app.json is skipped too (it was the first entry).
+    expect(scanned.map((f) => f.path)).toEqual(["notes/a.md", "z.md"]);
   });
 });
 

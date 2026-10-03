@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { Bytes, HostBridge, HostFs, HostFsEntry, HostFsLstat, HostFsStat, HostKv } from "../src/core/host-bridge";
 import { HostNotImplementedError, HostPathError } from "../src/sync/host-errors";
+import { assertParentInsideRoot } from "./realpath-guard";
 
 export { HostPathError };
 
@@ -80,28 +81,36 @@ async function readSlice(absolute: string, offset: number, length: number): Prom
 
 function createFs(root: string): HostFs {
   const at = (path: string): string => resolveInside(root, path);
+  /** Resolve a mutation target and prove its parent's realpath is inside the vault's, before anything is created. */
+  const mutableAt = async (path: string): Promise<string> => {
+    const target = at(path);
+    await assertParentInsideRoot(root, target, path);
+    return target;
+  };
   return {
     list: async (dir) => listDirectory(at(dir)),
     stat: async (path) => statOrUndefined(at(path)),
     read: async (path) => readFile(at(path)),
     readRange: async (path, offset, length) => readSlice(at(path), offset, length),
     write: async (path, data) => {
-      const target = at(path);
+      const target = await mutableAt(path);
       await mkdir(dirname(target), { recursive: true, mode: KV_DIRECTORY_MODE });
       await replaceAtomically(target, data);
     },
     mkdir: async (path) => {
-      await mkdir(at(path), { recursive: true });
+      const target = await mutableAt(path);
+      await mkdir(target, { recursive: true });
     },
-    remove: async (path) => rm(at(path), { force: true }),
+    remove: async (path) => rm(await mutableAt(path), { force: true }),
     lstat: async (path) => lstatOrUndefined(at(path)),
     rename: async (from, to) => {
-      const target = at(to);
+      const source = await mutableAt(from);
+      const target = await mutableAt(to);
       await mkdir(dirname(target), { recursive: true });
-      await rename(at(from), target);
+      await rename(source, target);
     },
     append: async (path, data) => {
-      const target = at(path);
+      const target = await mutableAt(path);
       await mkdir(dirname(target), { recursive: true });
       await appendFile(target, data);
     },

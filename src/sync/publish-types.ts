@@ -3,19 +3,39 @@ import type { HostBridge } from "../core/host-bridge";
 import type { CanonicalPassphrase, CostPolicy, KdfParams, KdfProgress } from "../crypto";
 import type { KuboClient } from "../kubo";
 import type { SkippedFile } from "./diff";
+import type { DeviceStore } from "./device-store";
+import type { DroppedEntry } from "./publish-plan";
 import type { ConfirmRepair } from "./repair";
 import type { UnlockedVault } from "./vault-keys";
 
 /** The kubo operations a publish uses. Note what is absent: no key or pin removal. */
 export type PublishClient = Pick<
   KuboClient,
-  "filesWrite" | "filesStat" | "filesRm" | "filesLs" | "ipfsLs" | "gatewayStream" | "keyList" | "keyGen" | "pinAdd" | "namePublish"
+  "filesWrite" | "filesStat" | "filesRm" | "filesLs" | "ipfsLs" | "gatewayStream" | "keyList" | "keyGen" | "pinAdd" | "namePublish" | "nameResolve"
 >;
 
 export interface PublishDeps {
   readonly client: PublishClient;
   readonly host: HostBridge;
   readonly bus: SyncEventBus;
+  /**
+   * The installation's device id (32 hex characters), from the device-local store. The manifest `device` is then
+   * `<label>-<first 12 hex>`. Called only when a manifest is built, so a refused run never touches the store. A host
+   * that passes none publishes the bare label.
+   */
+  readonly deviceId?: () => Promise<string>;
+  /**
+   * The device-local store that holds the sequence floor. A publish raises the floor of its vault just before it writes
+   * the state, and `--repair` reads it to refuse the ahead case. A host that passes none keeps no floor.
+   */
+  readonly deviceStore?: DeviceStore;
+  /**
+   * An asynchronous look at the publish lock, awaited immediately before the run's first request that can change the node:
+   * before an interrupted publish is resumed, before the publication key is created or the first blob is written, and
+   * before junk in `manifests/` is removed. It throws (the host's `lock-held`) when the lock is no longer this run's. The
+   * synchronous `assertHeld` only knows the last heartbeat; this is the direct look. A host that passes none behaves as before.
+   */
+  readonly beforeFirstWrite?: () => Promise<void>;
 }
 
 export interface PublishOptions {
@@ -64,6 +84,13 @@ export interface PublishResult {
   readonly removed: number;
   /** Files left out because the host refused to read them (over its read cap). Empty on hosts without a cap. */
   readonly skipped: readonly SkippedFile[];
+  /**
+   * Paths this device could not restore, kept in the manifest as the node has them and not published from here (sorted).
+   * A local file at such a path is not compared and not uploaded.
+   */
+  readonly carried: readonly string[];
+  /** Carried entries that left the manifest: this device's exclusion list matches them, or their path has an unsafe shape. */
+  readonly dropped: readonly DroppedEntry[];
   readonly keyId: string;
   readonly keyCreated: boolean;
   /** CID of `<mfsRoot>` (the IPNS value). Present when published. */

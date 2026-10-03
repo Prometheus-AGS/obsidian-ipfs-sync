@@ -1,7 +1,7 @@
 import { parsePort, type AuthScheme } from "../core/config";
 import { parsePullName } from "./pull-target";
 import { parseReadCapMb } from "./read-cap";
-import { AUTH_SCHEMES, emptyAuth, type AuthSettings, type PluginSettings } from "./settings-model";
+import { AUTH_SCHEMES, emptyAuth, isValidPullConfirmAboveMb, PULL_CONFIRM_RANGE_MESSAGE, type AuthSettings, type PluginSettings } from "./settings-model";
 import type { FieldError, SettingsField } from "./settings-to-config";
 
 /**
@@ -25,11 +25,8 @@ export const FIELD_IDS = [
   "publishIntervalMinutes",
 ] as const;
 
-/**
- * The fields added with pull (mvp-05). Kept apart from `FIELD_IDS` so the settings tab's copy table, which is
- * keyed by `FieldId`, is extended together with the tab's layout (task 3.2) and not before.
- */
-export const PULL_FIELD_IDS = ["pullName", "catchUpOnLoad", "maxReadMb"] as const;
+/** The fields added with pull (mvp-05), and the pull size ceiling (mvp-07a). Kept apart from `FIELD_IDS` because they are not endpoint or authentication fields. */
+export const PULL_FIELD_IDS = ["pullName", "catchUpOnLoad", "maxReadMb", "pullConfirmAboveMb"] as const;
 
 export type FieldId = (typeof FIELD_IDS)[number];
 export type PullFieldId = (typeof PULL_FIELD_IDS)[number];
@@ -40,7 +37,17 @@ export type FieldValues = Readonly<Record<EditableFieldId, string>>;
 /** Fields whose values are secrets: the tab masks them. */
 export const SECRET_FIELDS: readonly FieldId[] = ["authPassword", "authToken", "authHeaderValue"];
 
-export type FieldGroup = "rpc" | "gateway" | "publicationKey" | "mfsRoot" | "auth" | "publishIntervalMinutes" | "pullName" | "catchUpOnLoad" | "maxReadMb";
+export type FieldGroup =
+  | "rpc"
+  | "gateway"
+  | "publicationKey"
+  | "mfsRoot"
+  | "auth"
+  | "publishIntervalMinutes"
+  | "pullName"
+  | "catchUpOnLoad"
+  | "maxReadMb"
+  | "pullConfirmAboveMb";
 
 const GROUP_OF: Readonly<Record<EditableFieldId, FieldGroup>> = {
   rpcUrl: "rpc",
@@ -59,6 +66,7 @@ const GROUP_OF: Readonly<Record<EditableFieldId, FieldGroup>> = {
   pullName: "pullName",
   catchUpOnLoad: "catchUpOnLoad",
   maxReadMb: "maxReadMb",
+  pullConfirmAboveMb: "pullConfirmAboveMb",
 };
 
 export function groupOf(field: EditableFieldId): FieldGroup {
@@ -124,6 +132,7 @@ export function valuesFrom(settings: PluginSettings): FieldValues {
     pullName: settings.pullName,
     catchUpOnLoad: String(settings.catchUpOnLoad),
     maxReadMb: String(settings.maxReadMb),
+    pullConfirmAboveMb: String(settings.pullConfirmAboveMb),
   };
 }
 
@@ -170,6 +179,14 @@ function parseReadCapGroup(text: string): GroupParse {
   const parsed = parseReadCapMb(text);
   if (!parsed.ok) return invalid("maxReadMb", parsed.message);
   return { kind: "ok", apply: (settings) => ({ ...settings, maxReadMb: parsed.megabytes }) };
+}
+
+/** The pull ceiling's text to a group parse: a whole number of megabytes from 64 to 8192. */
+export function parsePullCeilingField(text: string): GroupParse {
+  const trimmed = text.trim();
+  const value = /^\d{1,5}$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+  if (!isValidPullConfirmAboveMb(value)) return invalid("pullConfirmAboveMb", PULL_CONFIRM_RANGE_MESSAGE);
+  return { kind: "ok", apply: (settings) => ({ ...settings, pullConfirmAboveMb: value }) };
 }
 
 /** The toggle's text is `true` or `false`; the tab passes the switch state as one of them. */
@@ -238,5 +255,7 @@ export function parseGroup(group: FieldGroup, values: FieldValues): GroupParse {
       return parseCatchUpGroup(values.catchUpOnLoad);
     case "maxReadMb":
       return parseReadCapGroup(values.maxReadMb);
+    case "pullConfirmAboveMb":
+      return parsePullCeilingField(values.pullConfirmAboveMb);
   }
 }

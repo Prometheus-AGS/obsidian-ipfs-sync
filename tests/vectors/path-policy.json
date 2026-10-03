@@ -1,0 +1,258 @@
+{
+  "description": "Path policy vectors (mvp-07a task 3.1b, spec path-hardening). Expectations are reasoned by hand from design decision 11 and the spec scenarios, not produced by the implementation. Inputs use JSON unicode escapes so that invisible and look-alike code points stay visible in review. 'accepted' means the single-path rules let the path through; 'expect' otherwise holds severity, class (unsafe only) and code.",
+  "single": [
+    { "name": "ordinary dotfile", "path": ".gitignore", "expect": "accepted" },
+    { "name": "ordinary name that contains a protected name", "path": "notes/ipfs-sync.md", "expect": "accepted" },
+    { "name": "ordinary tilde name (Q-09)", "path": "abc~1.md", "expect": "accepted" },
+    { "name": "ordinary tilde name nested", "path": "notes/abc~1.md", "expect": "accepted" },
+    { "name": "tilde name whose prefix is not a protected prefix", "path": "a~1.md", "expect": "accepted" },
+    { "name": "tilde name with trailing characters after the digits is not an 8.3 shape", "path": "OBS~1x", "expect": "accepted" },
+    { "name": "eight characters before the tilde is not an 8.3 shape", "path": "OBSIDIAN~1", "expect": "accepted" },
+    { "name": "plain nested path", "path": "a/b/c.md", "expect": "accepted" },
+    { "name": "NFC name alone", "path": "caf\u00e9.md", "expect": "accepted" },
+    { "name": "NFD name alone", "path": "cafe\u0301.md", "expect": "accepted" },
+    { "name": "protected names without the dot are ordinary", "path": "obsidian/x.md", "expect": "accepted" },
+    { "name": "protected name with a suffix is ordinary", "path": ".obsidian2/x.md", "expect": "accepted" },
+    { "name": "underscore is not a hyphen", "path": ".ipfs_sync/x.md", "expect": "accepted" },
+    { "name": "git without the dot", "path": "git/x.md", "expect": "accepted" },
+    { "name": "COM0 is not in the spec list", "path": "COM0.md", "expect": "accepted" },
+    { "name": "COM10 is not a reserved name", "path": "COM10.txt", "expect": "accepted" },
+    { "name": "name that starts with a reserved name", "path": "CONSOLE.md", "expect": "accepted" },
+    { "name": "name that ends with a reserved name", "path": "my-con.md", "expect": "accepted" },
+    { "name": "fullwidth colon is not a colon", "path": "Chapter 1\uff1a Start.md", "expect": "accepted" },
+    { "name": "CJK name", "path": "notes/\u65e5\u672c\u8a9e.md", "expect": "accepted" },
+    { "name": "dot in the middle of a segment", "path": "v1.2.3/notes.md", "expect": "accepted" },
+    { "name": "renamed configuration folder name is ordinary when the host has no such folder", "path": ".cfg/app.json", "expect": "accepted" },
+    { "name": "private lower case is ordinary when nothing excludes it", "path": "private/a.md", "expect": "accepted" },
+
+    { "name": "empty path", "path": "", "expect": { "severity": "unsafe", "class": "shape", "code": "empty-path" } },
+    { "name": "leading slash", "path": "/etc/passwd", "expect": { "severity": "unsafe", "class": "shape", "code": "absolute-path" } },
+    { "name": "drive letter", "path": "C:/Windows/x", "expect": { "severity": "unsafe", "class": "shape", "code": "absolute-path" } },
+    { "name": "backslash", "path": "a\\b.md", "expect": { "severity": "unsafe", "class": "shape", "code": "backslash" } },
+    { "name": "C0 control", "path": "a\u0001b.md", "expect": { "severity": "unsafe", "class": "shape", "code": "control-character" } },
+    { "name": "newline", "path": "a\nb.md", "expect": { "severity": "unsafe", "class": "shape", "code": "control-character" } },
+    { "name": "DEL", "path": "a\u007fb.md", "expect": { "severity": "unsafe", "class": "shape", "code": "control-character" } },
+    { "name": "C1 control U+0085", "path": "a\u0085b.md", "expect": { "severity": "unsafe", "class": "shape", "code": "control-character" } },
+    { "name": "C1 control U+009B (CSI)", "path": "a\u009bb.md", "expect": { "severity": "unsafe", "class": "shape", "code": "control-character" } },
+    { "name": "empty segment", "path": "a//b.md", "expect": { "severity": "unsafe", "class": "shape", "code": "dot-segment" } },
+    { "name": "trailing slash", "path": "a/", "expect": { "severity": "unsafe", "class": "shape", "code": "dot-segment" } },
+    { "name": "dot segment", "path": "a/./b.md", "expect": { "severity": "unsafe", "class": "shape", "code": "dot-segment" } },
+    { "name": "traversal", "path": "../outside.md", "expect": { "severity": "unsafe", "class": "shape", "code": "dot-segment" } },
+    { "name": "traversal in the middle", "path": "a/../b.md", "expect": { "severity": "unsafe", "class": "shape", "code": "dot-segment" } },
+
+    { "name": "state folder", "path": ".ipfs-sync/state.json", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder as a file name", "path": ".ipfs-sync", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder upper case", "path": ".IPFS-SYNC/x", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder dotless i (spec)", "path": ".\u0131pfs-sync/state.json", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder dotted capital I", "path": ".\u0130pfs-sync/x", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder long s (spec)", "path": ".ipf\u017f-sync/x", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder zero-width joiner", "path": ".ipfs-s\u200dync/x", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder soft hyphen", "path": ".ipfs\u00ad-sync/x", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "state folder fullwidth", "path": "\uff0e\uff49\uff50\uff46\uff53\uff0d\uff53\uff59\uff4e\uff43/x", "expect": { "severity": "unsafe", "class": "shape", "code": "state-folder" } },
+    { "name": "version-control folder", "path": ".git/config", "expect": { "severity": "unsafe", "class": "shape", "code": "vcs-folder" } },
+    { "name": "version-control folder nested", "path": "notes/.git/config", "expect": { "severity": "unsafe", "class": "shape", "code": "vcs-folder" } },
+    { "name": "version-control folder upper case nested", "path": "notes/.GIT/x", "expect": { "severity": "unsafe", "class": "shape", "code": "vcs-folder" } },
+    { "name": "version-control folder zero-width joiner (spec)", "path": ".g\u200dit/x", "expect": { "severity": "unsafe", "class": "shape", "code": "vcs-folder" } },
+    { "name": "version-control folder dotted capital I", "path": "a/.G\u0130T/x", "expect": { "severity": "unsafe", "class": "shape", "code": "vcs-folder" } },
+    { "name": "version-control folder as a file", "path": ".git", "expect": { "severity": "unsafe", "class": "shape", "code": "vcs-folder" } },
+
+    { "name": "configuration file from an older build (spec)", "path": ".obsidian/app.json", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "configuration theme", "path": ".obsidian/themes/x.css", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "configuration folder mixed case", "path": ".Obsidian/app.json", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "configuration folder zero-width joiner (spec)", "path": ".ob\u200dsidian/app.json", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "configuration folder soft hyphen", "path": ".ob\u00adsidian/app.json", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "configuration folder dotless i", "path": ".obs\u0131dian/app.json", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "plugin code (spec)", "path": ".obsidian/plugins/x/main.js", "expect": { "severity": "unsafe", "class": "shape", "code": "plugin-folder" } },
+    { "name": "plugin code upper case", "path": ".OBSIDIAN/PLUGINS/x/main.js", "expect": { "severity": "unsafe", "class": "shape", "code": "plugin-folder" } },
+    { "name": "plugins folder itself", "path": ".obsidian/plugins", "expect": { "severity": "unsafe", "class": "shape", "code": "plugin-folder" } },
+    { "name": "configuration folder as a file", "path": ".obsidian", "expect": { "severity": "unsafe", "class": "shape", "code": "config-folder-name" } },
+    { "name": "nested .obsidian is the exclusion list's, not the folder's", "path": "notes/.obsidian/app.json", "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "renamed configuration folder (spec)", "path": ".cfg/app.json", "configDir": ".cfg", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "renamed configuration folder, other case", "path": ".CFG/app.json", "configDir": ".cfg", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "renamed configuration folder plugins", "path": ".cfg/plugins/x/main.js", "configDir": ".cfg", "expect": { "severity": "unsafe", "class": "shape", "code": "plugin-folder" } },
+    { "name": "renamed configuration folder as a file", "path": ".cfg", "configDir": ".cfg", "expect": { "severity": "unsafe", "class": "shape", "code": "config-folder-name" } },
+    { "name": "default .obsidian stays protected when the host renames", "path": ".obsidian/app.json", "configDir": ".cfg", "expect": { "severity": "expected", "code": "config-folder" } },
+    { "name": "exclusion: trash", "path": ".trash/a.md", "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "exclusion: node_modules nested", "path": "notes/node_modules/x.js", "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "exclusion: .DS_Store", "path": "a/.DS_Store", "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "exclusion: fixture marker", "path": ".ipfs-sync-fixture", "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "exclusion: fold-aware, upper case .DS_STORE", "path": ".DS_STORE", "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "exclusion: extra entry", "path": "Private/a.md", "extra": ["Private/"], "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "exclusion: extra entry matched in another case by the pull matcher", "path": "private/a.md", "extra": ["Private/"], "expect": { "severity": "expected", "code": "excluded" } },
+    { "name": "exclusion: extra entry, an unrelated name stays accepted", "path": "privateer/a.md", "extra": ["Private/"], "expect": "accepted" },
+
+    { "name": "reserved: CON.md (spec)", "path": "CON.md", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: lower case", "path": "con.md", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: no extension", "path": "Con", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: several extensions", "path": "con.tar.gz", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: folder segment", "path": "aux/x.md", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: nested", "path": "notes/PRN.md", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: NUL", "path": "NUL.txt", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: COM1", "path": "COM1.txt", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: LPT9", "path": "LPT9", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: superscript one (spec)", "path": "com\u00b9.txt", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: superscript two", "path": "COM\u00b2", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: superscript three in LPT", "path": "LPT\u00b3.md", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: fullwidth letters", "path": "\uff23\uff2f\uff2e.md", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: space before the extension", "path": "CON .txt", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "reserved: invisible character inside", "path": "C\u200bON.md", "expect": { "severity": "unsafe", "class": "platform", "code": "reserved-name" } },
+    { "name": "trailing dot in a folder segment (spec)", "path": "a./b.md", "expect": { "severity": "unsafe", "class": "platform", "code": "trailing-dot-or-space" } },
+    { "name": "trailing space in a folder segment (spec)", "path": "a /b.md", "expect": { "severity": "unsafe", "class": "platform", "code": "trailing-dot-or-space" } },
+    { "name": "trailing dot in a file name", "path": "note.md.", "expect": { "severity": "unsafe", "class": "platform", "code": "trailing-dot-or-space" } },
+    { "name": "trailing space in a file name", "path": "note.md ", "expect": { "severity": "unsafe", "class": "platform", "code": "trailing-dot-or-space" } },
+    { "name": "three dots segment", "path": "a/.../b.md", "expect": { "severity": "unsafe", "class": "platform", "code": "trailing-dot-or-space" } },
+    { "name": "alternate data stream (spec)", "path": "file::$DATA", "expect": { "severity": "unsafe", "class": "platform", "code": "stream-syntax" } },
+    { "name": "alternate data stream named stream", "path": "notes/a.md:hidden", "expect": { "severity": "unsafe", "class": "platform", "code": "stream-syntax" } },
+    { "name": "colon in a folder segment", "path": "xy:z/w.md", "expect": { "severity": "unsafe", "class": "platform", "code": "stream-syntax" } },
+    { "name": "8.3 name of .obsidian (spec)", "path": "OBSIDI~1/x", "expect": { "severity": "unsafe", "class": "platform", "code": "short-name" } },
+    { "name": "8.3 name of .git (spec)", "path": "GIT~1/x", "expect": { "severity": "unsafe", "class": "platform", "code": "short-name" } },
+    { "name": "8.3 name of .ipfs-sync (spec)", "path": "IPFS-S~1/x", "expect": { "severity": "unsafe", "class": "platform", "code": "short-name" } },
+    { "name": "8.3 short prefix (spec)", "path": "OBS~1/x", "expect": { "severity": "unsafe", "class": "platform", "code": "short-name" } },
+    { "name": "8.3 lower case with several digits", "path": "obsidi~12/x", "expect": { "severity": "unsafe", "class": "platform", "code": "short-name" } },
+    { "name": "8.3 with an extension", "path": "OBSIDI~1.md", "expect": { "severity": "unsafe", "class": "platform", "code": "short-name" } },
+    { "name": "8.3 name of the renamed configuration folder", "path": "CFG~1/x", "configDir": ".cfg", "expect": { "severity": "unsafe", "class": "platform", "code": "short-name" } },
+    { "name": "8.3 name of the renamed configuration folder is ordinary without it", "path": "CFG~1/x", "expect": "accepted" }
+  ],
+  "sets": [
+    {
+      "name": "case pair (spec)",
+      "paths": ["Note.md", "note.md", "other.md"],
+      "refused": {
+        "Note.md": { "severity": "unsafe", "class": "platform", "code": "case-collision" },
+        "note.md": { "severity": "unsafe", "class": "platform", "code": "case-collision" }
+      },
+      "accepted": ["other.md"]
+    },
+    {
+      "name": "NFC and NFD forms of one name (spec)",
+      "paths": ["caf\u00e9.md", "cafe\u0301.md"],
+      "refused": {
+        "caf\u00e9.md": { "severity": "unsafe", "class": "platform", "code": "case-collision" },
+        "cafe\u0301.md": { "severity": "unsafe", "class": "platform", "code": "case-collision" }
+      },
+      "accepted": []
+    },
+    {
+      "name": "file and directory of one name (spec)",
+      "paths": ["a", "a/b.md", "c.md"],
+      "refused": {
+        "a": { "severity": "unsafe", "class": "platform", "code": "file-directory-prefix" },
+        "a/b.md": { "severity": "unsafe", "class": "platform", "code": "file-directory-prefix" }
+      },
+      "accepted": ["c.md"]
+    },
+    {
+      "name": "file and deep directory",
+      "paths": ["x/a", "x/a/b/c.md", "x/other.md"],
+      "refused": {
+        "x/a": { "severity": "unsafe", "class": "platform", "code": "file-directory-prefix" },
+        "x/a/b/c.md": { "severity": "unsafe", "class": "platform", "code": "file-directory-prefix" }
+      },
+      "accepted": ["x/other.md"]
+    },
+    {
+      "name": "file and directory that differ in case",
+      "paths": ["A", "a/b.md"],
+      "refused": {
+        "A": { "severity": "unsafe", "class": "platform", "code": "file-directory-prefix" },
+        "a/b.md": { "severity": "unsafe", "class": "platform", "code": "file-directory-prefix" }
+      },
+      "accepted": []
+    },
+    {
+      "name": "a name that is only a string prefix of a directory is not a prefix",
+      "paths": ["a", "ab/c.md"],
+      "refused": {},
+      "accepted": ["a", "ab/c.md"]
+    },
+    {
+      "name": "two directories that differ in case hold different files",
+      "paths": ["Docs/a.md", "docs/b.md"],
+      "refused": {},
+      "accepted": ["Docs/a.md", "docs/b.md"]
+    },
+    {
+      "name": "a collision member that is also a reserved name keeps its own refusal",
+      "paths": ["Note.md", "note.md", "CON.md"],
+      "refused": {
+        "Note.md": { "severity": "unsafe", "class": "platform", "code": "case-collision" },
+        "note.md": { "severity": "unsafe", "class": "platform", "code": "case-collision" },
+        "CON.md": { "severity": "unsafe", "class": "platform", "code": "reserved-name" }
+      },
+      "accepted": []
+    },
+    {
+      "name": "a refused path does not collide with the ordinary one",
+      "paths": ["a ", "a"],
+      "refused": { "a ": { "severity": "unsafe", "class": "platform", "code": "trailing-dot-or-space" } },
+      "accepted": ["a"]
+    },
+    {
+      "name": "duplicates in the input count once",
+      "paths": ["a.md", "a.md"],
+      "refused": {},
+      "accepted": ["a.md"]
+    },
+    {
+      "name": "mixed manifest: every class at once",
+      "paths": [".obsidian/app.json", "../x", ".obsidian/plugins/p/main.js", "CON.md", "ok.md", "notes/ok.md"],
+      "refused": {
+        ".obsidian/app.json": { "severity": "expected", "code": "config-folder" },
+        "../x": { "severity": "unsafe", "class": "shape", "code": "dot-segment" },
+        ".obsidian/plugins/p/main.js": { "severity": "unsafe", "class": "shape", "code": "plugin-folder" },
+        "CON.md": { "severity": "unsafe", "class": "platform", "code": "reserved-name" }
+      },
+      "accepted": ["notes/ok.md", "ok.md"]
+    }
+  ],
+  "publisherMatcher": {
+    "description": "createExclusionMatcher(['Private/']) answers, reasoned by hand from the rules in exclusions.ts (segments compared exactly, case-sensitive). Run against the matcher before and after this task; the file src/sync/exclusions.ts is byte-identical (sha256 recorded in the task notes).",
+    "extra": ["Private/"],
+    "answers": [
+      ["Private/a.md", true],
+      ["private/a.md", false],
+      ["PRIVATE/a.md", false],
+      ["notes/Private/x.md", true],
+      ["notes/private/x.md", false],
+      ["Private.md", false],
+      [".obsidian/app.json", true],
+      [".Obsidian/app.json", false],
+      ["notes/.obsidian/x", true],
+      [".trash/a.md", true],
+      [".Trash/a.md", false],
+      [".DS_Store", true],
+      ["a/.DS_STORE", false],
+      ["node_modules/x.js", true],
+      ["Node_Modules/x.js", false],
+      [".gitignore", false],
+      [".git/config", true],
+      [".GIT/config", false],
+      ["notes/ipfs-sync.md", false],
+      [".ipfs-sync/state.json", true],
+      [".IPFS-SYNC/x", false],
+      [".\u0131pfs-sync/x", false],
+      ["abc~1.md", false]
+    ]
+  },
+  "pullMatcher": {
+    "description": "createPullExclusionMatcher(['Private/']) answers: the same list, compared by fold key.",
+    "extra": ["Private/"],
+    "answers": [
+      ["Private/a.md", true],
+      ["private/a.md", true],
+      ["PRIVATE/A.md", true],
+      ["notes/private/x.md", true],
+      ["Private.md", false],
+      ["privateer/a.md", false],
+      [".Obsidian/app.json", true],
+      [".Trash/a.md", true],
+      ["a/.DS_STORE", true],
+      ["Node_Modules/x.js", true],
+      [".GIT/config", true],
+      [".\u0131pfs-sync/x", true],
+      [".gitignore", false],
+      ["notes/ipfs-sync.md", false],
+      ["abc~1.md", false]
+    ]
+  }
+}

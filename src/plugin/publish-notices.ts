@@ -1,4 +1,5 @@
 import { ConfigError, FIXTURE_MARKER, MARK_FIXTURE_HINT } from "../core/config";
+import { escapeForDisplay } from "../sync/path-policy";
 import type { PublishResult } from "../sync/publish";
 import { OwnedKeyNotRecordedError } from "../sync/publish-errors";
 import { PublishRefusedError } from "../sync/publish-refusals";
@@ -44,20 +45,46 @@ const SKIPPED_SHOWN = 3;
 /** Files the read cap kept out of the publish: a count, the first reasons (each names its file), and where to raise the cap. */
 function skippedText(result: PublishResult): string {
   if (result.skipped.length === 0) return "";
-  const shown = result.skipped.slice(0, SKIPPED_SHOWN).map((file) => file.reason).join("; ");
+  const shown = result.skipped.slice(0, SKIPPED_SHOWN).map((file) => escapeForDisplay(file.reason)).join("; ");
   const more = result.skipped.length > SKIPPED_SHOWN ? ` and ${result.skipped.length - SKIPPED_SHOWN} more` : "";
   return ` ${result.skipped.length} skipped (raise the read cap in the plugin settings): ${shown}${more}.`;
+}
+
+/** At most three quoted names, control characters escaped (a carried path comes from the node), and a count of the rest. Names only; nothing is offered for copying. */
+function namesText(paths: readonly string[]): string {
+  const shown = paths.slice(0, SKIPPED_SHOWN).map((path) => `"${escapeForDisplay(path)}"`).join(", ");
+  return paths.length > SKIPPED_SHOWN ? `${shown} and ${paths.length - SKIPPED_SHOWN} more` : shown;
+}
+
+/**
+ * Paths this publish kept unchanged or left out of the manifest: those this device could not restore (kept as the node has
+ * them, nothing published from here), and carried entries dropped because this device excludes them or their path is unsafe.
+ */
+function pathListsText(result: PublishResult): string {
+  const parts: string[] = [];
+  if (result.carried.length > 0) {
+    parts.push(` ${result.carried.length} not published from this device (no current copy here; kept as the node has them): ${namesText(result.carried)}.`);
+  }
+  if (result.dropped.length > 0) {
+    parts.push(` ${result.dropped.length} dropped from the manifest (excluded on this device, or an unsafe path): ${namesText(result.dropped.map((entry) => entry.path))}.`);
+  }
+  return parts.join("");
+}
+
+/** Things worth saying that are not failures, for example that the history folder is nearly full. Fixed text from the engine; escaped anyway. */
+function warningsText(result: PublishResult): string {
+  return result.warnings.map((warning) => ` Note: ${escapeForDisplay(warning)}`).join("");
 }
 
 export function publishedNotice(result: PublishResult): string {
   const counts = `${result.written} written, ${result.removed} removed`;
   const root = result.rootCid === undefined ? "" : ` (root ${shortCid(result.rootCid)})`;
   const key = result.keyCreated ? ` Created publication key ${result.keyId}.` : "";
-  return `${PREFIX} published: ${counts}${root}.${key}${skippedText(result)}`;
+  return `${PREFIX} published: ${counts}${root}.${key}${skippedText(result)}${pathListsText(result)}${warningsText(result)}`;
 }
 
 export function unchangedNotice(result: PublishResult): string {
-  return `${PREFIX} nothing changed: ${result.written} written, ${result.removed} removed. The published name was not touched.${skippedText(result)}`;
+  return `${PREFIX} nothing changed: ${result.written} written, ${result.removed} removed. The published name was not touched.${skippedText(result)}${pathListsText(result)}${warningsText(result)}`;
 }
 
 export function foreignKeyNotice(keyName: string): string {
