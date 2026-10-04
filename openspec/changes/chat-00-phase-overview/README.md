@@ -9,7 +9,8 @@ A chat view inside the Obsidian plugin, on desktop and mobile, that talks to an 
 ## Operator decisions encoded (2026-10-02, not reopened here)
 
 1. React for the chat shell only. A2UI surfaces stay native (spec 002 option 1). New phase after the MVP, not before mvp-10.
-2. Stack: React 19, Zustand, `@prometheus-ags/prometheus-entity-management` 4.0.2, assistant-ui, shadcn/ui on Base UI (`shadcn init --base base`). Layering: UI, then hooks/view models, then stores, then services, then external. The sync core never imports React.
+2. Stack: React 19, Zustand, `@prometheus-ags/prometheus-entity-management` 4.0.2, assistant-ui, shadcn/ui on Base UI (`shadcn init --base base`). Layering: components, then hooks/view models, then stores, then services/APIs, then external. Components import only hooks; hooks import stores and PEM React hooks, never services; stores call services; services import no React, zustand or store. The sync core never imports React.
+   Operator rule, 2026-10-04: "components must NOT talk to stores — only through hooks, and hooks talk to stores. Stores talk to APIs." Recorded in `.claude/rules/typescript.md` (Layering rule) and enforced by chat-02 task 2.1.
 3. Conversations persist as entities through the entity graph's PGlite persistence. Messages, tool calls and runs are our own entity types; the library has no chat model.
 4. The 300 KB gz bundle limit is waived for the chat code. It is replaced by a measured real-iPhone cold-start gate (before and after numbers, operator sign-off, threshold set from the spike baseline). Chat code is evaluated lazily from inside `main.js`. Fallback: a second plugin.
 5. We write our own adapter from our AG-UI client to assistant-ui's external-store runtime. No `@assistant-ui/react-ag-ui`.

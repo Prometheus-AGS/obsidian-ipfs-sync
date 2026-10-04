@@ -120,7 +120,8 @@ The allowed-signers file and the enrolled fingerprint SHALL live at fixed paths 
 The checker SHALL read `feature-op-mvp-07.json` from the per-user state directory's `feature-ops/` folder and SHALL require: the directory and file owned by the current user, the directory mode 0700 and the file mode 0600, neither a symbolic link; `mode` `manual` and `passed` true; `finishedAt` at most 14 days before the check; `treeSha256` equal to T; the recorded sha256 of the installed `main.js`, `manifest.json` and `styles.css` (where present) of each throwaway vault and of the CLI bundle equal to B; every required assertion id present, passed and of the required kind (`machine` or `operator-observed`), where the required ids and kinds are held in the checker and not read from the record; and a `transcriptSha256` equal to the hash of the transcript stored beside the record. A record from `--verify-only` SHALL be refused. The per-user directory SHALL be computed by one function (exported by the checker and used by the recorder and the operator-run script), and a test SHALL require it to equal the CLI's device-store directory for the same environment.
 
 #### Scenario: Simulated run
-- **WHEN** the record was produced by the verify-only mode
+- **WHEN** the record was produced by the verify-only mode or carries `phases: script-only` (the unattended iteration-8 run), both refused as operator evidence
+- **AND WHEN** (verify-only)
 - **THEN** item B fails
 
 #### Scenario: Result for other code

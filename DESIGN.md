@@ -70,8 +70,8 @@ reachability work, and it adds nothing the AES-GCM authenticated data does not a
 
 > **Status.** This section is the Phase 1.1 plaintext design. The delivered layout, manifest and publish flow are
 > encrypted and are described in §8 (layout and constants in §8.3). The delivered pull is described in §4.3 below and in
-> §8.10; the plaintext reader it replaced survives only behind `--allow-plaintext-v1`. Where §4 and §8 differ, §8
-> describes the code.
+> §8.10; the plaintext reader it replaced was removed in `mvp-07b` (no flag reads a plaintext root any more). Where §4
+> and §8 differ, §8 describes the code.
 
 ### 4.1 Node-side layout (MFS)
 
@@ -142,7 +142,7 @@ under `manifests/`):
 6. `name/publish` root CID to the `obsidian-vault` IPNS key (`ttl=5m`).
 
 **Pull (delta, streamed).** The plaintext steps this section first described (`cat` of `.ipfs-sync.manifest.json`, then
-`vault.create` / `vault.modify`) survive only in the plaintext reader behind `--allow-plaintext-v1`. The delivered pull
+`vault.create` / `vault.modify`) were the plaintext reader, which `mvp-07b` removed. The delivered pull
 of an encrypted vault, in the CLI and the plugin, is (details in §8.10):
 1. Refuse invalid flag combinations; check the destination (absent, empty, or marked `fixture` or `pulled-fixture`); take
    `publish.lock`; `name/resolve` (with `nocache=true`) → root CID; list the root once.
@@ -232,8 +232,21 @@ Delivered in `mvp-06`: encrypted-only publish in the CLI and the plugin; `ipfs-s
 session, setup, unlock and abandon dialogs (`src/plugin/`). Delivered in `mvp-07a` (not independently reviewed, not run in
 Obsidian, on a phone or by the operator against the shared node): the decrypting pull in the CLI and the plugin (§8.10),
 the sequence floor, restore, fork resolution, second-device publish, history names with a sequence prefix, the path
-policy for pulled manifests, and the `.obsidian/` and `.smart-env/` exclusions. Not delivered: passphrase change,
-additional key slots, `prune-history` (`mvp-07b`), the history store (`mvp-08`).
+policy for pulled manifests, and the `.obsidian/` and `.smart-env/` exclusions. Delivered in `mvp-07b` code tasks (same
+standing: automated tests with fake nodes; not independently reviewed; not run in Obsidian, on a phone or by the operator
+against the shared node): rewrap by `keys change-passphrase` and `keys increase-cost`, `keys accept-slots`, `keys
+discard`, the maintenance journal (§8.4), `prune-history` (§8.7), the mass-removal guard (§8.7), the removal of the
+plaintext reader and its latch (§8.7), the plugin's key rows, dialogs, cost confirmation and measure command, desktop Range
+streaming, and the guard-evidence checker with its recorder and release tool (§8.9). Not delivered: additional key slots,
+revocation, the operator-run script for `mvp-07b` (`tools/feature-op-mvp-07.mjs`), the guard-removal branch, coalescing
+of auto-publishes (task 1.8 chose the CLI command plus a plugin prune action instead; the plugin action, task 2.5, is
+built and tested only with a fake DOM), the history store (`mvp-08`).
+
+**Documentation sync, `mvp-07b` task 5.1.** §4 (status note and the pull paragraph), §8.1, §8.3 (local files and history
+limits), §8.5, §8.7, §8.9 and §8.10 were brought in line with the code on this date. §6 ("encryption decision pending") is
+still not rewritten. §4.1 and §4.2 still describe the plaintext layout as the Phase 1.1 design and say so in their status
+note. The statements about the operator run, the release checker passing and Obsidian behaviour are not made here because
+none of them has happened.
 
 Independent review, stated as it happened:
 
@@ -312,9 +325,10 @@ after release without a new format version.
 | History names | `^(?:([0-9]{16})-)?([A-Za-z0-9]{10,128})\.enc$`; the sequence is zero-padded to 16 digits (1 to 2^53-1); a prefix of 0 or above that is junk; a reader trusts a prefix only after the file authenticates and its manifest carries the same sequence; legacy names have no order among themselves | `src/sync/history-names.ts` |
 | Default exclusions | `.trash/`, `.ipfs-sync/`, `.ipfs-sync-fixture`, `.DS_Store`, `.obsidian/`, `node_modules/`, `.git/`, `.smart-env/`; `excludesHash` = sha256 of the sorted list joined with `\n`, `ebd10cbd1cd9776229910af44cc1455550e840ba6aad25e8ba9434b0df32da0f` (before `mvp-07a`: `062286b651a2f5a832e1b8913d4e4fcd7dcfd39c081d5eb0bf5f5310962ddc9d`) | `src/sync/exclusions.ts` |
 | Node response caps | listings and `files/stat` at 1 MiB and 2,000 entries; other RPC replies at 64 KiB; error bodies at 16 KiB; a blob is written in one request up to 32 MiB, otherwise per segment | `src/kubo/node-calls.ts`, `src/kubo/rpc-call.ts`, `src/kubo/http.ts`, `src/sync/chunked-write.ts` |
-| History limits | warn at 1,500 files in `manifests/`, refuse at 1,999 | `src/sync/history-check.ts` |
+| History limits | warn at 1,500 files in `manifests/`, refuse at 1,999; both messages name `ipfs-sync prune-history`; `prune-history` always keeps the newest 20 (`HISTORY_KEEP_FLOOR`) | `src/sync/history-check.ts`, `src/sync/prune-history.ts` |
+| Key management | `ipfs-sync keys change-passphrase`, `increase-cost`, `accept-slots`, `discard`; cost presets Standard (65,536 KiB, 3) and High (131,072 KiB, 4), within the Argon2id ceilings; a rewrap writes a `keyslots.json` with exactly one slot | `cli/keys-command.ts`, `src/sync/key-management.ts`, `src/crypto/key-slots.ts` |
 | Full re-upload | above 256 MiB non-interactively needs `--allow-full-reupload` | `src/sync/publish.ts` |
-| Local files | under `<vault>/.ipfs-sync/`, per MFS root, `h` = first 16 hex of sha256(mfsRoot): `state.<h>.json` (format 3; format 2, which no released build wrote, is upgraded on read; format 3 is read strictly), `journal.<h>.json` (format 1), `keyslots.<h>.json` (byte copy of the node's file), one `publish.lock` per vault (heartbeat 60 s, stale after 15 min without one, or at once if the recorded process is dead on the same host), `encrypted-seen.json` (pull latch), `tmp/` (in-flight pull files `<id>.part` and `<id>.copy`, plaintext until renamed or swept) | `src/sync/root-files.ts`, `root-state.ts`, `journal.ts`, `publish-lock.ts`, `pull-latch.ts`, `temp-files.ts` |
+| Local files | under `<vault>/.ipfs-sync/`, per MFS root, `h` = first 16 hex of sha256(mfsRoot): `state.<h>.json` (format 3; format 2, which no released build wrote, is upgraded on read; format 3 is read strictly), `journal.<h>.json` (format 1), `keyslots.<h>.json` (byte copy of the node's file), `maintenance.<h>.json` (the journal of a rewrap or a prune, its own version, a `type` and a `phase`; never read as a publish journal and the reverse), one `publish.lock` per vault (heartbeat 60 s, stale after 15 min without one, or at once if the recorded process is dead on the same host), `tmp/` (in-flight pull files `<id>.part` and `<id>.copy`, plaintext until renamed or swept). The `encrypted-seen.json` latch of `mvp-07a` is no longer written or read | `src/sync/root-files.ts`, `root-state.ts`, `journal.ts`, `maintenance-journal.ts`, `publish-lock.ts`, `temp-files.ts` |
 | State format 3 fields | the format 2 fields plus `manifestIdentity`, `previousIdentity`, `highestSequence`, `highestIdentity`, `complete`, `unmaterialized`, `devicesSeen` (at most 16, first-seen order) and optional `restoredFrom` | `src/sync/root-state.ts` |
 | Device-local store | outside every vault: CLI, a per-user directory (`$XDG_STATE_HOME/ipfs-sync`, else macOS `~/Library/Application Support/ipfs-sync`, Windows `%LOCALAPPDATA%\ipfs-sync`, otherwise `~/.local/state/ipfs-sync`; directory 0700, files 0600, owned by the user); plugin, the `deviceStore` section of the plugin data. Entries `device-id` (16 random bytes as 32 hex; the manifest `device` carries `<label>-<first 12 hex>`) and `sequence-floor.json` | `cli/device-store-node.ts`, `src/plugin/device-store-plugin.ts`, `src/sync/device-store.ts` |
 | Sequence floor | `sequence-floor.json`, format 1: per vault ID (32 hex), the highest accepted manifest `sequence`, its `identity` (64 hex) and the write time `at`; at most 64 vaults, the oldest `at` dropped beyond that; every write re-reads the file and keeps the higher sequence; strict decoding, a damaged file is refused and never repaired | `src/sync/sequence-floor.ts` |
@@ -404,9 +418,10 @@ Without the passphrase, and short of guessing it, such an operator CANNOT:
 The uncomfortable parts, stated plainly:
 - **A leaked passphrase plus any old slot copy opens old roots forever.** The slot is public and old roots are permanent.
   Nothing here can revoke it.
-- **Rewrap does not revoke.** Changing the passphrase (rewrapping the slot, which is not yet implemented) does not
-  revoke the old passphrase or any old copy of the slot: an old copy keeps opening the same VCK. Only re-encrypting the
-  vault under a new VCK revokes access, and no code here does that.
+- **Rewrap does not revoke the old passphrase or any old copy of the key slot.** `keys change-passphrase` and
+  `keys increase-cost` (§8.7) write a new slot around the same VCK, and an old copy, including the ones in earlier pinned
+  roots, keeps opening it. Only re-encrypting the vault
+  under a new VCK revokes access, and no code here does that.
 - **Offline guessing is the residual risk.** Anyone with the root CID can fetch the slot and test guesses permanently. The
   defences are the generated 115-bit passphrase and Argon2id at 64 MiB and t = 3. The cost was raised from the original
   19 MiB and t = 2 because an old slot copy cannot be made more expensive later.
@@ -419,14 +434,12 @@ The uncomfortable parts, stated plainly:
 - **The fixture marker is an accident guard, not a control.** Anyone who can create the file can override it (§8.9).
 - **Local state is plaintext at rest.** `state.<h>.json` and `journal.<h>.json` hold vault paths. The `.ipfs-sync/` folder
   must be excluded from iCloud, Dropbox, Syncthing, backup tools and any other synchronisation. Deleting it resets the
-  local state, including the `encryptedSeen` latch that stops a plaintext downgrade on pull, and turns this device into a
-  stranger to the roots it published to (§8.7). `abandon` does not reset the latch: it records `encrypted-seen.json`
-  before it moves any file (`abandonVault`, `src/sync/vault-keys.ts`), and an `abandoned-<h>-<ms>` backup folder counts as
-  evidence of an encrypted vault in `isLatched` (`ABANDONED_BACKUP` in `src/sync/pull-latch.ts`). The CLI's key-value
-  store lists directory names, so it sees the folder. The plugin's folder key-value store (`isKvEntry` in
-  `src/plugin/obsidian-kv.ts`) was changed after review 5c found that it listed files only; it now lists folders whose
-  name matches `ABANDONED_BACKUP`. That change is covered by tests with a fake adapter only and has not run in
-  Obsidian. Deleting `.ipfs-sync/`, backup folder included, still resets the latch.
+  local state and turns this device into a stranger to the roots it published to (§8.7). Since `mvp-07b` there is no
+  `encryptedSeen` latch and no `encrypted-seen.json`: no code path reads a plaintext manifest, so a downgrade cannot
+  happen by construction, and `abandon` records nothing and prints the sequence floor it keeps (`abandonVault`,
+  `src/sync/vault-keys.ts`). The sequence floor, which lives outside the folder, is the evidence that a vault was
+  accepted; it covers encrypted manifests only. The sequence floor does not stop a node from showing an old copy to a
+  device that has no recorded state.
 
 Non-goals (not hidden, not prevented, not provided):
 - the number of files, the exact size of each file, when and how often a vault is published, which encrypted files
@@ -439,7 +452,8 @@ Non-goals (not hidden, not prevented, not provided):
   including states in old pinned roots;
 - deleting history: removing a note removes its blob from the current tree, and earlier roots stay pinned;
 - recovery of a lost passphrase or lost key slots;
-- device pairing, passphrase change, additional key slots and multi-writer merge (later changes);
+- device pairing, additional key slots, revocation and multi-writer merge (later changes; passphrase change exists as a
+  rewrap and revokes nothing);
 - private swarms, relays, hiding network addresses;
 - user-chosen passphrases (deferred; they would need an algorithmic repetition rule, Unicode-category classes, a
   leet-folded blocklist and an explicit acknowledgement flag);
@@ -457,6 +471,12 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
 
 ### 8.7 Stated limits
 
+- **Desktop streaming.** On desktop, a GET with a `Range` header goes through Node `http` or `https`, found with
+  `globalThis.require` (`src/plugin/range-streaming-transport.ts`); the ranged source reads the header bytes and cancels,
+  which destroys the socket, so a hostile gateway cannot make the plugin buffer a large body for a header read. Whether
+  `globalThis.require` exists in real Obsidian is unconfirmed, and without it the plugin silently buffers through
+  `requestUrl`. Mobile always buffers. Redirects are not followed on this path and it has no timeout. "Abort" means the
+  plugin stops probing further size classes; it does not fail the pull.
 - **Plugin transport.** The Obsidian `requestUrl` transport buffers whole response bodies. The streaming caps and the
   one-segment memory bound therefore give no memory protection inside the plugin for what the transport has already
   buffered; Range requests reduce the exposure only against gateways that honour them. The CLI pull streams. The plugin
@@ -483,14 +503,86 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   conflict copy.
 - **History growth.** Every publish that changes something adds one `manifests/<rootCID>.enc` file, pinned forever, of the
   size of `manifest.enc` (about 4 to 14 MB for a vault of 5,000 to 20,000 files). Publishing warns at 1,500 and refuses at
-  1,999. The `ipfs-sync prune-history` command named in the refusal does not exist in this build.
+  1,999, and both messages name `ipfs-sync prune-history`. That command exists (`cli/prune-command.ts`,
+  `src/sync/prune-history.ts`): it removes the oldest history files from the working tree, one path segment at a time and
+  non-recursively, keeps at least the newest 20, and republishes the root under the same sequence. Before it asks, the
+  newest prefixed file must authenticate, carry a sequence equal to its prefix and equal to the node manifest's sequence,
+  and each of the newest 20 must decrypt and agree with its name; the device must be up to date (§8.4 floor rule), hold
+  `publish.lock`, and have no publish or maintenance journal; `manifests/` must hold only history files and at most 2,000.
+  Duplicate prefixes (a fork) are counted and shown. Old roots stay pinned with their history; a removed version cannot
+  be restored through the current root with `pull --manifest`. The plugin has a prune action
+  (`src/plugin/prune-history-dialog*.ts`, `key-actions.ts`, task 2.5): a "Prune history..." row, a keep count with the
+  floor of 20 shown, the passphrase typed in the dialog, a dry-run preview of counts only, Cancel focused in the review
+  step, removal only on an explicit press, the same lock pair as the key actions and the 2.4 cost confirmation. The timer
+  and the catch-up pull never reach it. It has no resume: an interrupted prune is finished with the CLI command, and the
+  plugin has no discard. **Decided (task 1.8, operator):** the CLI command and the plugin action; coalescing of
+  auto-publishes is not built. At a 15-minute timer and a vault that changes on every tick, the warning comes in about 15.6 days and the
+  refusal in about 20.8 days; the shipped default timer is off.
+- **Key management (`mvp-07b`).** `rewrapKeySlots` lives in `src/crypto/key-slots.ts` so the hook-isolation allow-list
+  needs no widening. A rewrap derives from the current passphrase a second time (the vault key cannot be read back out of
+  an unlocked set), builds one new slot with a fresh salt, slot id, nonce and commitment around the same VCK, and writes a
+  `keyslots.json` that holds only that slot; a file with an unknown slot type is refused before any derivation. The cost
+  is never lowered silently (new memory and iterations each at least the current; a lower choice needs a confirmation that
+  shows both) and stays within the ceilings. The effects run as phases of the maintenance journal `maintenance.<h>.json`
+  (`journaled`, `file-written`, `snapshotted`, `published`, `local-updated`; a prune has `journaled`, `removing`,
+  `snapshotted`, `published`): write the file, `republish-root` (snapshot, read-back through the immutable path, pin, name
+  re-check, `name/publish`), a test unlock of the published file with the new passphrase, then the local copy and
+  `keyslotsSha256`. `manifest.enc` and the sequence do not change; the state's `rootCid` is rewritten so the next publish
+  reports nothing changed. Rewrap and prune take `publish.lock`, require the up-to-date-and-floor check (a node whose
+  sequence equals the record but sits below the floor is refused as rolled back), and refuse when a publish journal
+  exists; publish and pull refuse when a maintenance journal exists, naming `keys discard` and `keys accept-slots`. On a
+  lost name race `republish-root` puts back the old `keyslots.json` bytes (rewrap, only when the file still holds the
+  journal's bytes); a prune has nothing to put back. `keys accept-slots` takes `publish.lock`, reads `keyslots.json` and
+  `manifest.enc` from one immutable root, requires the slot to unlock and the manifest to authenticate under the key it
+  yields for the same vault, applies the pull sequence verdict, writes the exact unlocking bytes as the copy and updates
+  `keyslotsSha256` (also in a pending publish journal); it clears a maintenance journal and shows both costs for a
+  cheaper slot. Its stated residual: the manifest proves the key, not the slot's freshness, and a node that knows the
+  typed passphrase could serve its own slots and manifest with this vault's id when no vault key is held to compare.
+  `keys discard` removes the maintenance journal after a confirmation. Restore across a rewrap: `pull --root-cid <old>`
+  needs `keys accept-slots --root-cid <old> --allow-rollback` and a later accept of the current root;
+  `pull --manifest` and the plugin Restore need no accept on a device that holds the current copy. Rewrap does not revoke
+  the old passphrase or any old copy of the key slot (§8.5). A cost above the default makes `enforceCostPolicy` refuse
+  on every device that cannot answer a cost question: the CLI without a terminal, and the plugin's timer and catch-up
+  pull. Manual plugin pull, Resolve fork, Restore, publish (at the unlock) and the key actions ask through the
+  cost-confirm dialog (`src/plugin/cost-confirm-dialog.ts`); a wrong-passphrase pull asks again on each attempt, and the
+  timer on a locked High-cost vault stays refused until a manual unlock. The plugin rows (change passphrase, increase
+  cost, accept key slots, slot cost, prune history) and the "Measure key derivation time" command exist; the plugin has no
+  discard entry and no resume for an interrupted operation. Concurrent rewraps are last-write-wins: the test unlock warns the loser and `publish.lock`, the
+  up-to-date rule and the name re-check narrow it.
+- **Mass-removal guard.** `guardMassRemoval` in `src/sync/publish.ts` runs after the plan and the idle check, before the
+  re-upload guard and any write; the arithmetic is `assessRemovals` (`src/sync/removal-guard.ts`). Removals caused by the
+  effective exclusion list (baseline paths and dropped carried paths it matches) are listed apart and counted in neither
+  the numerator nor the denominator; carried entries count as kept; a dropped carried entry with an unsafe shape is
+  outside the count. The publish stops when the other removals equal every remaining entry, or exceed half of at least
+  two (`others * 2 > remaining`; exactly half proceeds). No baseline, no check. It supersedes the old behaviour in which
+  a vault emptied on a device with a state published an empty manifest (`EmptyVaultError` stays for a first publish).
+  Confirmation: `allowMassRemoval` (`--allow-mass-removal`), or the `confirmMassRemoval` port (a CLI yes; a plugin dialog
+  on a manual publish). A timer publish passes a recorder that stores the counts and answers no, so it refuses with a
+  notice. **Limits:** removing 49 percent of the entries is silent. Silent per-file corruption of unchanged files by
+  someone who can write to the node is not detected by the publisher. An unmounted vault folder is caught only because it
+  looks like total deletion; the refusal says so. A manual dialog opens while the locks are held, and (reasoned, not run)
+  one left open past 15 minutes lapses the lock heartbeat so the publish refuses at its next check.
+- **Plaintext reader removed.** The v1 manifest reader, `--allow-plaintext-v1`, `--manifest-file`, the pull latch and
+  `encryptedSeen` are gone (`src/sync/manifest.ts`, `state.ts`, `pull.ts`, `pull-plan.ts`, `pull-fetch.ts`,
+  `pull-record.ts`, `pull-target.ts`, `pull-screen.ts`, `pull-latch.ts` deleted; the flags are unknown options). A root with
+  `manifest.json` and no key slots stops a pull with `plaintext-root` and the message "plaintext publications are no
+  longer supported by this version" (CLI exit 2, plugin `plaintext-unsupported`), writing nothing. A root with key slots
+  and no `manifest.enc` is refused on pull and publish; a planted `manifest.json` is never requested. The sequence floor
+  is the downgrade evidence. The sequence floor does not stop a node from showing an old copy to a device that has no
+  recorded state. The plaintext-era scripts `tools/feature-op-mvp-02.mjs` to `05.mjs` do not work against the encrypted
+  publisher and are historical; none is deleted.
+- **Evidence limits (release gate).** The review record, the operator-run record and the phone-timing record are
+  attestations, not proofs. The checker (§8.9) makes forging them more work and leaves a trail; a person with repository
+  write access and a terminal can still produce all three, and a terminal and a nonce stop pipes and accidents, not a
+  program that drives a pseudo-terminal. A change to any scoped file after the review record or after the operator run
+  changes the tree hash, and both must be redone. A phone measurement is bound to the exact plugin build.
 - **Reachable actions.** The plugin cannot repair or recover slots; those are CLI flags. It can clear a stale publish
   lock (see the next two items). The abandon action
   (`abandonVault` in `src/sync/vault-keys.ts`) is reachable as `ipfs-sync abandon <vault>` (`cli/abandon-command.ts`;
   `--yes-abandon` confirms without a terminal) and, in the plugin, as the command "Abandon this vault" and a button in
-  the Encryption section (`src/plugin/abandon-flow.ts`). It records the encrypted-seen latch, then moves the local key-slot
-  copy, state and journal for the MFS root to `.ipfs-sync/abandoned-<h>-<ms>/`, never contacts the node and deletes
-  nothing. The CLI holds the cross-process `publish.lock` while it moves files; the plugin holds only the in-process
+  the Encryption section (`src/plugin/abandon-flow.ts`). It moves the local key-slot copy, state, journal and any
+  maintenance journal for the MFS root to `.ipfs-sync/abandoned-<h>-<ms>/`, records no latch, prints the sequence floor it
+  keeps, never contacts the node and deletes nothing. The CLI holds the cross-process `publish.lock` while it moves files; the plugin holds only the in-process
   sync lock (`src/plugin/abandon-flow.ts`), so a CLI publish running against the same vault folder is not stopped by a
   plugin abandon. Refusal messages quote
   `ABANDON_HOW` (`src/sync/abandon-hint.ts`). The abandon dialogs have never run in Obsidian.
@@ -612,9 +704,10 @@ Deferred or accepted, recorded so they are not lost:
   cancelled by the generation check). Whether `settling` deduplicates it was not verified.
 - The pull notice `FIXTURE_ONLY_PULL_NOTICE` (`src/plugin/pull-notices.ts`) now reads "no files outside .obsidian/ and
   .ipfs-sync/"; before, it named only `.obsidian/` although the guard also ignores `.ipfs-sync/`.
-- W-14 (untouched blobs are never re-verified), W-15 (mass removal is silent) and W-16 (the plugin's `readRange` re-reads
-  the whole file per segment, so a file over 8 MiB edited during upload can be uploaded as a mix of versions) are
-  preconditions for removing the guard in `mvp-07b`. So is `prune-history` (N3-09).
+- W-14 (untouched blobs are never re-verified), W-15 (mass removal) and W-16 (the plugin's `readRange` re-reads
+  the whole file per segment, so a file over 8 MiB edited during upload can be uploaded as a mix of versions) were
+  preconditions for removing the guard in `mvp-07b`. W-15 is now partly answered by the mass-removal guard (the 49 percent
+  limit stays) and `prune-history` (N3-09) exists. W-14 is stated, not fixed.
 - N2-13: `checkDistBundles` is not called by the release tooling (`tools/release-mvp-05.mjs`), so the dist-bundle check
   is not wired in. This blocks Release 2.
 - R5-11 (accepted): the feature-op toolbox builds the test-hook folder name from parts (`["test","ing"].join("")`) so that
@@ -636,7 +729,7 @@ never opens a dialog from the timer.
 
 ### 8.9 The publish guard
 
-Until `mvp-07b` removes it, publish (CLI and plugin) and `init` refuse any vault whose `.ipfs-sync-fixture` file does not
+Until `mvp-07b` removes it (below), publish (CLI and plugin) and `init` refuse any vault whose `.ipfs-sync-fixture` file does not
 hold the text `fixture`, before a passphrase is looked at and before any request. `pulled-fixture` (written by pull), an
 empty marker and any other text are refused; pull accepts `fixture` and `pulled-fixture`. A directory that pull populated
 therefore cannot be published from until the user writes `fixture` into the marker by hand, which is the user's own
@@ -645,8 +738,34 @@ reviewed or verified in Obsidian. **The marker is not protection:
 anyone who can create a file in the vault can create it, and then the refusal is overridden.** Removing the guard is a
 named `mvp-07b` task that requires the security reviewer's sign-off, a recorded in-Obsidian run, and a phone timing of the
 key derivation or an explicit, informed operator acceptance (a timing on an iPhone now exists, §8.7 "Mobile"; whether it
-meets the precondition is for the operator and the reviewer); `prune-history` is also `mvp-07b` work. The case-fold and
+meets the precondition is for the operator and the reviewer). The case-fold and
 Windows path hardening for authenticated manifests landed in `mvp-07a` as the pull path policy (§8.10).
+
+**How the guard is removed, and what gates the release (delivered as tools; the removal itself is not done).** The fixture
+policy is centralised on `main` in `src/sync/fixture-constants.ts` (no imports), `publish-guard.ts`, `pull-guard.ts` and
+`state-folder-guard.ts`, with the symlinked-state-folder check called from the first step of the pull independent of the
+policy. The removal is one commit on a branch `mvp-07b-guard-removal` cut from `main`: the two policy modules become
+permissive with every export name kept, and `main` keeps the guard until a fast-forward-only merge; neither the branch nor
+`tests/unit/guard-permissive.test.ts` exists yet. The release is gated by `tools/check-guard-preconditions.mjs`, which
+exits 0 only when all of these pass: a tree hash T over a fixed scope of tracked files (blob bytes from the object
+database; untracked, ignored, staged or flagged files in scope fail); build hashes B from a clean export built twice with
+a scrubbed environment (`--build` copies the verified outputs into `dist/plugin/` and `dist/cli/` and writes
+`dist/.guard-build.json`); item A, a review record `review-final-<T8>.md` with a machine-readable block, authenticated by
+git history (the last commit that touched it descends from the reviewed commit, changed only that file, and T from the
+reviewed commit equals T at HEAD; the commit count is printed) or by an `ssh-keygen -Y` signature against a trust
+directory enrolled on a terminal (built and tested with a throwaway key only; the operator decided on 2026-10-03 that
+Release 2 uses the git form and a typed acknowledgement, and `~/.ssh/id_ed25519` is not enrolled); item B, the operator-run
+record in the per-user `feature-ops/` directory (manual mode, at most 14 days old, the required assertion ids held in the
+checker); item C, phone timing through `tools/record-phone-timing.mjs` (measured: completed, parameters m=65536 KiB t=3 p=1,
+under 3 seconds, longest event-loop gap under 100 ms, bound to the `main.js` hash; or an unmeasured acceptance with a typed
+phrase, bound to T and B; the notes then list the timing as unverified); item D, `checkDistBundles` clean; item E, the named
+checklist tests run in the clean export with zero skips, the limit sentences present in the README and in this section,
+and `pnpm audit --prod` matched against dated accepted findings. The release tool (`tools/release-mvp-07.mjs`) runs the
+checker in the same invocation, copies the checked bytes, asserts their hashes, edits no scoped file, needs a typed
+`I accept an unsigned review record for <T8>` for the git form, and never runs git, tags, pushes or publishes. State
+today: the checker, the recorder and the release tool are built and tested; the operator-run script, the review record and
+the branch are not, so item B and item A cannot pass and no release can be recorded. The review record, the operator-run
+record and the phone-timing record are attestations, not proofs (§8.7).
 
 ### 8.10 What one pull does
 
@@ -654,9 +773,8 @@ Delivered by `mvp-07a`, unreleased, covered by automated tests with fake nodes; 
 Obsidian, on a phone, or by the operator against the shared node. The CLI (`cli/pull-command.ts`,
 `cli/pull-encrypted-command.ts`) and the plugin (`src/plugin/pull-runner.ts`) call one engine, `pullEncryptedVault`
 (`src/sync/encrypted-pull.ts` for steps 1 to 6, `src/sync/encrypted-pull-stage.ts` for steps 7 and 8). Which reader runs:
-`--manifest-file` is a plaintext flag; `--root-cid` and `--list-versions` exist only for encrypted vaults; otherwise the
-root the name serves decides (key slots or an encrypted manifest there mean the decrypting reader). A plaintext (version
-1) root is read only with `--allow-plaintext-v1` and never into a destination that has seen an encrypted vault.
+there is one reader. A root with `manifest.json` and no key slots is refused ("plaintext publications are no longer
+supported", exit 2), and no flag reads it.
 
 In order, and what each step may write:
 

@@ -2,16 +2,16 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 762,
-  "derivedRevision": 762,
+  "sourceRevision": 903,
+  "derivedRevision": 903,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 762
+    "a92f5905-c918-468c-a89d-ee22138e2183": 903
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-10-03T11:04:28.278541Z",
+  "last_updated": "2026-10-04T19:58:44.276948Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 16,
   "changes_completed": 7,
@@ -196,10 +196,10 @@
       "title": "mvp-07b: keys, history pruning, guard removal, Release 2",
       "status": "PENDING",
       "implementation_status": "PENDING",
-      "tasks_total": 36,
-      "tasks_done": 0,
-      "last_task_completed": null,
-      "next_task_pending": "1.1 (identity-security-engineer) Rewrap in `src/crypto/key-slots.ts`.",
+      "tasks_total": 45,
+      "tasks_done": 32,
+      "last_task_completed": "5.1 (documentation-specialist) Documentation for 07b.",
+      "next_task_pending": "1.8 History growth bound under auto-publish",
       "blockers": []
     },
     {

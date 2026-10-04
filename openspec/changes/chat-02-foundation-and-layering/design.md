@@ -20,9 +20,9 @@ src/plugin/chat-view.ts        ItemView shell; with chat-loader.ts the only Obsi
 
 | Layer | Paths | May import | May not import |
 |---|---|---|---|
-| UI | `src/ui/chat/components`, `src/ui/chat/mount` | react, react-dom, assistant-ui, Base UI, hooks layer | stores, services, `obsidian` (reach Obsidian through props or hooks) |
-| Hooks and view models | `src/ui/chat/hooks` | react, PEM React hooks, assistant-ui runtime, stores (read through selectors), services (commands only) | components |
-| Stores | `src/data/chat` | zustand/vanilla, PEM core, PGlite module of `src/data`, services' types | react, any UI path |
+| UI | `src/ui/chat/components`, `src/ui/chat/mount` | react, react-dom, assistant-ui, Base UI, hooks (the only project layer a component imports) | stores, services, PEM, `zustand`, `obsidian` (reach Obsidian through props or hooks) |
+| Hooks and view models | `src/ui/chat/hooks` | react, PEM React hooks, assistant-ui runtime, stores (selectors and store actions) | services, components |
+| Stores | `src/data/chat` | zustand/vanilla, PEM core, services (they call them), data modules of `src/data` (PGlite) | react, any UI path |
 | Services | `src/agents/*-client` | `fetch`, event types | react, zustand, stores, UI |
 | External | endpoint, PGlite, vault adapter | | |
 | Sync core | `src/sync`, `src/kubo`, `src/crypto`, `src/core` | each other as today | react, zustand, assistant-ui, `src/ui`, `src/data/chat`, `src/agents` |

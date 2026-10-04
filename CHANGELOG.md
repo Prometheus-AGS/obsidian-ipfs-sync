@@ -4,6 +4,96 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries describe what exists in the code;
 anything not yet built is under "Known limitations" or not mentioned.
 
+## [Unreleased] - key management, history pruning, mass-removal guard, plaintext removal (fixture-only, after the pull below)
+
+**Still fixture-only. Do not use it on real notes.** This section is change `mvp-07b-keys-history-guard-release-2`, the
+code tasks only (`tasks.md` 1.x to 4.5, 4.8 and the added 2.3 and 2.4). It is covered by automated tests with fake nodes.
+It has not been run inside Obsidian, on a phone, or by the operator against the shared node, and it has not been
+independently reviewed. Not built: the operator-run script `tools/feature-op-mvp-07.mjs` (4.6, 4.7a, 4.7b), the
+guard-removal branch (6.2), coalescing of auto-publishes (not built; the operator chose the CLI command plus a plugin prune
+action in 1.8) and the check of the TTL a remote resolver sees after the restore form (4.9; the shared-node test of the
+explicit options is recorded, see Changed). The plugin prune action (2.5) is built and covered by fake-DOM and wiring tests
+only. Nothing here is tagged or released, and no release can pass the checker today.
+
+### Added
+
+- **`ipfs-sync keys change-passphrase`, `keys increase-cost`.** Replace the key slot by one that wraps the same vault key
+  (a new generated passphrase, or the same passphrase at a higher cost; `--cost standard|high`). The new `keyslots.json`
+  holds only the new slot. Nothing is re-encrypted; `manifest.enc` and the sequence do not change. Four derivations, a
+  test unlock of the published file, then the local copy. A lower cost needs a confirmation that shows both costs.
+  Rewrap does not revoke the old passphrase or any old copy of the key slot; the command says so before it asks.
+- **`keys accept-slots`, `keys discard`.** Accept another device's changed slots from one root after the manifest of that
+  root authenticates under the unlocked key (`--root-cid` with `--allow-rollback` for a restore across a rewrap), and drop
+  a stuck key-management operation.
+- **Maintenance journal** `maintenance.<h>.json` for rewrap and prune, separate from the publish journal. Publish and pull
+  refuse while one exists and name `keys discard` and `keys accept-slots`. A rewrap that loses the name race puts back
+  the old key-slot file; after a rewrap or prune the next publish with no change reports nothing changed.
+- **`ipfs-sync prune-history <vault> --keep <n> [--dry-run | --yes-prune]`.** Removes the oldest history files from the
+  node's working tree, keeps at least the newest 20, checks the newest 20 and the node's sequence first, republishes under
+  the same sequence. The 1,500 and 1,999 messages name it.
+- **Mass-removal guard.** `publish` stops when the removals that count equal every remaining entry or exceed half of at
+  least two (exactly half proceeds). Exclusion-driven removals are listed apart and not counted; carried entries count as
+  kept. `--allow-mass-removal`, a CLI yes, or a plugin dialog on a manual publish confirm; the timer refuses.
+- **Plugin:** Encryption-section rows for change passphrase, increase cost, accept key slots and the slot's cost; dialogs
+  for each, for the mass-removal confirmation and for a key slot above the default cost (manual pull, Resolve fork,
+  Restore, manual publish at the unlock and the key actions ask; the timer and catch-up pull do not); and the command
+  "Measure key derivation time" (one Argon2id derivation at the default cost on random input, with the longest event-loop
+  gap and the first 16 characters of the `main.js` hash).
+- **Desktop Range streaming.** On desktop a GET with a `Range` header goes through Node `http` and `https` (found with
+  `globalThis.require`) and is cancelled after the header bytes. Mobile still buffers whole bodies.
+- **Guard evidence tooling:** `tools/check-guard-preconditions.mjs` (tree hash, clean-export build, review record,
+  operator-run record, phone timing, dist and checklist tests), `tools/record-phone-timing.mjs`, `tools/release-mvp-07.mjs`
+  and per-release descriptors in `tools/release/`. Fixture policy is centralised in `src/sync/fixture-constants.ts`,
+  `publish-guard.ts`, `pull-guard.ts` and `state-folder-guard.ts` with no behaviour change.
+
+### Removed
+
+- **The plaintext reader.** `--allow-plaintext-v1` and `--manifest-file` are unknown options; the v1 manifest, pull, plan,
+  fetch, record, target, screen and latch modules are deleted. A root with `manifest.json` and no key slots is refused
+  ("plaintext publications are no longer supported by this version"). `abandon` records no latch and prints the sequence
+  floor. `encrypted-seen.json` is no longer written or read. This supersedes the 07a line that kept the plaintext reader
+  behind a flag.
+
+### Changed
+
+- A vault emptied on a device that has a state no longer publishes an empty manifest: the mass-removal guard stops it.
+  The empty-vault error remains for a first publish.
+- `abandon` also moves a pending `maintenance.<h>.json`.
+- Restore step for the IPNS pointer after a shared-node run: the printed form and the runbook are now
+  `ipfs name publish --key=<key> --ttl 5m <pointer>` (the lifetime stays at kubo's 24h default). On 2026-10-04 kubo v0.42.0
+  on the shared node accepted `--ttl 5m --lifetime 24h` on a throwaway key and the pointer resolved. The TTL a remote
+  resolver sees was not checked.
+
+### Security and limits
+
+- Silent per-file corruption of unchanged files by someone who can write to the node is not detected by the publisher.
+- Removing 49 percent of the entries is silent.
+- Concurrent publishes are narrowed, not prevented.
+- The sequence floor does not stop a node from showing an old copy to a device that has no recorded state.
+- Rewrap does not revoke the old passphrase or any old copy of the key slot.
+- The review record, the operator-run record and the phone-timing record are attestations, not proofs.
+- A change to any scoped file after the review record or after the operator run changes the tree hash, and both must be redone.
+- Two wrong code texts found while writing these notes are fixed: the cost statement and `keys increase-cost` help now say
+  that the CLI without a terminal and the plugin's timer and catch-up pull refuse a cost above the default while manual
+  plugin actions ask in a dialog, and the maintenance-pending message now says the ways out are command-line commands.
+  What remains true: the plugin has no `keys discard` and does not finish an interrupted operation (Accept changed key
+  slots also clears a pending operation). The history-growth decision (task 1.8) is taken: the CLI command and a plugin
+  prune action both exist; coalescing is not built.
+- **Plugin prune action (task 2.5).** A "Prune history..." row in the Encryption section, hidden until a vault exists. The
+  dialog asks for a keep count (the floor of 20 is shown; a smaller number is raised) and the current passphrase, then
+  does a dry run under one key derivation and shows counts only (removed, kept, total) with the engine's own statements.
+  The review step focuses Cancel; files are removed only on an explicit press of the remove control, never on Cancel,
+  Escape or closing the window. It takes the same lock pair as the other key actions, and the 2.4 cost confirmation
+  applies. The auto-publish timer and the catch-up pull never prune. There is no resume in the plugin: an interrupted
+  prune is finished with `ipfs-sync prune-history`, and the plugin has no discard action. The 1,500 warning and the 1,999
+  refusal now name the command and the Encryption-section action. Tested with a fake DOM and stubs; not run in Obsidian
+  or on a phone, and not tried with a screen reader.
+- **History growth under auto-publish (task 1.8).** A timer at 15 minutes on a vault that changes on every tick writes 96
+  history files a day: the warning at about 15.6 days, the refusal at about 20.8 days. The timer default is off. Auto-publish
+  does not coalesce; the recovery is pruning, from the CLI or the plugin.
+- On a High-cost vault the auto-publish timer stays refused until a manual unlock; a wrong-passphrase pull asks the cost
+  question again on every attempt; the desktop streaming lookup is unconfirmed inside Obsidian.
+
 ## [Unreleased] - encrypted pull and second-device publish (fixture-only, after the encrypted publish below)
 
 **Still fixture-only. Do not use it on real notes.** This section is change `mvp-07-encrypted-pull-second-device`, task
@@ -107,7 +197,7 @@ here is tagged or released. The v0.2.0 pre-release is still the plaintext build 
   CLI streams; the plugin holds up to a 128 MiB budget (a design budget, not a measurement), its transport buffers whole
   responses, and a gateway that ignores Range makes files above 32 MiB `unfetched`.
 - Plugin `rename` onto an existing file removes the target first, so it is not atomic.
-- A key slot above the default Argon2id cost has no confirmation dialog in the plugin.
+- A key slot above the default Argon2id cost has no confirmation dialog in the plugin (superseded by the 07b cost dialog above, for manual actions only).
 - Paths this device could not restore stay as the node has them in the baseline; the next publish carries them unchanged
   and publishes nothing from this device for them.
 - Measured on an iPhone (iOS 27.2 beta, Obsidian 1.13.7 build 365; operator screenshots and reports of 2026-10-02, not

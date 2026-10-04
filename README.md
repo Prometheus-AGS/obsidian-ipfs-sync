@@ -17,9 +17,16 @@ CRDT multi-writer sync and an AI layer later.
 >   device recorded, and write only verified files. The code is covered by automated tests with fake nodes. It has not
 >   been run inside Obsidian, on a phone, or against the shared node by the operator (that run belongs to `mvp-07b`).
 >   Large-file pull in the plugin is not advertised as working until that run records the outcome.
+> - **Key management, history pruning and the removal guard (`mvp-07b`, code only, unreleased).** The command line has
+>   `keys change-passphrase`, `keys increase-cost`, `keys accept-slots`, `keys discard` and `prune-history`. Publish
+>   stops a mass removal. The plaintext reader is gone. The plugin has dialogs for the key actions, the removal
+>   confirmation and the cost confirmation, and a command that times key derivation. This is covered by automated tests
+>   with fake nodes. None of it has been run inside Obsidian, on a phone or against the shared node by the operator,
+>   and the operator-run script for it (`tools/feature-op-mvp-07.mjs`) is not written yet. It has not been reviewed
+>   independently. The marker guard above is still in this tree.
 > - **Release 0.2.0** (tagged `v0.2.0`, a GitHub pre-release) is the plaintext build: it has no encryption, and
 >   everything it published is readable by anyone who obtains the CID. The encryption described below is not in 0.2.0;
->   it is unreleased work after it.
+>   it is unreleased work after it. This tree cannot read what 0.2.0 published: a plaintext root is refused.
 > - The release demonstration targets Obsidian desktop on macOS. It is not recorded in this repository, so nothing is
 >   verified on any platform yet. Mobile, Windows and Linux are not verified either.
 
@@ -27,10 +34,12 @@ CRDT multi-writer sync and an AI layer later.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Obsidian plugin | `src/main.ts` → `dist/plugin/` (`main.js`, `manifest.json`) | Publish (encrypted), Pull, Restore an older version, Resolve fork and Status commands, settings tab with an Encryption section (including a Pull record row), optional auto-publish. Fixture vaults only |
+| Obsidian plugin | `src/main.ts` → `dist/plugin/` (`main.js`, `manifest.json`) | Publish (encrypted), Pull, Restore an older version, Resolve fork, Status and Measure key derivation time commands, settings tab with an Encryption section (Pull record row, key-derivation cost, change passphrase, increase cost, accept key slots), dialogs for mass removal and for a key slot above the default cost, optional auto-publish. Fixture vaults only |
 | CLI init | `ipfs-sync init` | The only way to create an encrypted vault: generates the passphrase and the key slots |
 | CLI publish | `ipfs-sync publish` | Encrypt and send only changed files to the node's MFS, then publish the snapshot to the IPNS key |
-| CLI pull | `ipfs-sync pull` | Reads an encrypted vault back: authenticates the manifest, checks the sequence against this device's record, writes only verified files. Also restores an older version, resolves a fork and lists versions. Reads a plaintext (version 1) root from release 0.2.0 only with `--allow-plaintext-v1` |
+| CLI pull | `ipfs-sync pull` | Reads an encrypted vault back: authenticates the manifest, checks the sequence against this device's record, writes only verified files. Also restores an older version, resolves a fork and lists versions. A plaintext (version 1) root from release 0.2.0 is refused |
+| CLI keys | `ipfs-sync keys change-passphrase`, `increase-cost`, `accept-slots`, `discard` | Replace the key slot under a new generated passphrase or a higher cost, accept another device's change, drop a stuck operation. Revokes nothing (see "Change the passphrase or the cost") |
+| CLI prune | `ipfs-sync prune-history` | Remove the oldest history files from the node's working tree so the folder stays under the publisher's limit (see "History growth") |
 | Exclusions | `src/sync/exclusions.ts` | Shared exclusion list: trash, the whole `.obsidian/` folder, the Smart Connections folder `.smart-env/`, this dev folder and the fixture marker file. Plugin code and plugin data are device-local and are never published or pulled |
 
 **Mutable pointer:** the project IPNS key `obsidian-vault-sync` on your node. `publish`
@@ -94,7 +103,12 @@ What the plugin does today:
   foreground.
 - The auto-publish timer never opens a dialog. While the vault is locked it skips the publish and shows one notice per
   session. While it is unlocked, a tick on an unchanged vault does not derive the key again.
-- **The plugin cannot repair.** `--repair`, `--recover-slots` and `--break-lock` exist only in the command line tool. The plugin can clear a publish lock that is at least 15 minutes stale ("Clear stale publish lock").
+- **The plugin cannot repair.** `--repair`, `--recover-slots` and `--break-lock` exist only in the command line tool. The plugin can clear a publish lock that is at least 15 minutes stale ("Clear stale publish lock"). It has no row or command for `keys discard`, and it cannot finish an interrupted key action or prune; use the command line for those. (It does have a "Prune history..." row; see "History growth" below.)
+- **Key management in the Encryption section** (mvp-07b, never run in Obsidian). Three rows open dialogs: **Change the passphrase**, **Increase the key-derivation cost** and **Accept changed key slots**. Each states before its confirm button works that the old passphrase and every old copy of the key-slot file keep opening the vault. The change-passphrase dialog shows the generated passphrase once, in five groups of five, and asks you to type it again; there is no field for your own. There is no clipboard control. A lower cost needs its own tick and shows both costs. After a change the dialog shows the result of a test unlock. Another device must run Accept changed key slots (or `ipfs-sync keys accept-slots`) with the new passphrase before it can pull or publish again. A row shows the cost of this device's key slot.
+- **Prune history in the Encryption section** (mvp-07b task 2.5, never run in Obsidian). A fourth row, hidden until a vault exists, opens a dialog: a keep count (the floor of 20 is shown), the current passphrase, then a dry-run preview that shows counts only. Cancel has the focus in the review step, and files are removed only when you press the remove control. It takes the same locks as the key actions, and the cost confirmation below applies. The timer and the catch-up pull never prune. The plugin has no resume and no discard; `ipfs-sync prune-history` finishes an interrupted prune.
+- **Cost confirmation.** A key slot above the default cost (64 MiB, 3 iterations), such as the High preset (128 MiB, 4), makes the plugin ask through a dialog that shows the cost; Cancel is the default. It asks on a manual Pull, Resolve fork, Restore, manual Publish (at the unlock) and the key actions. The auto-publish timer and the catch-up pull never ask: while the vault is locked they keep refusing a High-cost vault until you unlock it by hand. A wrong passphrase on a pull asks the cost question again on each attempt. A phone may not be able to unlock High; that was not measured.
+- **A mass removal stops a manual publish** with a dialog (counts only; Cancel is the default). The timer never opens it: it shows a notice and writes nothing. See "Publishing".
+- **Measure key derivation time** (command) runs one Argon2id derivation at the default cost on random input, with no vault data and no passphrase, and shows the seconds, the platform, whether it completed, the longest event-loop gap and the first 16 characters of the installed `main.js` hash in groups of four (or "unavailable"). Keep the app open while it runs.
   When a publish is refused and the message names one of them, run `ipfs-sync publish` for that vault.
 - Pull reads only: name resolve, key list, listings and gateway reads. It changes nothing on the node. It saves
   every open editor first, so an edit that exists only in an editor counts as a local edit. It uses the unlocked
@@ -146,7 +160,7 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
 
 - **Flags** (all in `--help`): `--name`, `--root-cid`, `--manifest`, `--allow-rollback`, `--resolve-fork`,
   `--expect-min-sequence`, `--expect-vault-id`, `--accept-first-pull`, `--max-bytes`, `--accept-large`,
-  `--list-versions`; the plaintext reader keeps `--allow-plaintext-v1` and `--manifest-file`.
+  `--list-versions`. `--allow-plaintext-v1` and `--manifest-file` are gone and are rejected as unknown options.
 - **The record and the floor.** This device records the highest manifest sequence it accepted, in
   `.ipfs-sync/state.<h>.json` and in a sequence floor outside the vault (CLI: `sequence-floor.json` in a per-user
   directory; plugin: the `deviceStore` section of the plugin data). A node that serves a lower sequence than the record
@@ -193,21 +207,33 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
 - **Plugin memory.** The CLI streams blobs. The plugin holds up to a 128 MiB budget (a design budget, not a measurement)
   and its transport buffers whole responses; a gateway that ignores the Range header makes large files `unfetched`.
   Large-file pull in the plugin is not advertised as working until the `mvp-07b` operator run records the outcome.
-- **Phones.** A phone test install goes through BRAT from a GitHub pre-release with its own tag, never from the main tag,
-  and until the guard is removed (`mvp-07b`) it is a fixture-only build. What was measured on an iPhone is in "Not
+- **Phones.** The exact plugin build reaches a phone through BRAT from a GitHub pre-release that carries the reviewed
+  bytes and has its own tag, never the main tag. Do not use an iCloud vault or a manual iCloud copy: a manual copy hung
+  the app at "Loading plugins" and a file-provider hang cleared only by restarting the phone. `.obsidian/plugins/` is not
+  synced by this tool. Android is untested and is not claimed. Until the guard is removed (`mvp-07b`) it is a
+  fixture-only build. What was measured on an iPhone is in "Not
   verified".
 
 The earlier "pull demo" (publish a fixture vault, then pull it into a second vault) is implemented in this tree for
-encrypted fixture vaults (see "Encrypted vaults"); it has not been run by the operator. A plaintext root left
-over from release 0.2.0 can still be pulled with `ipfs-sync pull --allow-plaintext-v1`, unless the destination has ever
-seen an encrypted vault, in which case pull refuses it as a possible downgrade. Anyone who can write to the node can forge
-a plaintext manifest, which is why that reader is off by default.
+encrypted fixture vaults (see "Encrypted vaults"); it has not been run by the operator. **There is no plaintext reader.**
+A root that holds `manifest.json` and no key slots (what release 0.2.0 published) is refused with "plaintext
+publications are no longer supported by this version" (CLI exit 2, nothing written), whatever this device has seen
+before. A root with key slots and no `manifest.enc` is refused too, and a planted `manifest.json` next to an encrypted
+layout is never read. The `encrypted-seen.json` latch that used to stop a downgrade is gone; the sequence floor is the
+only record that a vault was ever accepted, and it covers encrypted manifests only. A downgrade cannot happen because no
+code path reads a plaintext manifest.
 
 ### Plugin limitations
 
 - Encryption is implemented but not independently reviewed and not verified in Obsidian; fixture vaults only (above).
 - The plugin cannot detect symbolic links, because Obsidian's file adapter has no `lstat`. The CLI refuses to
   write through a symlink; the plugin cannot make that check. Do not place symlinks in a vault you sync.
+- **Desktop streams ranged reads; mobile still buffers.** On desktop the plugin sends a GET that carries a `Range`
+  header through Node's `http` and `https`, found with `globalThis.require`, and cancels after the header bytes, so a
+  hostile gateway cannot make it buffer a multi-GB body for a 22-byte header read. Whether `globalThis.require` exists
+  inside real Obsidian is unconfirmed; if it does not, the plugin falls back to buffering without saying so. On mobile
+  and for every other request, Obsidian's `requestUrl` buffers each whole response body in memory. Redirects are not
+  followed on the streaming path and it has no timeout.
 - Obsidian's `requestUrl` transport buffers each whole response body in memory. The one-segment memory bound and the
   size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and Range requests
   reduce the exposure only against gateways that honour them. The plugin pull holds up to a 128 MiB budget (a design
@@ -219,8 +245,8 @@ a plaintext manifest, which is why that reader is off by default.
   missing until the next pull. This window has not been tested. The temporary files hold verified plaintext until they are
   renamed or swept (on plugin load, only while it holds `publish.lock`).
 - A local file above the read cap cannot be compared with the node's; the pull reports it as unfetched and leaves it.
-- The catch-up pull never opens a dialog: a locked vault or a first pull makes it refuse. A key slot above the default
-  Argon2id cost has no confirmation dialog in the plugin; use the CLI for that vault. Restore and Resolve fork need a pull
+- The catch-up pull never opens a dialog: a locked vault or a first pull makes it refuse, and so does a key slot above
+  the default Argon2id cost (manual actions ask through the cost dialog; see "Obsidian plugin"). Restore and Resolve fork need a pull
   name that is an IPNS name, not an explicit `/ipfs/<cid>` root.
 - The plugin's publish lock file (`.ipfs-sync/publish.lock`) is best effort. It is created by a check and then a rename
   (two steps), read back after the rename and compared (`src/plugin/adapter-lock-file.ts`), and checked once more right
@@ -238,8 +264,10 @@ a plaintext manifest, which is why that reader is off by default.
   use `--break-lock` on a computer. `--break-lock` deletes a live lock if it is run while a plugin publish is running.
 - Remote deletions are reported, not applied. A file deleted on the publishing side stays on the receiving side.
 - Per-file read cap (above). Large files cost whole-file memory.
-- The setup, unlock, abandon, clear-stale-lock, first-pull, restore, fork and large-pull dialogs have never been run
-  inside Obsidian. The abandon dialog opens from the
+- The setup, unlock, abandon, clear-stale-lock, first-pull, restore, fork, large-pull, change-passphrase,
+  increase-cost, accept-key-slots, mass-removal and cost-confirm dialogs, and the measure command, have never been run
+  inside Obsidian. Their accessibility was checked with a fake DOM and source scans, not a screen reader; touch targets,
+  contrast and keyboard overlap on a phone are unchecked. The abandon dialog opens from the
   "Abandon this vault" command and from a button in the settings tab's Encryption section; that wiring is covered only
   by tests with a fake host. After an abandon, a second Publish can open a second unlock dialog over the first; this is
   cosmetic and accepted.
@@ -256,11 +284,17 @@ pnpm install && pnpm build
 node dist/cli/ipfs-sync.mjs status
 node dist/cli/ipfs-sync.mjs init <vault> [--passphrase-file <path>]
 node dist/cli/ipfs-sync.mjs publish <vault> [--repair] [--recover-slots] [--break-lock] [--allow-full-reupload]
+    [--allow-mass-removal]
 node dist/cli/ipfs-sync.mjs pull <vault> [--name <ipns-id>] [--root-cid <cid> | --manifest <cid>]
     [--allow-rollback | --resolve-fork] [--expect-min-sequence <n>] [--expect-vault-id <id>]
     [--accept-first-pull] [--max-bytes <n>] [--accept-large]
 node dist/cli/ipfs-sync.mjs pull <vault> --list-versions
-node dist/cli/ipfs-sync.mjs pull <vault> --allow-plaintext-v1 [--name <ipns-id>] [--manifest <currentCID> | --manifest-file <path>]
+node dist/cli/ipfs-sync.mjs keys change-passphrase <vault> [--cost standard|high] [--passphrase-file <path>]
+    [--accept-no-revocation] [--allow-downgrade]
+node dist/cli/ipfs-sync.mjs keys increase-cost <vault> --cost standard|high [--accept-no-revocation]
+node dist/cli/ipfs-sync.mjs keys accept-slots <vault> [--name <id> | --root-cid <cid> [--allow-rollback]] [--allow-downgrade]
+node dist/cli/ipfs-sync.mjs keys discard <vault> [--yes-discard]
+node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-prune]
 ```
 
 - `status` shows node identity, MFS listing, gateway fetch, write probe and key state.
@@ -273,7 +307,8 @@ node dist/cli/ipfs-sync.mjs pull <vault> --allow-plaintext-v1 [--name <ipns-id>]
   entries; `--resolve-fork` merges after a fork. `--accept-first-pull` and `--accept-large` are the non-interactive yes
   to the first-pull and the large-pull questions; `--max-bytes` sets the ceiling (default 536870912, 512 MiB). Exit
   codes: 0 ok, 1 a file failed or was not fetched, a path was skipped as unsafe, or the pull stopped at a check, 2
-  usage or a refused destination. `--manifest-file` and `--allow-plaintext-v1` belong to the plaintext reader.
+  usage or a refused destination (a plaintext root is one). The `keys` commands and `prune-history` are described
+  under "Change the passphrase or the cost" and "History growth"; every flag above is in `--help`.
 - Endpoints and auth: `--rpc-url`, `--gateway-url`, `--mfs-root`, `--key`, `--config`,
   `--auth`, or the `IPFS_SYNC_*` environment variables (`IPFS_SYNC_RPC_URL`,
   `IPFS_SYNC_GATEWAY_URL`, `IPFS_SYNC_MFS_ROOT`, `IPFS_SYNC_KEY`, `IPFS_SYNC_AUTH_*`).
@@ -305,9 +340,9 @@ Three consequences to accept before you use it:
   forever, at the cost of Argon2id. That is why passphrases are generated: 23 random symbols (115 bits) plus 2 check
   symbols. A leaked passphrase, plus any copy of the slot (every old root stays pinned on the node and this project
   never unpins), opens every state you ever published.
-- **A passphrase change would not revoke anything.** Rewrapping the slot under a new passphrase (not implemented yet)
-  would not revoke the old passphrase or any old copy of the slot; an old copy keeps opening the same vault key. Only
-  re-encrypting the vault under a new key revokes access, and nothing here does that.
+- **A passphrase change revokes nothing.** Rewrap does not revoke the old passphrase or any old copy of the key slot.
+  An old copy, including the ones in earlier pinned roots, keeps opening the same vault key. Only re-encrypting the
+  vault under a new key revokes access, and nothing here does that.
 - **There is no recovery.** If you lose the passphrase, and every copy of the key slots, the data is gone. Nobody can
   reset it. The copy of `keyslots.json` this tool keeps in `.ipfs-sync/` protects only against the node losing the file.
 
@@ -375,6 +410,53 @@ requiring the generated form guards against typos and accidents. It does not pro
 text. The alphabet is not free of look-alike characters (S and 5, Z and 2, G and 6, I and L); copy the passphrase
 instead of retyping it from memory.
 
+### Change the passphrase or the cost: `ipfs-sync keys`
+
+Rewrap does not revoke the old passphrase or any old copy of the key slot. The commands below replace the key slot of an
+existing vault by one that wraps the same vault key; nothing is re-encrypted, and `manifest.enc` and the sequence do not
+change. The two rewrap commands print this before they work and ask (or need `--accept-no-revocation`; without a terminal
+they do nothing unless the flag is given). They need the vault passphrase, hold `publish.lock` for the whole operation, and
+refuse unless this device is up to date with the node and no publish or key-management operation is pending.
+`accept-slots` and `discard` hold the lock too and skip the pending-operation refusal, so a stuck journal cannot block them.
+
+- `keys change-passphrase <vault>` writes a slot under a NEW generated passphrase; you cannot choose one. It is shown once
+  and retyped, or written to a new 0600 file with `--passphrase-file`. `--cost standard|high` sets the new slot's cost
+  (Standard 64 MiB and 3 iterations, High 128 MiB and 4); without it the cost stays. A lower cost than the current one
+  needs a yes that shows both costs, or `--allow-downgrade`.
+- `keys increase-cost <vault> --cost standard|high` writes a slot under the SAME passphrase at a higher cost. It does not
+  protect against an attacker who already holds the old, cheaper slot, because every earlier root keeps it.
+- The new `keyslots.json` holds only the new slot. The old passphrase fails against the node's current file and still
+  opens the copy in every earlier pinned root. A file with a slot type this version does not know is refused before any
+  derivation.
+- It takes four key derivations on this device (the current passphrase twice, the new slot, then a test unlock of the
+  published file). The local copy and record change only after the test unlock passes. If another device's rewrap won the
+  race, the test fails and says so.
+- If the command is interrupted, publish and pull stay paused until you run the same command again; it finishes the
+  operation without making a second slot. A lost race is refused with a message that names `keys discard` and
+  `keys accept-slots`.
+- A cost above the default (64 MiB, 3) makes every device that cannot answer a cost question refuse to unlock: a command
+  line run without a terminal, and the plugin's timer and catch-up pull. Manual plugin actions ask (see "Obsidian
+  plugin").
+- `keys accept-slots <vault>` is for every other device after a rewrap: until it runs, that device refuses to pull or
+  publish and the message names it. It resolves the name once (or reads `--root-cid`), reads `keyslots.json` and
+  `manifest.enc` from that one root, unlocks the slot with the passphrase you give, requires the manifest of the same root
+  to authenticate under that key and name the same vault, and applies the sequence checks of a pull. A cheaper slot than
+  this device's copy shows both costs and needs a yes (or `--allow-downgrade`). It replaces only the key-slot copy, its
+  recorded hash and a pending publish journal's hash. It pulls no file and does not raise the sequence floor; run `pull`
+  afterwards. It drops an unfinished key-management operation on this device. **What it does not prove:** a node that also
+  knows the passphrase you type could serve key slots and a manifest under its own key with this vault's id, and a command
+  line run holds no key to compare them with.
+- **Restore across a rewrap.** `pull --root-cid <old root>` reads that root's older `keyslots.json`, which differs from
+  this device's copy, so it refuses and names `keys accept-slots --root-cid <old root> --allow-rollback`. After that
+  accept the pull runs under the older passphrase, and publish and pull by name stay refused until you run
+  `keys accept-slots` again, without `--root-cid`. `pull --manifest` and the plugin's Restore read a history entry under
+  the current root and need no accept, on a device that already holds the current key-slot copy.
+- `keys discard <vault>` drops a key-management operation (a rewrap or a prune) that did not finish, when running the same
+  command again cannot finish it. It asks first (or needs `--yes-discard`). It touches the node only to take this device's
+  own key-slot file back out of the shared tree when the rewrap never published. A rewrap that already published keeps the
+  new slots on the node: discarding forgets that here, and this device then needs `keys accept-slots` with the NEW
+  passphrase. Do not discard if you did not save the new passphrase.
+
 ### Publishing
 
 ```bash
@@ -388,6 +470,20 @@ a rename is a delete plus a new upload, because the node name is bound into the 
 through its immutable path, and only then pins it and publishes the IPNS record. Any failure before the IPNS record leaves
 it unchanged. It prints the root CID, the snapshot CID, the `sequence` number and `N written, M removed`; a run with no
 changes writes nothing and does not touch the IPNS record.
+
+**A mass removal stops the publish.** After the plan and before any write, `publish` counts the paths it would remove.
+It stops, with a typed refusal and nothing written, when the removals that count equal every remaining entry of the
+manifest, or exceed half of the remaining entries of a manifest that had at least two. Exactly half proceeds. Removals
+caused by the exclusion list (a path the previous manifest held that the effective list now matches, such as the
+`.obsidian/` entries of an older build on upgrade day) are listed apart and count in neither number; entries this device
+carries unchanged because it could not restore them count as kept. The first publish of a vault has no baseline and is
+not checked. Confirm with `--allow-mass-removal` or a yes at the prompt; without a terminal the run stops. In the plugin a
+manual publish opens a dialog with counts only and Cancel as the default; the auto-publish timer never opens it, shows a
+notice and writes nothing. The dialog opens while the publish locks are held; reasoned from the lock code and not run,
+a dialog left open past 15 minutes lapses the lock heartbeat and the publish then refuses and writes nothing. This guard
+replaces the old behaviour in which a vault emptied on a device that had a state published an empty manifest; the empty
+vault error remains for a first publish. The message says an unmounted or emptied vault folder looks the same, because
+it does. Limits are in "Limits that stay".
 
 What `publish` does not verify: it pins whatever is in `current/` at the moment of the snapshot, including an object
 someone planted during the write window, unless its read-back catches it. Blobs that a run did not write are not
@@ -431,33 +527,54 @@ the delta check and by the idle check that skips unlocking, until the size or th
 - If none of these apply, the way out is a new MFS root and a new vault (`init`). The refusal messages call this the
   "abandon action": run `ipfs-sync abandon <vault>` (add `--mfs-root` to name the root), or use the plugin command
   "Abandon this vault" (also a button in the Encryption section of the settings tab). It moves this device's key-slot
-  copy, sync state and journal for that root into `.ipfs-sync/abandoned-<h>-<ms>/`. It never contacts the node and
-  deletes nothing. It records the encrypted-seen latch first, so it does not re-open the plaintext reader. On a terminal you must type `abandon`; without one it does nothing unless you pass `--yes-abandon`.
+  copy, sync state, journal and any key-management journal for that root into `.ipfs-sync/abandoned-<h>-<ms>/`. It never
+  contacts the node and deletes nothing. It records no latch (there is none any more) and prints the sequence floor it
+  keeps. On a terminal you must type `abandon`; without one it does nothing unless you pass `--yes-abandon`.
 
 ### History growth
 
 Every publish that changes something adds one file to `manifests/` on the node: an encrypted copy of the whole manifest,
 about 4 to 14 MB for a vault of 5,000 to 20,000 files, pinned forever. The tool lists that folder before it writes
 anything. It warns at 1,500 files and refuses at 1,999, with a message that names `ipfs-sync prune-history`.
-**`prune-history` does not exist in this build.** At the limit, publishing stops for that root. The supported way on is a
-new MFS root and a new vault; you will re-upload everything, with a new passphrase. An actively edited vault on the
-auto-publish timer can reach the limit in days to weeks. Removing old `manifests/<sequence>-<cid>.enc` entries yourself
-with kubo is untested and not supported, and a fork resolution then finds no common ancestor for them. The default
-exclusion of `.smart-env/` removes one known source of constant non-empty publishes (see "Pull"); it does not bound growth
-for other plugins that write often.
+
+`ipfs-sync prune-history <vault> --keep <n>` removes the oldest history files from the node's working tree so that `n`
+remain. At least the newest 20 are kept whatever `n` says. Order comes from the sequence-prefixed names; older names
+without a prefix count as the oldest, have no order among themselves, and the confirmation says so. Before it asks, it
+checks that the newest history file authenticates under this vault's key, carries the sequence of the node's manifest
+(a node that withholds the newest files is refused), and that each of the newest 20 decrypts and agrees with its name;
+that this device is up to date; that no publish or key-management operation is pending; that `manifests/` holds only
+history files and at most 2,000 of them; and it holds `publish.lock`. It prints how many go, how many stay, how many
+carry the older name format and how many share a sequence (a fork leaves such files), then asks (or needs `--yes-prune`;
+`--dry-run` prints the files and stops without a lock). It removes one file at a time under `manifests/` and nothing
+else, then republishes the root under the same sequence with no new manifest. `current/`, `manifest.enc` and
+`keyslots.json` do not change. Earlier published roots stay pinned and keep their history, but a removed version can no
+longer be restored through the current root with `pull --manifest`; use `pull --root-cid` of an earlier root. A fork
+resolution after a prune still finds its common ancestor, which is always among the newest 20. If it is interrupted,
+publish and pull stay paused until you run it again; `keys discard` drops it. A folder already above 2,000 entries
+cannot be listed, so it cannot be pruned by this command; the way out is a new MFS root.
+
+**How a plugin-only vault stays under the limit (task 1.8, decided).** `prune-history` is the supported recovery, from the
+command line and from a "Prune history..." row in the plugin's Encryption section. The plugin dialog shows counts only
+and removes nothing until you press the remove control; the timer and the catch-up pull never prune; an interrupted prune
+is finished with the command, because the plugin cannot resume. Auto-publish does not coalesce: that is not built. The arithmetic, for a
+timer set to 15 minutes and a vault that changes on every tick: 96 history files a day, the warning in about 15.6 days,
+the refusal in about 20.8 days. The shipped default timer is off, and `.smart-env/` and `.obsidian/` are already excluded;
+another plugin that writes to a hidden folder can still cause this. The exclusion of `.smart-env/` removes one known
+source of constant non-empty publishes (see "Pull"); it does not bound growth for other plugins that write often.
 
 ### Local state: `.ipfs-sync/`
 
 `<vault>/.ipfs-sync/` holds, per MFS root, `state.<h>.json` (format 3), `journal.<h>.json` and `keyslots.<h>.json`, plus
-`publish.lock`, `tmp/` (in-flight pull files) and, after a pull that met an encrypted root, `encrypted-seen.json` (`<h>`
-is the first 16 hex characters of the SHA-256 of the MFS root). **The state and journal are plaintext at rest**: they
+`maintenance.<h>.json` (only while a rewrap or a prune is unfinished), `publish.lock` and `tmp/` (in-flight pull files)
+(`<h>` is the first 16 hex characters of the SHA-256 of the MFS root). **The state and journal are plaintext at rest**: they
 hold your file paths, and `tmp/` holds verified plaintext file content until a pull renames or sweeps it. Exclude the
 folder from iCloud, Dropbox, Syncthing, backup tools and any other synchronisation or backup. Never put it in a
 repository. The exclusion list already keeps it out of the published vault. The sequence floor is not in this folder:
 it lives in a per-user directory (CLI) or the plugin data, so that deleting this folder does not reset it.
 
-Deleting the folder resets everything, including the record that a root held encrypted content, which is what stops a
-plaintext downgrade on pull. (`abandon` does not reset that record; only deleting the folder does. An `abandoned-<h>-<ms>` backup folder also counts as evidence of an encrypted vault: the CLI sees it, and the plugin does since a correction made after review 5c, which is covered by fake-adapter tests only and has not run in Obsidian.) It also has a consequence you should not discover later: a device with no record and no
+Deleting the folder resets this device's record of the root. There is no plaintext downgrade to guard against any more
+(no code reads a plaintext manifest); the sequence floor, which lives outside the folder, is what remains of the record.
+It also has a consequence you should not discover later: a device with no record and no
 key-slot copy for a root that already holds a manifest is refused by `publish` ("not the publisher"). After deleting
 `.ipfs-sync/`, run `pull` with the passphrase: it is a first pull with no baseline, so it trusts what the node serves
 (the sequence floor, if it survived, still refuses an older manifest), and every local file that differs from the node's
@@ -466,7 +583,9 @@ case there (see above).
 
 ### The fixture marker
 
-Until `mvp-07b` removes the guard, `publish` and `init` require `.ipfs-sync-fixture` to hold exactly the text `fixture`
+The guard is still in this tree. The plan removes it in one commit on a separate branch (`mvp-07b-guard-removal`),
+cut from `main` once the other code is done, and `main` keeps the guard until the release commit is merged by
+fast-forward. That branch does not exist yet. Until it is merged, `publish` and `init` require `.ipfs-sync-fixture` to hold exactly the text `fixture`
 (a trailing line feed is allowed), and they check it before they look at the passphrase or send any request. A directory
 that `pull` populated carries `pulled-fixture`, so it cannot be published from until you write `fixture` by hand (the
 second-device path in "Pull"). Values:
@@ -485,10 +604,44 @@ To use that directory again you must re-mark it deliberately: write `fixture` in
 (`fixture` for publish; `fixture` or `pulled-fixture` for pull). That is a statement by you that the directory holds no real notes. Nothing
 verifies it. Anyone who can create the file can override the guard, and the guard is an accident guard, not a control.
 
+### Limits that stay
+
+Each of these holds after `mvp-07b` and after the guard is removed. They are here because they are the cases where the
+checks in this tool give a false sense of safety.
+
+- Removing 49 percent of the entries is silent. The mass-removal guard stops "every entry" and "more than half"; half and
+  below proceed unasked. A vault folder that is merely unmounted looks like every file deleted and is caught; a
+  half-mounted one is not.
+- Silent per-file corruption of unchanged files by someone who can write to the node is not detected by the publisher.
+  The publisher does not re-read blobs it did not write in this run; a reader that decrypts one will notice.
+- Concurrent publishes are narrowed, not prevented. A rewrap that loses the race puts the old key-slot file back (a prune has
+  nothing to put back), but kubo has no compare-and-swap and a write race on the shared tree is not detected.
+- The sequence floor does not stop a node from showing an old copy to a device that has no recorded state. A first pull,
+  a reinstalled plugin and a deleted per-user directory all have no record.
+- Rewrap does not revoke the old passphrase or any old copy of the key slot.
+- The plaintext reader is gone, so a vault published by release 0.2.0 cannot be pulled by this version. Use release 0.2.0
+  for that, and treat everything it published as public.
+
+**How a release is gated, and what that proves.** A release is meant to be refused unless a checker passes
+(`node tools/check-guard-preconditions.mjs`; exit 0 only when every item passes). It binds the shipped bytes to a tree hash
+and a reproducible clean-export build, and requires four records: a review record for that tree (committed under
+`openspec/changes/mvp-07b-keys-history-guard-release-2/`), an operator-run record from a manual run in Obsidian desktop
+against the shared node, a phone-timing record, and the checklist tests and the limit sentences above in this file and in
+`DESIGN.md` section 8. The review record, the operator-run record and the phone-timing record are attestations, not
+proofs. The checker makes forging them more work and leaves a trail. A person with repository write access and a
+terminal can still produce all three. A terminal and a nonce stop pipes and accidents; they do not stop a program that
+drives a pseudo-terminal. The review record is authenticated by git history; the release tool then needs the operator to
+type `I accept an unsigned review record for <tree hash prefix>`, and the notes say "unsigned". A change to any scoped file after the review record or after the operator run changes the tree hash, and both must be redone. A one-line fix therefore repeats the review record and
+the operator run, and a phone measurement is bound to the exact plugin build. The checker, the phone-timing recorder and
+the release tool exist and are covered by tests; the operator-run script does not exist yet, so no release can pass today.
+The order and commands are in the operator runbook.
+
 ### Not verified
 
 Nothing in this list has been checked, and none of it should be assumed to work: any part of the plugin's encryption
-flow inside Obsidian, including Pull, Restore, Resolve fork and their dialogs; the encrypted pull against the shared node
+flow inside Obsidian, including Pull, Restore, Resolve fork, the key-management, mass-removal and cost dialogs, the
+measure command and desktop Range streaming (the `globalThis.require` lookup); the `keys` commands and `prune-history`
+against the shared node or a real kubo; a High-cost key slot on a phone; the encrypted pull against the shared node
 and with a real second device; an encrypted publish or pull on a phone; Android; HKDF, HMAC and AES-GCM under Obsidian's
 WebView; `requestUrl` with large binary bodies and Range requests, and large-file pull in the plugin; zeroization beyond
 the byte arrays the code owns; rollback prevention beyond what a device already accepted (a freeze and a stale first pull
@@ -553,6 +706,27 @@ Until then, treat anything published by release 0.2.0 as public. With this tree,
 passphrase and by nothing else on the node: the node can still delete, replace or withhold your objects, and see sizes
 and timing.
 
+## Agentic layer: what the UI will be
+
+The search and chat layer that sits on top of sync is designed, not built. The design authority is `docs/design/`
+(read `docs/design/README.md` first); spec `docs/012-vault-agent-ui.md` is the pointer in the numbered series.
+In short:
+
+- **Vault agent view** in the right sidebar with three tabs. **Search** finds notes by meaning with a similarity score
+  per row and opens, links or feeds the chat. **Chat** has two modes: **Notes**, a retrieval-augmented chat that
+  answers only from passages in your vault, cites each sentence, and says "Not in your notes" instead of guessing; and
+  **Agent**, which adds skills, tools and approval cards and shows every step it took. **Index** shows the embedding
+  model, coverage, the queue, and a one-tap rebuild, because the index is a cache that rides the vault snapshot.
+- **Quick ask**: a Quick-switcher-style popup (bottom sheet on a phone) that searches as you type and can answer one
+  question before handing off to the view.
+- **Control center**: searchable settings in six sections with Security first (device identity, pairing, grants with
+  expiry, vault key), and a consequence dialog on every destructive action.
+- A **lane chip** on every agent surface says whether an answer was produced on this device, by a remote agent, or
+  while offline. Everything is styled with Obsidian's own variables, so it follows your theme and accent.
+
+The concept screens open in a browser and have working interactions with scripted data; nothing in them calls a node
+or a model yet.
+
 ## Roadmap
 
 - **Phase 2 — real sync:** embed [Helia](https://github.com/ipfs/helia) + [OrbitDB](https://orbitdb.org)
@@ -563,7 +737,9 @@ and timing.
 - **Phase 3 — the AI layer:** embeddings computed on your Mac, stored as
   content-addressed data pinned to the vault root — every device gets the index
   that matches its snapshot for free. Semantic search, RAG chat, auto-backlinks.
-  (This replaces the vault-chat plugin and its plaintext API key.)
+  (This replaces the vault-chat plugin and its plaintext API key.) The user
+  interface for this phase is designed in `docs/design/` (see "Agentic layer"
+  above).
 - **Phase 4 — mobile + always-on pinning** (`ipfs-cluster` or a second node).
 
 ## Loose end on your node
