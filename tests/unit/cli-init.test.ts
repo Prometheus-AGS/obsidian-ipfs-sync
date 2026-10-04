@@ -260,11 +260,12 @@ describe("ipfs-sync init", () => {
       expect(mutating()).toEqual([]);
     });
 
-    it("refuses a vault that is not a fixture vault before any request", async () => {
+    it("creates the vault when it has no marker (the fixture-only guard is removed)", { timeout: SLOW }, async () => {
       await rm(join(vault, ".ipfs-sync-fixture"));
+      await prepareSecretDir();
       const result = await init(["--passphrase-file", passphraseFile()]);
-      expect(result.code).toBe(2);
-      expect(fetchStub).not.toHaveBeenCalled();
+      expect(result.code).toBe(0);
+      expect(keySlotsOnNode()).toBe(true);
     });
   });
 

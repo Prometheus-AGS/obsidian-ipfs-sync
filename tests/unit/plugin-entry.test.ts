@@ -50,7 +50,7 @@ describe("plugin entry", () => {
     expect(stub.statusBarItems).toHaveLength(1);
   });
 
-  it("refuses to publish a vault without the marker: a notice, and no request to the node", async () => {
+  it("does not refuse a vault for lacking the marker (the guard is removed): no review-pending notice, and no request before set-up", async () => {
     const adapter = new MemoryAdapter();
     adapter.put("notes/real.md", "private");
     const { stub } = await loadPlugin(null, adapter);
@@ -59,10 +59,7 @@ describe("plugin entry", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(requestUrlCalls).toEqual([]);
     const messages = Notice.shown.map((n) => n.message);
-    expect(messages.some((m) => m.includes("not yet independently reviewed or verified in Obsidian"))).toBe(true);
-    // The progress notice was dismissed and the status bar cleared.
-    expect(Notice.shown.filter((n) => n.message === "IPFS Sync: publishing...").every((n) => n.hidden)).toBe(true);
-    expect(stub.statusBarItems[0]?.text).toBe("");
+    expect(messages.some((m) => m.includes("independently reviewed"))).toBe(false);
   });
 
   it("migrates the previous settings once, stores the new form, and shows the key notice", async () => {
@@ -92,7 +89,9 @@ describe("plugin entry", () => {
     await flush();
     tick();
     await flush();
-    expect(Notice.shown.filter((n) => n.message.includes("not yet independently reviewed or verified in Obsidian"))).toHaveLength(1);
+    // The vault has no marker and no encrypted vault on this device: the refusal is the set-up one, explained once.
+    expect(Notice.shown.filter((n) => n.message.includes("no encrypted vault is set up"))).toHaveLength(1);
+    expect(Notice.shown.filter((n) => n.message.includes("independently reviewed"))).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

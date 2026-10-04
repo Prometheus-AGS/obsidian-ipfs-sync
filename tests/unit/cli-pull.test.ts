@@ -122,14 +122,13 @@ describe("ipfs-sync pull", () => {
     expect(requests).toEqual(["POST /api/v0/key/list"]);
   });
 
-  it("refuses a non-empty directory without the marker before any request", async () => {
+  it("does not refuse a non-empty directory without the marker: the pull goes on to the node and keeps the notes (the fixture-only guard is removed)", async () => {
     await mkdir(vault);
     await writeFile(join(vault, "private.md"), "my real notes");
     const result = await pull();
-    expect(result.code).toBe(2);
-    expect(result.err).toContain("Pull into a populated directory without a fixture marker stays disabled in this build");
-    expect(result.err).not.toContain("arrives in a later release");
-    expect(fetchStub).not.toHaveBeenCalled();
+    expect(result.err).not.toContain("without a fixture marker");
+    expect(requests.length).toBeGreaterThan(0);
+    expect(fetchStub).toHaveBeenCalled();
     expect(await readFile(join(vault, "private.md"), "utf8")).toBe("my real notes");
   });
 });

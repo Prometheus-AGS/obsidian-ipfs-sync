@@ -2,7 +2,6 @@
 // state, floor and locks (helpers/integration-devices.ts). Scenarios: publish A and first pull B (declined, then accepted); both edit,
 // publish, pull, conflict copy; a pulled directory and the marker; state v2 upgrade; `.smart-env/`; every pull sends only reads.
 import { describe, expect, it } from "vitest";
-import { ConfigError } from "../../src/core/config";
 import type { FirstPullDetails } from "../../src/sync/encrypted-pull";
 import { localDateStamp } from "../../src/sync/conflict-name";
 import { manifestIdentity } from "../../src/sync/manifest-identity";
@@ -50,7 +49,7 @@ describe("publish A, first pull B: declined, then accepted", () => {
     expect(Object.keys(b.texts()).sort()).toEqual(ALL_FILES);
     for (const path of ALL_FILES) expect(bytesOf(b.host, path), path).toEqual(bytesOf(a.host, path));
     expect(leftovers(b.host)).toEqual([]);
-    expect(b.host.files.get(".ipfs-sync-fixture") === undefined ? "" : new TextDecoder().decode(b.host.files.get(".ipfs-sync-fixture")?.data)).toBe("pulled-fixture\n");
+    expect(b.host.files.get(".ipfs-sync-fixture")).toBeUndefined();
     // The key-slot copy, the record and the floor exist only now, and agree with the authenticated manifest.
     expect(b.host.files.has(`.ipfs-sync/${rootFileNames(ROOT).keyslots}`)).toBe(true);
     const state = await b.state();
@@ -119,14 +118,10 @@ describe("both devices edit, publish, pull: the conflict copy and the second-dev
     servedRoot(node);
   });
 
-  it("a directory made by a pull publishes only after its marker is replaced by hand", async () => {
+  it("a directory made by a pull publishes with no hand step (the fixture-only guard is removed)", async () => {
     const { b } = await createDevices();
     pulledOf(await b.pull());
     b.host.put("note.md", "written on the second device\n");
-    const refused = await b.publish().then(() => undefined, (error: unknown) => error);
-    expect(refused).toBeInstanceOf(ConfigError);
-    expect((refused as ConfigError).code).toBe("fixture-marker-required");
-    b.allowPublish();
     expect((await b.publish()).published).toBe(true);
   });
 });

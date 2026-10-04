@@ -1,5 +1,4 @@
 import { DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, type AuthScheme } from "../core/config";
-import { FIXTURE_MARKER } from "../sync/publish-guard";
 import { DEFAULT_MAX_READ_MB, MAX_MAX_READ_MB, MIN_MAX_READ_MB } from "./read-cap";
 import type { EditableFieldId } from "./settings-fields";
 import { DEFAULT_PULL_CONFIRM_ABOVE_MB, MAX_PULL_CONFIRM_ABOVE_MB, MIN_PULL_CONFIRM_ABOVE_MB } from "./settings-model";
@@ -81,8 +80,7 @@ export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   catchUpOnLoad: {
     name: "Catch up on load",
     desc:
-      "Pull once when this vault opens. Off by default. It is a per-device setting: it is saved on this device only " +
-      `and is not synced. In this release it takes effect only in fixture vaults (vaults containing ${FIXTURE_MARKER}); in any other vault it does nothing.`,
+      "Pull once when this vault opens. Off by default. It is a per-device setting: it is saved on this device only and is not synced.",
   },
   maxReadMb: {
     name: "Read cap (MB)",
@@ -111,7 +109,7 @@ export const AUTH_SCHEME_LABELS: Readonly<Record<AuthScheme, string>> = {
   header: "Custom header",
 };
 
-export const FIXTURE_NOTICE_TITLE = "Fixture-only build";
+export const FIXTURE_NOTICE_TITLE = "Publishing is encrypted";
 
 export const SECRETS_WARNING_TITLE = "Secrets are stored in plain text";
 export const SECRETS_WARNING =

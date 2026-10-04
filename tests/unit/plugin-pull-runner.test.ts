@@ -20,7 +20,7 @@ const WRITES = /^(write|remove|rename|mkdir)/;
 const PLAINTEXT_REFUSED = { kind: "refused", reason: "plaintext-unsupported" } as const;
 
 describe("plugin pull runner: destination guard", () => {
-  it("refuses a vault with notes and no marker before any request, and changes nothing", async () => {
+  it("admits a vault with notes and no marker: it reaches the node, writes no marker and changes no note (the guard is removed)", async () => {
     const adapter = freshVault();
     adapter.put("notes/real.md", "private");
     const rig = pullRig({ adapter });
@@ -28,19 +28,20 @@ describe("plugin pull runner: destination guard", () => {
     adapter.calls.length = 0;
 
     const outcome = await rig.pull();
-    expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(outcome.notice).toContain("Pull into a populated directory without a fixture marker stays disabled in this build");
-    expect(outcome.notice).toContain(".ipfs-sync-fixture");
-    expect(rig.gateway.requests).toEqual([]);
-    expect(adapter.calls.filter((call) => WRITES.test(call))).toEqual([]);
+    expect(outcome).toMatchObject(PLAINTEXT_REFUSED);
+    expect(rig.gateway.requests.length).toBeGreaterThan(0);
+    // The only writes are the lock file's (made and removed again) and its folder.
+    expect(adapter.calls.filter((call) => WRITES.test(call) && !call.includes("publish.lock") && call !== "mkdir .ipfs-sync")).toEqual([]);
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
-    expect(rig.store.get().lastPull).toBeUndefined();
+    expect(adapter.text("notes/real.md")).toBe("private");
   });
 
-  it("refuses a note nested deep in a folder, but ignores folders that hold no files", async () => {
+  it("admits a note nested deep in a folder, and folders that hold no files", async () => {
     const nested = freshVault();
     nested.put("projects/2026/plan.md", "x");
-    expect(await pullRig({ adapter: nested }).pull()).toMatchObject({ kind: "refused", reason: "fixture-only" });
+    const nestedRig = pullRig({ adapter: nested });
+    plantPlaintextRoot(nestedRig.gateway);
+    expect(await nestedRig.pull()).toMatchObject(PLAINTEXT_REFUSED);
 
     const emptyFolders = freshVault();
     emptyFolders.folders.add("drafts");

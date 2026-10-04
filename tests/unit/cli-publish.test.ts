@@ -1,4 +1,4 @@
-import { chmod, mkdtemp, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,15 +80,12 @@ describe("ipfs-sync publish", () => {
     expect(fetchStub).not.toHaveBeenCalled();
   });
 
-  it("refuses a vault without the marker and sends no request", async () => {
-    const real = join(dir, "real-vault");
-    await mkdir(real);
-    await writeFile(join(real, "note.md"), "private");
-    const s = sink();
-    const code = await runCli(["publish", real, "--config", configPath], deps(), s.io);
-    expect(code).toBe(2);
-    expect(s.err.join("\n")).toContain("not yet independently reviewed or verified in Obsidian");
-    expect(fetchStub).not.toHaveBeenCalled();
+  it("publishes a vault without the marker, encrypted (the fixture-only guard is removed)", async () => {
+    await rm(join(vault, ".ipfs-sync-fixture"));
+    const result = await publish();
+    expect(result.code).toBe(0);
+    expect(result.err).not.toContain("independently reviewed");
+    expect(mutating().length).toBeGreaterThan(0);
   });
 
   it("mvp-07a 1.2: the manifest device is <label>-<12 hex of the stored device id>, stable across runs, in a 0700 per-user directory", async () => {
@@ -111,11 +108,8 @@ describe("ipfs-sync publish", () => {
 
   it("mvp-07a 1.2: a run that is refused before a manifest is built does not create the per-user directory", async () => {
     const state = join(dir, "xdg-refused");
-    const real = join(dir, "real-vault");
-    await mkdir(real);
-    await writeFile(join(real, "note.md"), "private");
     const s = sink();
-    expect(await runCli(["publish", real, "--config", configPath], deps({ env: { XDG_STATE_HOME: state } }), s.io)).toBe(2);
+    expect(await runCli(["publish", vault, "--config", configPath, "--mfs-root", "/obsidian-vault-staging"], deps({ env: { XDG_STATE_HOME: state } }), s.io)).toBe(2);
     expect(await stat(state).catch(() => undefined)).toBeUndefined();
   });
 

@@ -116,12 +116,12 @@ describe("plugin entry: the timer while the vault is locked", () => {
     expect([...adapter.files.keys()].some((path) => path.startsWith(".ipfs-sync/keyslots"))).toBe(false);
   });
 
-  it("an unmarked vault gives the review-pending notice once for the timer, before any session or request", async () => {
+  it("an unmarked vault is treated like a marked one: the timer gets the locked notice, never a review-pending one (the guard is removed)", async () => {
     const { plugin } = await load({ vault: true, marker: false });
-    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(notices("not yet independently reviewed or verified in Obsidian")).toBe(1);
-    expect(notices("locked")).toBe(0);
+    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "locked" });
+    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "locked" });
+    expect(notices("not yet independently reviewed or verified in Obsidian")).toBe(0);
+    expect(notices("paused while the vault is locked")).toBe(1);
     expect(requestUrlCalls).toEqual([]);
     expect(Modal.instances).toHaveLength(0);
   });

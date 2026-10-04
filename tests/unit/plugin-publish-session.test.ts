@@ -114,17 +114,13 @@ beforeEach(() => {
   argon2.calls = 0;
 });
 
-describe("4.3 marker guard first", () => {
-  it.each([false, true])("sends no request and opens no dialog for a vault without the fixture marker (unattended: %s)", async (unattended) => {
+describe("4.3 no marker guard", () => {
+  it.each([false, true])("a vault without the fixture marker is not refused for it (unattended: %s; the guard is removed)", async (unattended) => {
     const r = await rig({ marker: false, vault: true });
     r.node.calls.length = 0;
     const outcome = await r.runner.run({ unattended });
-    expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(outcome.notice).toContain("not yet independently reviewed or verified in Obsidian");
-    expect(r.node.calls).toEqual([]);
-    expect(r.node.requests).toEqual([]);
-    noDialogs(r);
-    expect(argon2.calls).toBe(0);
+    expect(outcome).not.toMatchObject({ reason: "fixture-only" });
+    expect(outcome.notice).not.toMatch(/independently reviewed|fixture/);
   });
 });
 

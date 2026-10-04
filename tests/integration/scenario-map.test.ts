@@ -23,7 +23,7 @@ const SCENARIO_MAP: readonly Entry[] = [
   // ---- two-device-turns -----------------------------------------------------------------------------------------------------
   { file: "two-device-turns.test.ts", test: "a declined first pull shows the authenticated sequence", covers: ["encrypted-pull: Fresh device, right passphrase", "encrypted-pull: Request audit", "rollback-detection: First pull records", "rollback-detection: Declined"] },
   { file: "two-device-turns.test.ts", test: "B cannot publish before it pulls", covers: ["second-device-publish: Other device published in between", "second-device-publish: Pull resolves it", "second-device-publish: Both edited", "second-device-publish: Unique identifiers", "second-device-publish: Stale publish", "rollback-detection: Newer state", "encrypted-pull: Conflict", "encrypted-pull: Only changes transfer"] },
-  { file: "two-device-turns.test.ts", test: "a directory made by a pull publishes only after its marker", covers: ["second-device-publish: Pull then publish", "second-device-publish: Pulled marker refuses publish"] },
+  { file: "two-device-turns.test.ts", test: "a directory made by a pull publishes with no hand step", covers: ["second-device-publish: Pull then publish"] },
   { file: "two-device-turns.test.ts", test: "the pull reads it, computes the identity from its manifest", covers: ["rollback-detection: Format 2 state"] },
   { file: "two-device-turns.test.ts", test: "a publish from it goes through as sequence 2", covers: ["rollback-detection: Format 2 state", "rollback-detection: Publish advances the record"] },
   { file: "two-device-turns.test.ts", test: "a vault holding Smart Connections files publishes none of them", covers: ["task: 1.3 .smart-env/ default exclusion"] },
@@ -145,6 +145,7 @@ const NOT_EXERCISED_HERE: readonly string[] = [
   "rollback-detection: Wrong genuine base is not used",
   "rollback-detection: Documentation",
   // second-device-publish
+  "second-device-publish: Pulled marker refuses publish", // removed with the fixture-only guard (mvp-07b task 6.2): the marker has no meaning
   "second-device-publish: Restart below the floor after the state was lost",
   "second-device-publish: Rebuild or in-step publish below the floor",
   "second-device-publish: Behind repair above the floor",

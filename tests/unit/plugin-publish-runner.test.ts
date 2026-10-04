@@ -87,15 +87,14 @@ function fixtureVault(): MemoryAdapter {
 const blobCount = (node: FakeNode): number => [...node.files.keys()].filter((path) => /\/current\/[a-z2-7]{2}\/[a-z2-7]{52}$/.test(path)).length;
 
 describe("plugin publish runner", () => {
-  it("sends no request at all when the vault has no fixture marker, and says why", async () => {
+  it("publishes a vault that has no fixture marker, with no fixture-only notice (the guard is removed)", async () => {
     const adapter = new MemoryAdapter();
     adapter.put("notes/real.md", "private");
     const r = await rig(adapter, storeWith());
     const outcome = await publish(r);
-    expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(outcome.notice).toContain("not yet independently reviewed or verified in Obsidian");
-    expect(outcome.notice).toContain(".ipfs-sync-fixture");
-    expect(r.node.calls).toEqual([]);
+    expect(outcome).toMatchObject({ kind: "published" });
+    expect(outcome.notice).not.toMatch(/independently reviewed|fixture/);
+    expect(r.node.calls.some((call) => MUTATING.test(call))).toBe(true);
   });
 
   it("refuses invalid settings before any request", async () => {

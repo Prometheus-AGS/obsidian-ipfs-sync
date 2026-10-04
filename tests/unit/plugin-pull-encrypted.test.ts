@@ -50,7 +50,7 @@ describe("plugin decrypting pull: unlock and first pull", () => {
     expect(b.dialogs.firstPulls).toHaveLength(1);
     expect(b.dialogs.firstPulls[0]).toMatchObject({ sequence: 1, fileCount: 3, target: "name" });
     expect(b.texts()).toEqual(sourceTexts(publisher));
-    expect(b.adapter.text(".ipfs-sync-fixture")).toContain("pulled-fixture");
+    expect(b.adapter.text(".ipfs-sync-fixture")).toBeUndefined();
     expect(await b.state()).toMatchObject({ highestSequence: 1, complete: true, unmaterialized: [] });
     expect(b.store.get().lastPull).toMatchObject({ fetched: 3, unchanged: 0, conflicts: 0, failed: 0 });
   });
@@ -253,8 +253,7 @@ describe("plugin decrypting pull: unfinished files", () => {
     expect(await b.runner.record()).toEqual({ highestSequence: 1, complete: false, unfinished: 1, restoredFrom: undefined });
     expect(b.store.get().lastPull?.failed).toBe(1);
 
-    // A pulled directory publishes only after the marker is set by hand (documented); then the carried entry goes along unchanged.
-    b.adapter.put(".ipfs-sync-fixture", "fixture\n");
+    // A pulled directory publishes with no hand step (the guard is removed); the carried entry goes along unchanged.
     b.adapter.put("Second device.md", "written here", 9000);
     const published = await publishFromPlugin(b);
     expect(published.kind).toBe("published");

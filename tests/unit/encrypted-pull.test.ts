@@ -13,7 +13,6 @@ import { MANIFEST_MAX_FILE_BYTES, canonicalizePassphraseText } from "../../src/c
 import { KuboHttpError } from "../../src/kubo";
 import type { FirstPullDetails } from "../../src/sync/encrypted-pull";
 import { manifestIdentity } from "../../src/sync/manifest-identity";
-import { PullGuardError } from "../../src/sync/pull-errors";
 import { describeLock, encodeLock } from "../../src/sync/publish-lock";
 import { lockHeld } from "../../src/sync/publish-refusals";
 import { rootFileNames } from "../../src/sync/root-files";
@@ -76,7 +75,7 @@ describe("a first pull that is confirmed", () => {
     expect(floor).toEqual({ sequence: 1, identity: verified.identity, at: NOW });
     expect(verified.keySlotsStored).toBe(true);
     expect(verified.floorWritten).toBe(true);
-    expect(verified.needsMarker).toBe(true);
+    expect(verified.needsMarker).toBe(false);
     expect(verified.policy.refusals).toEqual([]);
   });
 
@@ -525,20 +524,15 @@ describe("the directory's local state", () => {
     expect(b.host.mutations).toEqual([]);
   });
 
-  it("the destination guard runs first: a populated directory without the marker is refused before any request", async () => {
+  it("a populated directory without the marker is no longer refused: the pull goes on to the node (the guard is removed)", async () => {
     const rig = await vault();
     const host = createMemoryHost();
     host.put("private.md", "my real notes");
     const b = newPuller(host);
-    const error = await runPull(rig, b).then(
-      () => undefined,
-      (caught: unknown) => caught,
-    );
-    expect(error).toBeInstanceOf(PullGuardError);
-    expect((error as Error).message).toContain("stays disabled in this build");
-    expect(rig.node.calls).toEqual([]);
-    expect(b.locks.file.creates).toBe(0);
-    expect(host.mutations).toEqual([]);
+    const verified = verifiedOf(await runPull(rig, b));
+    expect(verified.needsMarker).toBe(false);
+    expect(rig.node.calls.length).toBeGreaterThan(0);
+    expect(b.locks.file.creates).toBeGreaterThan(0);
   });
 
   it("a key that is not owned and no --name is a target error, not a request for a name", async () => {

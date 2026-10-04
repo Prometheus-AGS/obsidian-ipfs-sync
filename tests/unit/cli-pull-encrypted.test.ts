@@ -89,7 +89,7 @@ describe("first pull", () => {
     expect(result.out).toMatch(/\d+ fetched, 0 unchanged, 0 conflicts, 0 integrity-failed, 0 unfetched/);
     expect(result.out).toContain("sequence  1");
     expect(rig.requests.filter((request) => /^(files\/(write|rm)|key\/gen|pin\/add|name\/publish)$/.test(request))).toEqual([]);
-    expect(await readFile(join(rig.vaultB, ".ipfs-sync-fixture"), "utf8")).toContain("pulled-fixture");
+    expect(await exists(join(rig.vaultB, ".ipfs-sync-fixture"))).toBe(false);
     expect(await readdir(join(rig.vaultB, ".ipfs-sync", "tmp"))).toEqual([]);
     expect(await exists(join(rig.stateB, "ipfs-sync", FLOOR_FILE))).toBe(true);
   });

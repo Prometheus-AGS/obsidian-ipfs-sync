@@ -110,14 +110,8 @@ describe("classifyKey", () => {
 });
 
 describe("assertFixtureVault", () => {
-  it("passes only for the `fixture` marker value", () => {
-    expect(() => assertFixtureVault("fixture")).not.toThrow();
-  });
-
-  it.each(["absent", "pulled-fixture", "empty", "unrecognised"] as const)("refuses the marker state %s with the review-pending message", (state) => {
-    expect(() => assertFixtureVault(state)).toThrowError(/not yet independently reviewed or verified in Obsidian/);
-    expect(() => assertFixtureVault(state)).toThrowError(/create \.ipfs-sync-fixture at the vault root containing the text "fixture"/);
-    expect(() => assertFixtureVault(state)).toThrowError(expect.objectContaining({ code: "fixture-marker-required" }));
+  it.each(["fixture", "absent", "pulled-fixture", "empty", "unrecognised"] as const)("passes for the marker state %s (the guard is removed)", (state) => {
+    expect(() => assertFixtureVault(state)).not.toThrow();
   });
 });
 
