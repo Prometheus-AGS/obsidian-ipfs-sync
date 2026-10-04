@@ -4,26 +4,31 @@ Sync your vault over IPFS through your own kubo node (`https://ipfs.prometheusag
 No Obsidian Sync subscription. No third-party cloud. Content-addressed snapshots now,
 CRDT multi-writer sync and an AI layer later.
 
-> **Fixture-only pre-release. Do not use it on real notes.**
+> **Pre-release. This branch accepts real notes, and its evidence is not in yet. Read "Real notes: what you accept"
+> before you use it.**
 >
-> - **What the tree does now.** Every publish is encrypted on your device: file contents, file names and the
->   manifest. The key comes from a passphrase the tool generates for you. Encryption is implemented, but it has not
->   been independently reviewed to the standard real notes need, and it has never been run inside Obsidian. Until that
->   changes, the CLI and the plugin publish only synthetic fixture vaults (a `.ipfs-sync-fixture` file in the vault
->   root that holds the text `fixture`) and refuse every other vault. That marker is an accident guard, not a
->   control: anyone who can create the file can override the refusal.
+> - **What this branch does.** The guard that limited the tool to generated test vaults is removed on branch
+>   `mvp-07b-guard-removal` (commit `38db5f8`). `init`, `publish`, `pull` and the plugin accept any vault, and the
+>   `.ipfs-sync-fixture` marker file has no meaning. Every publish is still encrypted on your device: file contents,
+>   file names and the manifest. The key comes from a passphrase the tool generates for you. `main` keeps the old guard
+>   until the release merge. Release 2 (v0.3.0) is not cut: `manifest.json` and `package.json` read 0.3.0, and there
+>   is no tag, no GitHub release and no release record.
+> - **What has not happened.** No independent review of this tree has been recorded. The Release 2 evidence (the review
+>   record, the operator run in Obsidian desktop against the shared node, the phone timing) is pending until the
+>   iteration-9 release steps (tasks 6.4 to 7.3 of the change's `tasks.md`). Nothing has been run inside Obsidian or
+>   on a phone. The earlier reviews listed in `DESIGN.md` section 8.1 were static reads of earlier trees by one model.
 > - **Pulling an encrypted vault is implemented in this tree and has not been run by the operator.** `ipfs-sync pull` and the
 >   plugin's Pull, Restore and Resolve fork read an encrypted vault back, check it against the highest sequence this
 >   device recorded, and write only verified files. The code is covered by automated tests with fake nodes. It has not
 >   been run inside Obsidian, on a phone, or against the shared node by the operator (that run belongs to `mvp-07b`).
 >   Large-file pull in the plugin is not advertised as working until that run records the outcome.
-> - **Key management, history pruning and the removal guard (`mvp-07b`, code only, unreleased).** The command line has
+> - **Key management, history pruning and the mass-removal guard (`mvp-07b`, unreleased).** The command line has
 >   `keys change-passphrase`, `keys increase-cost`, `keys accept-slots`, `keys discard` and `prune-history`. Publish
 >   stops a mass removal. The plaintext reader is gone. The plugin has dialogs for the key actions, the removal
 >   confirmation and the cost confirmation, and a command that times key derivation. This is covered by automated tests
->   with fake nodes. None of it has been run inside Obsidian, on a phone or against the shared node by the operator,
->   and the operator-run script for it (`tools/feature-op-mvp-07.mjs`) is not written yet. It has not been reviewed
->   independently. The marker guard above is still in this tree.
+>   with fake nodes. None of it has been run inside Obsidian, on a phone or against the shared node by the operator.
+>   The operator-run script for it (`tools/feature-op-mvp-07.mjs`) exists; no manual run of it in Obsidian has been
+>   recorded, and a script-only result does not count. It has not been reviewed independently.
 > - **Release 0.2.0** (tagged `v0.2.0`, a GitHub pre-release) is the plaintext build: it has no encryption, and
 >   everything it published is readable by anyone who obtains the CID. The encryption described below is not in 0.2.0;
 >   it is unreleased work after it. This tree cannot read what 0.2.0 published: a plaintext root is refused.
@@ -34,13 +39,13 @@ CRDT multi-writer sync and an AI layer later.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Obsidian plugin | `src/main.ts` → `dist/plugin/` (`main.js`, `manifest.json`) | Publish (encrypted), Pull, Restore an older version, Resolve fork, Status and Measure key derivation time commands, settings tab with an Encryption section (Pull record row, key-derivation cost, change passphrase, increase cost, accept key slots), dialogs for mass removal and for a key slot above the default cost, optional auto-publish. Fixture vaults only |
+| Obsidian plugin | `src/main.ts` → `dist/plugin/` (`main.js`, `manifest.json`) | Publish (encrypted), Pull, Restore an older version, Resolve fork, Status and Measure key derivation time commands, settings tab with an Encryption section (Pull record row, key-derivation cost, change passphrase, increase cost, accept key slots), dialogs for mass removal and for a key slot above the default cost, optional auto-publish |
 | CLI init | `ipfs-sync init` | The only way to create an encrypted vault: generates the passphrase and the key slots |
 | CLI publish | `ipfs-sync publish` | Encrypt and send only changed files to the node's MFS, then publish the snapshot to the IPNS key |
 | CLI pull | `ipfs-sync pull` | Reads an encrypted vault back: authenticates the manifest, checks the sequence against this device's record, writes only verified files. Also restores an older version, resolves a fork and lists versions. A plaintext (version 1) root from release 0.2.0 is refused |
 | CLI keys | `ipfs-sync keys change-passphrase`, `increase-cost`, `accept-slots`, `discard` | Replace the key slot under a new generated passphrase or a higher cost, accept another device's change, drop a stuck operation. Revokes nothing (see "Change the passphrase or the cost") |
 | CLI prune | `ipfs-sync prune-history` | Remove the oldest history files from the node's working tree so the folder stays under the publisher's limit (see "History growth") |
-| Exclusions | `src/sync/exclusions.ts` | Shared exclusion list: trash, the whole `.obsidian/` folder, the Smart Connections folder `.smart-env/`, this dev folder and the fixture marker file. Plugin code and plugin data are device-local and are never published or pulled |
+| Exclusions | `src/sync/exclusions.ts` | Shared exclusion list: trash, the whole `.obsidian/` folder, the Smart Connections folder `.smart-env/`, this dev folder and the old marker file name `.ipfs-sync-fixture` (still excluded, so a leftover marker is never published). Plugin code and plugin data are device-local and are never published or pulled |
 
 **Mutable pointer:** the project IPNS key `obsidian-vault-sync` on your node. `publish`
 creates it if absent and records its ID in the config file (`ownedKeys`). Each publish
@@ -66,11 +71,10 @@ True merging arrives with the Phase 2 op-log. See "Pull" below.
 
 ## Obsidian plugin
 
-**Fixture-only.** The plugin encrypts every publish. It publishes only in a vault that contains the
-`.ipfs-sync-fixture` marker holding the text `fixture`. Any other vault is refused before a single request is sent,
-with a notice. Pull works in a vault that contains the marker (either `fixture` or `pulled-fixture`), or that has no
-files outside `.obsidian/` and `.ipfs-sync/` (Pull then creates the marker with the text `pulled-fixture`, which
-Publish refuses). Do not install this on a vault that holds real notes.
+**Any vault, encrypted, unreviewed.** The plugin encrypts every publish and publishes from any vault; it needs no
+marker. Pull works into any directory and keeps a local edit as a conflict copy; it writes no marker. Read "Real notes:
+what you accept" before you install this on a vault that holds notes you cannot lose or cannot expose. Nothing in this
+plugin has been run inside Obsidian.
 
 `pnpm build` writes the plugin to `dist/plugin/` (`main.js` and `manifest.json`) and the CLI
 to `dist/cli/ipfs-sync.mjs`. A build never writes into a vault by default. To load the plugin
@@ -151,7 +155,7 @@ What the plugin does today:
 ### Pull
 
 `ipfs-sync pull <vault>` (and the plugin's Pull) does this, in order: refuse invalid flag combinations; check the
-destination (absent, empty, or marked `fixture` or `pulled-fixture`); take `publish.lock`; resolve the name and list the
+destination (absent, or a directory whose state folder is not a symbolic link; no marker is needed); take `publish.lock`; resolve the name and list the
 root; unlock (the local key-slot copy first, so a wrong passphrase is refused locally); authenticate `manifest.enc`; decide
 the verdict against this device's record; on a first pull, show the sequence, date and device and ask; plan each path;
 fetch each file from the immutable tree the authenticated manifest names (never the mutable `current/`), decrypt it into
@@ -189,8 +193,7 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   keeps the node's entry for such a path unchanged and publishes nothing from this device for it.
 - **Second device.** Same MFS root and publication key name as the first, the owned key adopted (its ID in `ownedKeys`
   in the config file, or `--owned-key <id>` for one run; in the plugin, "Adopt a key by ID"), and a pull before the first
-  publish. A directory that pull populated carries the marker `pulled-fixture`, which `publish` refuses; write `fixture`
-  into `.ipfs-sync-fixture` by hand to publish from it (your statement that it holds no real notes; nothing verifies it).
+  publish. A directory that pull populated can be published from; since the guard removal no marker is written or read.
 - **`.obsidian/` no longer syncs, and the default exclusion list changed.** `excludesHash` is now
   `ebd10cbd1cd9776229910af44cc1455550e840ba6aad25e8ba9434b0df32da0f`; before this change it was `062286b6...ddc9d`. A pull
   of a manifest with another hash prints one warning and verifies every local file by content. Entries of an older
@@ -210,12 +213,13 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
 - **Phones.** The exact plugin build reaches a phone through BRAT from a GitHub pre-release that carries the reviewed
   bytes and has its own tag, never the main tag. Do not use an iCloud vault or a manual iCloud copy: a manual copy hung
   the app at "Loading plugins" and a file-provider hang cleared only by restarting the phone. `.obsidian/plugins/` is not
-  synced by this tool. Android is untested and is not claimed. Until the guard is removed (`mvp-07b`) it is a
-  fixture-only build. What was measured on an iPhone is in "Not
-  verified".
+  synced by this tool. Android is untested and is not claimed. On this branch the plugin has no guard, so a phone build
+  would take a real vault; how it behaves with one is unmeasured (see "Real notes: what you accept"). What was measured
+  on an iPhone is in "Not verified".
 
-The earlier "pull demo" (publish a fixture vault, then pull it into a second vault) is implemented in this tree for
-encrypted fixture vaults (see "Encrypted vaults"); it has not been run by the operator. **There is no plaintext reader.**
+The earlier "pull demo" of release 0.2.0 (publish a generated fixture vault, then pull it into a second vault) was
+plaintext. Its encrypted equivalent is implemented in this tree (see "Encrypted vaults"); it has not been run by the
+operator. **There is no plaintext reader.**
 A root that holds `manifest.json` and no key slots (what release 0.2.0 published) is refused with "plaintext
 publications are no longer supported by this version" (CLI exit 2, nothing written), whatever this device has seen
 before. A root with key slots and no `manifest.enc` is refused too, and a planted `manifest.json` next to an encrypted
@@ -225,7 +229,8 @@ code path reads a plaintext manifest.
 
 ### Plugin limitations
 
-- Encryption is implemented but not independently reviewed and not verified in Obsidian; fixture vaults only (above).
+- Encryption is implemented but not independently reviewed and not verified in Obsidian (see "Real notes: what you
+  accept").
 - The plugin cannot detect symbolic links, because Obsidian's file adapter has no `lstat`. The CLI refuses to
   write through a symlink; the plugin cannot make that check. Do not place symlinks in a vault you sync.
 - **Desktop streams ranged reads; mobile still buffers.** On desktop the plugin sends a GET that carries a `Range`
@@ -299,8 +304,8 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
 
 - `status` shows node identity, MFS listing, gateway fetch, write probe and key state.
 - `init` creates the encrypted vault for `<vault>` (next section). `publish` never creates one.
-- `publish` sends only changed files, always encrypted, and needs the vault passphrase. It accepts only a vault whose
-  `.ipfs-sync-fixture` file holds the text `fixture`, and needs an MFS root strictly below `/obsidian-vault-sync`.
+- `publish` sends only changed files, always encrypted, and needs the vault passphrase. It accepts any vault and needs
+  an MFS root strictly below `/obsidian-vault-sync`.
 - `pull` fetches only files whose sha256 differs, from an encrypted root (see "Pull"), with the same passphrase sources as
   `publish`. `pull` without `--name` uses the ID of the owned `obsidian-vault-sync` key. `--manifest <cid>` or
   `--root-cid <cid>` with `--allow-rollback` restores an earlier version; `--list-versions` shows the newest 20 history
@@ -346,9 +351,55 @@ Three consequences to accept before you use it:
 - **There is no recovery.** If you lose the passphrase, and every copy of the key slots, the data is gone. Nobody can
   reset it. The copy of `keyslots.json` this tool keeps in `.ipfs-sync/` protects only against the node losing the file.
 
+### Real notes: what you accept
+
+This branch lets you publish a real vault. Nothing stops you, so the list below is the whole warning. Each line is a
+way this goes wrong for you.
+
+- **Encrypted, and not everything.** Contents, paths, file names and the manifest are encrypted. The node operator
+  still sees how many files you have, their exact sizes, when and how often you publish, which blobs change, and that
+  the vault exists. Treat the node (`ipfs.prometheusags.ai`) as shared infrastructure: it holds other projects' keys,
+  and its RPC endpoint is open to writes from the internet (see "Security" below). Whoever can reach its storage or its
+  logs sees the list above.
+- **Published ciphertext is permanent and public.** Every old root stays pinned, and this project never unpins one.
+  Anyone with a root CID can download the ciphertext and the public `keyslots.json` and guess the passphrase offline,
+  with no deadline. If the passphrase leaks, or encryption turns out to be broken, everything you ever published opens,
+  and you cannot take it back. Assume you can never remove a published note from the network.
+- **No independent review of this tree has been recorded.** The encryption has had static reads by one model, not a
+  human or outside reviewer, and none of it has run inside Obsidian. The Release 2 evidence (the review record, the
+  operator run in Obsidian desktop against the shared node, the phone timing) is pending until the iteration-9
+  release steps. Until then a version number says nothing about safety; v0.3.0 is not released.
+- **Floor and rewrap limits.** The sequence floor does not stop a node from showing an old copy to a device that has
+  no recorded state (a first pull, a reinstalled plugin, a deleted per-user directory). It does not detect a freeze.
+  A passphrase change or a cost increase revokes nothing: the old passphrase and every old copy of the key slot, in
+  every earlier pinned root, keep opening the vault. Only re-encrypting under a new key would revoke, and nothing
+  here does that.
+- **Losing the passphrase loses the vault.** There is no recovery, no reset and no escrow. Save the generated
+  passphrase in a password manager before you publish.
+- **The plaintext is on every device that holds the vault.** Encryption protects what is on the node. Your notes sit in
+  clear in the vault folder on each computer and phone. `.ipfs-sync/` holds your paths in plaintext, and its `tmp/`
+  folder holds verified plaintext content while a pull runs and after a crash. Keep that folder out of iCloud,
+  Dropbox, Syncthing and backups.
+- **The plugin timer and High-cost vaults.** The auto-publish timer never opens a dialog. If the vault is locked it
+  skips the publish and shows one notice per session, so a timer alone does not back up a locked vault. It never asks
+  the cost question, so a vault whose key slot is above the default cost (the High preset, 128 MiB and 4 iterations)
+  stays locked to the timer and to the catch-up pull until you unlock by hand. The timer also writes history files:
+  at 15 minutes on a vault that changes every tick, the warning comes in about 15.6 days and the refusal in about
+  20.8 days unless you prune.
+- **Mobile limits.** The plugin reads through Obsidian's `requestUrl`, which buffers each whole response body in
+  memory. Desktop can stream ranged reads when `globalThis.require` exists, which is unconfirmed inside Obsidian;
+  mobile always buffers. How a phone behaves with a real vault, and whether it can unlock a High-cost slot, is
+  unmeasured. The only phone measurements are of earlier builds (see "Not verified"). Android is untested.
+- **The mass-removal guard has limits.** It stops a publish that would remove every remaining entry or more than half of
+  at least two, and not the first publish of a vault. Removing 49 percent of the entries is silent. A half-mounted
+  folder that is missing less than half the entries is not caught. It guards a publish, not the node: the node keeps
+  every old root.
+- **Not a backup.** A published snapshot is only as safe as your passphrase, the node and your own checks. Keep a
+  separate backup of the vault.
+
 ### Create a vault: `ipfs-sync init`
 
-`ipfs-sync init <vault>` is the only command that creates a vault. It needs the vault to carry the `fixture` marker,
+`ipfs-sync init <vault>` is the only command that creates a vault. It needs
 an MFS root strictly below `/obsidian-vault-sync` that is completely empty on the node (any entry at all is refused),
 and no key-slot copy already on this device for that root. It generates the passphrase itself; a passphrase in the
 environment is ignored, and you cannot choose one.
@@ -581,28 +632,27 @@ key-slot copy for a root that already holds a manifest is refused by `publish` (
 becomes a conflict copy. Restoring an older copy of the folder is handled by pulling; `--repair` refuses the "ahead"
 case there (see above).
 
-### The fixture marker
+### The retired fixture marker (history, and what stays)
 
-The guard is still in this tree. The plan removes it in one commit on a separate branch (`mvp-07b-guard-removal`),
-cut from `main` once the other code is done, and `main` keeps the guard until the release commit is merged by
-fast-forward. That branch does not exist yet. Until it is merged, `publish` and `init` require `.ipfs-sync-fixture` to hold exactly the text `fixture`
-(a trailing line feed is allowed), and they check it before they look at the passphrase or send any request. A directory
-that `pull` populated carries `pulled-fixture`, so it cannot be published from until you write `fixture` by hand (the
-second-device path in "Pull"). Values:
+Earlier trees, and `main` until the release merge, limited `publish` and `init` to a vault whose `.ipfs-sync-fixture`
+file held the text `fixture`. That was an accident guard, not a control: anyone who could create the file could
+override it. Release 0.2.0 wrote the text `fixture copy created by ipfs-sync pull` into a pulled copy, and the trees
+after it wrote `pulled-fixture`.
 
-| Marker content | Written by | `publish` and `init` | `pull` |
-|---|---|---|---|
-| `fixture` | you, or `pnpm fixture:generate` | accepted | accepted |
-| `pulled-fixture` | `pull`, when it populated an empty destination | refused | accepted |
-| empty, or anything else | earlier releases, or by hand | refused | refused |
+The removal commit on branch `mvp-07b-guard-removal` (`38db5f8`) replaced the contents of `src/sync/publish-guard.ts`
+and `src/sync/pull-guard.ts` with permissive versions that keep every export name and signature. On this branch:
 
-A destination that release 0.2.0 populated by pull carries a marker that reads `fixture copy created by ipfs-sync pull`
-(other early builds left it empty or wrote `marker`). This tree's `pull` refuses all three of those contents with a
-message that says the marker predates this version and must be re-marked deliberately. `publish` uses that wording only
-for the `fixture copy created by ipfs-sync pull` text; for an empty marker or `marker` it gives its generic refusal.
-To use that directory again you must re-mark it deliberately: write `fixture` into `.ipfs-sync-fixture` yourself
-(`fixture` for publish; `fixture` or `pulled-fixture` for pull). That is a statement by you that the directory holds no real notes. Nothing
-verifies it. Anyone who can create the file can override the guard, and the guard is an accident guard, not a control.
+- `publish`, `init`, the `keys` commands, `prune-history` and the plugin's Publish do not require the marker.
+- `pull` and the plugin's Pull accept any directory (or an absent one), apply the usual conflict policy, and write no
+  marker.
+- The marker parsing code stays exported for its callers; nothing that gates an operation reads the result.
+- A marker file left in a vault (by release 0.2.0, an earlier tree or `pnpm fixture:generate`) is ignored, and it is
+  still on the default exclusion list, so it is never published.
+- Still refused, and not part of the old guard: a symbolic-link state folder (checked by the pull engine's first
+  step), a destination that exists and is not a directory, a mass removal, a missing passphrase, a path the path policy
+  rejects, a held lock, a sequence below the recorded floor, and a plaintext root.
+- `pnpm fixture:generate <dir>` still writes a synthetic test vault, for the tests and for trying the tool without your
+  notes. Use it for a dry run before the first real publish.
 
 ### Limits that stay
 
@@ -633,8 +683,10 @@ terminal can still produce all three. A terminal and a nonce stop pipes and acci
 drives a pseudo-terminal. The review record is authenticated by git history; the release tool then needs the operator to
 type `I accept an unsigned review record for <tree hash prefix>`, and the notes say "unsigned". A change to any scoped file after the review record or after the operator run changes the tree hash, and both must be redone. A one-line fix therefore repeats the review record and
 the operator run, and a phone measurement is bound to the exact plugin build. The checker, the phone-timing recorder and
-the release tool exist and are covered by tests; the operator-run script does not exist yet, so no release can pass today.
-The order and commands are in the operator runbook.
+the release tool and the operator-run script exist and are covered by tests. The review record does not exist, no manual
+operator run has been recorded and no phone timing has been recorded, so no release can pass today. The order and
+commands are in the operator runbook. The checker and the release tool bind to the tree of branch
+`mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`.
 
 ### Not verified
 
@@ -656,8 +708,8 @@ Argon2id at 64 MiB, t = 3, p = 1 took 980, 1143 and 1133 ms with a longest event
 build (`0.2.1-probe.1`); the Mac baseline for the same function was 990 to 1177 ms. The first pull crashed the app once
 (unexplained); the relaunch loop after it was an iOS file-provider hang cleared by restarting the phone. These are
 measurements of those builds. They say nothing about the encrypted pull, which has not run on a phone, and Android is
-untested. A phone test installs through BRAT from a GitHub pre-release with its own tag, and until the guard is removed
-that is a fixture-only build.
+untested. A phone test installs through BRAT from a GitHub pre-release with its own tag. Phone behaviour with a real
+vault (memory with `requestUrl` buffering, unlock time of a High-cost slot, background and suspend) is unmeasured.
 
 What has run on the shared node: `tools/feature-op-mvp-06.mjs` ran twice on 2026-09-30 (task 6.2 and the delivery-cadence feature checkpoint; both exit 0, 121 of 121 checks;
 encrypted layout; publish #2 "1 written, 0 removed" at sequence 2; three kill points resumed; refusals sent no mutating

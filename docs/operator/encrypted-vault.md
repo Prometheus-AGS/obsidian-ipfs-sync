@@ -3,8 +3,11 @@
 Audience: the person running `ipfs-sync` against a kubo node. Scope: `init`, `publish` and the plugin's Publish for
 the encrypted publish path of change `mvp-06`, and `pull`, the plugin's Pull, Restore and Resolve fork, and publishing
 from a second device for change `mvp-07a`, and the `keys` commands, `prune-history`, the mass-removal guard and the release
-checks for change `mvp-07b`. Status: fixture vaults only, encryption implemented but not
-independently reviewed to the standard real notes need and never run inside Obsidian. The feature-operation script of
+checks for change `mvp-07b`. Status: on branch `mvp-07b-guard-removal` any vault can be published (the fixture-only guard
+is removed, commit `38db5f8`; `main` still has it). Encryption is implemented but not independently reviewed to the
+standard real notes need and never run inside Obsidian. No independent review of this tree has been recorded, and the
+Release 2 evidence (review record, operator run, phone timing) is pending until the iteration-9 release steps. The
+feature-operation script of
 `mvp-06` ran twice against the shared node on 2026-09-30 (below); the plugin flow has not (`README.md`, `DESIGN.md`
 section 8). The pull in this file is covered by automated tests with fake nodes. It has not been run inside Obsidian, on
 a phone, or against the shared node by the operator; that run belongs to change `mvp-07b`. Where a sentence
@@ -18,11 +21,40 @@ screen differs, the code wins and this file is stale.
 
 | Need | Detail |
 |---|---|
-| A fixture vault | `.ipfs-sync-fixture` at the vault root holding the text `fixture`. `pnpm fixture:generate <dir>` writes one. Anyone who can create the file can override this guard; it is not a control |
+| A vault | Any directory. No marker file is needed on this branch. To try the tool without your notes, `pnpm fixture:generate <dir>` writes a synthetic test vault |
 | An MFS root | `--mfs-root /obsidian-vault-sync/<name>`, strictly below `/obsidian-vault-sync`. One root per vault. `init` needs it completely empty |
 | A place to keep the passphrase | A password manager. There is no recovery |
 | Local storage that is not synchronised | `<vault>/.ipfs-sync/` is plaintext (paths), and its `tmp/` folder holds verified plaintext file content while a pull runs. Keep it out of iCloud, Dropbox, Syncthing and backups |
-| For a second device | The same MFS root and publication key name, the owned key adopted, the passphrase, and a destination that is empty or carries the `fixture` or `pulled-fixture` marker. See "Second device" |
+| For a second device | The same MFS root and publication key name, the owned key adopted, the passphrase, and a destination directory (any directory; a local edit becomes a conflict copy). See "Second device" |
+
+## Real notes: what you accept
+
+On this branch nothing stops you from publishing a real vault. Accept each line before you do, or use a synthetic vault.
+
+1. **What the node sees.** Contents, paths, file names and the manifest are encrypted. The number of files, their exact
+   sizes, the time and frequency of your publishes and the existence of the vault are visible to the node operator. The
+   node is shared infrastructure (other projects' keys live on it, and its RPC endpoint is open to writes; see
+   `README.md`, "Security").
+2. **Published ciphertext is permanent and public.** Old roots stay pinned and this project never unpins one. The key
+   slot is public, so a leaked or weak passphrase opens everything ever published, with no deadline. You cannot take a
+   published note back.
+3. **No independent review of this tree has been recorded.** The Release 2 evidence (review record, operator run in
+   Obsidian desktop against the shared node, phone timing) is pending until the iteration-9 steps in "Release checks".
+   Nothing has been run inside Obsidian.
+4. **Sequence floor and rewrap.** The sequence floor does not stop a node from showing an old copy to a device that has
+   no recorded state, and does not see a freeze. Rewrap (passphrase change, cost increase) revokes nothing: the old
+   passphrase and every old key-slot copy in earlier roots still open the vault.
+5. **Losing the passphrase loses the vault.** There is no recovery.
+6. **Plaintext on every device.** The vault folder is plain on each device. `.ipfs-sync/` holds paths in plaintext and
+   `tmp/` can hold plaintext file content. Keep it out of sync tools and backups.
+7. **Plugin timer and High cost.** The timer never opens a dialog. It skips while the vault is locked, and it never asks
+   the cost question, so a key slot above the default cost (64 MiB, 3 iterations) keeps the timer and the catch-up pull
+   refused until you unlock by hand.
+8. **Mobile.** `requestUrl` buffers whole response bodies. Desktop can stream ranged reads if `globalThis.require` exists
+   in Obsidian (unconfirmed); mobile cannot. Phone behaviour with a real vault is unmeasured. Android is untested.
+9. **Mass-removal limits.** The guard stops removing every remaining entry or more than half. It does not stop the removal
+   of 49 percent of the entries, does not check a vault's first publish, and does not see a half-mounted folder that is
+   missing less than half the files.
 
 ## Routine
 
@@ -52,8 +84,8 @@ that reads it, and `--allow-plaintext-v1` and `--manifest-file` are unknown opti
 In order, and what each step may write:
 
 1. Flag combinations that are never valid are refused before any request (below).
-2. The destination must be absent, empty, or carry the marker `fixture` or `pulled-fixture` (see "Second device" for
-   what that means for publishing). Anything else is refused before any request, with exit code 2.
+2. The destination must be absent or a directory, and its `.ipfs-sync/tmp` folder must not be a symbolic link. No marker
+   is needed or written. Anything else is refused before any request, with exit code 2.
 3. The lock is taken. This creates `<vault>/.ipfs-sync/` (and the vault directory) if they are missing, even if the pull
    later stops. `.ipfs-sync/tmp/` is swept. The name is resolved and the root listed once.
 4. Unlock. A device that holds a key-slot copy for this root unlocks that copy first, so a wrong passphrase is refused
@@ -193,9 +225,8 @@ plugin's first-pull dialog also lists:
 3. Pull before publishing, so the first publish builds on what the node holds. A publish to a root that has moved says
    "Run pull first, then publish again." and writes nothing.
 
-Marker: a directory that `pull` populated carries `pulled-fixture`, which `publish` refuses until the encryption guard is
-removed (`mvp-07b`). To publish from it, write `fixture` into `.ipfs-sync-fixture` yourself. That is your statement that
-the directory holds no real notes, and nothing verifies it.
+Marker: on this branch a directory that `pull` populated can be published from, and `pull` writes no marker. Before the
+guard removal (and on `main`) such a directory carried `pulled-fixture`, which `publish` refused; that is history.
 
 Concurrent publishes from two devices are narrowed, not prevented. A publish reads the publication name before its first
 write and again right before `name/publish` and refuses ("another device may have published ...") if it moved. kubo has no
@@ -288,8 +319,9 @@ agent reproduced them (`children/mobile-feasibility/device-results.md`):
 | The first pull crashed the app once, then launches looped | The original crash is unexplained. The relaunch loop was an iOS file-provider hang (watchdog 0x8BADF00D), cleared by restarting the phone |
 
 Not run: an encrypted publish or pull on a phone, background and suspend behaviour, memory above 50 MB, Android. A phone
-test installs through BRAT from a GitHub pre-release with its own tag, never from a copy of the main tag's files. Until the
-guard is removed in `mvp-07b`, a phone build is a fixture-only build.
+test installs through BRAT from a GitHub pre-release with its own tag, never from a copy of the main tag's files. On this
+branch a phone build takes a real vault, and its behaviour with one (memory under `requestUrl` buffering, unlock time of
+a High-cost slot, background and suspend) is unmeasured.
 
 ### Refusals and stops during a pull
 
@@ -298,7 +330,8 @@ Every stop below writes nothing in the vault unless it says otherwise. Pull stop
 | Message contains | Meaning | Action |
 |---|---|---|
 | `--allow-rollback needs an explicit target` / `--resolve-fork works only on a name target` / `--resolve-fork cannot be combined with --allow-rollback` | A flag combination the rules never accept | Fix the command |
-| `this directory is not empty and has no .ipfs-sync-fixture marker` | The destination holds files and no marker | Use an empty directory, or write `fixture` or `pulled-fixture` into the marker if it holds no real notes |
+| `the destination exists and is not a directory` / `the destination is not a directory` | The path names a file | Name a directory |
+| `is a symbolic link; pull will not write its state through it` | A prefix of `.ipfs-sync/tmp` is a symbolic link | Replace the link with a real folder. The check runs on every pull whatever the old guard did |
 | `the vault id is not the one expected by --expect-vault-id` | The slot file's vault is not the one you named | Check the root and the id; nothing was derived |
 | `below the N required by --expect-min-sequence` | The node serves an older manifest than you required | Do not accept it; check the node |
 | `records a different vault than the one being pulled` | This directory or this device's floor belongs to another vault | Use another directory, or check the root |
@@ -406,9 +439,13 @@ Limits you must know:
 
 ## Release checks (operator-facing)
 
-These are the checks that gate Release 2 (v0.3.0). The checker, the phone-timing recorder and the release tool are built
-and tested. The operator-run script `tools/feature-op-mvp-07.mjs`, the review record and the guard-removal branch do not
-exist yet, so nothing here has been performed and no release can pass today.
+These are the checks that gate Release 2 (v0.3.0). The checker, the phone-timing recorder, the release tool and the
+operator-run script `tools/feature-op-mvp-07.mjs` are built and tested, and the guard-removal branch
+`mvp-07b-guard-removal` exists (removal commit `38db5f8`). The review record does not exist, no manual operator run has
+been recorded and no phone timing has been recorded, so none of these checks has been performed on the branch tree and no
+release can pass today. A script-only result does not count for the operator run. Any change to a scoped file on the
+branch (the documentation files are outside the scope) changes the tree hash and repeats the review record and the
+operator run.
 
 - What they prove. The review record, the operator-run record and the phone-timing record are attestations, not proofs.
   The checker makes forging them more work and leaves a trail. A person with repository write access and a terminal can
@@ -468,7 +505,7 @@ Every refusal below sends nothing to the node or stops before anything is writte
 
 | Message contains | Meaning | Action |
 |---|---|---|
-| `publish refused: this vault has no .ipfs-sync-fixture marker` (or `marker is empty`, `marker says "pulled-fixture"`, `marker does not hold the text "fixture"`) | The guard. Real vaults are refused until `mvp-07b`. A marker left by release 0.2.0 pull (`fixture copy created by ipfs-sync pull`, empty, or `marker`) also lands here; `pull` says the marker predates this version, and `publish` says so only for the pulled-copy text | For a fixture vault, write `fixture` into `.ipfs-sync-fixture`. That is your statement that the directory holds no real notes; nothing verifies it |
+| `publish refused: this vault has no .ipfs-sync-fixture marker` (or `marker is empty`, `marker says "pulled-fixture"`, `marker does not hold the text "fixture"`) | History: the old guard of `main` and earlier trees. This branch does not send it | On `main`, write `fixture` into the marker (your statement that the directory holds no real notes). On this branch there is nothing to do; if you see the text, you are running an older build |
 | `publishing needs the vault passphrase and none was supplied` | No file, no variable, and no terminal | Set `IPFS_SYNC_PASSPHRASE_FILE`, or run on a terminal |
 | `both IPFS_SYNC_PASSPHRASE and IPFS_SYNC_PASSPHRASE_FILE are set` | Two sources | Unset one |
 | `not a valid generated passphrase` (`passphrase-format`) | Wrong length, characters outside `A-Z2-7`, or the check symbols do not match (a probable typo). The check catches about 99.9% of single mistyped body symbols; about 1 in 1,024 wrong strings still passes and then fails as a wrong passphrase | Copy the passphrase; letters are not case-sensitive and hyphens are optional |

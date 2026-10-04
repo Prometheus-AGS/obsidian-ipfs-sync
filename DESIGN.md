@@ -144,7 +144,8 @@ under `manifests/`):
 **Pull (delta, streamed).** The plaintext steps this section first described (`cat` of `.ipfs-sync.manifest.json`, then
 `vault.create` / `vault.modify`) were the plaintext reader, which `mvp-07b` removed. The delivered pull
 of an encrypted vault, in the CLI and the plugin, is (details in §8.10):
-1. Refuse invalid flag combinations; check the destination (absent, empty, or marked `fixture` or `pulled-fixture`); take
+1. Refuse invalid flag combinations; check the destination (absent or a directory whose state folder is not a symbolic
+   link; the marker rule of earlier trees is gone on `mvp-07b-guard-removal`); take
    `publish.lock`; `name/resolve` (with `nocache=true`) → root CID; list the root once.
 2. Unlock from the local key-slot copy, else from the node's slots; authenticate `manifest.enc`; run the path policy over
    the whole manifest; decide the verdict against the record (state and sequence floor, §8.10). A first pull is shown and
@@ -223,7 +224,8 @@ the code (module named in the last column of §8.3).
 
 Read this first: the key-slot file is public, the node is open-write, and the only thing between an attacker and every
 note ever published is the passphrase. Encryption is implemented but has not been independently reviewed to a standard
-that permits real notes, and has never been run inside Obsidian. Real vaults are refused until that changes (§8.9).
+that permits real notes, and has never been run inside Obsidian. On branch `mvp-07b-guard-removal` real vaults are no
+longer refused; `main` still refuses them (§8.9). Whoever publishes a real vault there accepts those facts.
 
 ### 8.1 Status and state of review
 
@@ -237,8 +239,9 @@ standing: automated tests with fake nodes; not independently reviewed; not run i
 against the shared node): rewrap by `keys change-passphrase` and `keys increase-cost`, `keys accept-slots`, `keys
 discard`, the maintenance journal (§8.4), `prune-history` (§8.7), the mass-removal guard (§8.7), the removal of the
 plaintext reader and its latch (§8.7), the plugin's key rows, dialogs, cost confirmation and measure command, desktop Range
-streaming, and the guard-evidence checker with its recorder and release tool (§8.9). Not delivered: additional key slots,
-revocation, the operator-run script for `mvp-07b` (`tools/feature-op-mvp-07.mjs`), the guard-removal branch, coalescing
+streaming, the guard-evidence checker with its recorder and release tool, and the operator-run script
+`tools/feature-op-mvp-07.mjs` (§8.9). The guard-removal branch `mvp-07b-guard-removal` exists (§8.9). Not delivered:
+additional key slots, revocation, a recorded manual operator run, a review record, a phone timing, coalescing
 of auto-publishes (task 1.8 chose the CLI command plus a plugin prune action instead; the plugin action, task 2.5, is
 built and tested only with a fake DOM), the history store (`mvp-08`).
 
@@ -333,7 +336,7 @@ after release without a new format version.
 | Device-local store | outside every vault: CLI, a per-user directory (`$XDG_STATE_HOME/ipfs-sync`, else macOS `~/Library/Application Support/ipfs-sync`, Windows `%LOCALAPPDATA%\ipfs-sync`, otherwise `~/.local/state/ipfs-sync`; directory 0700, files 0600, owned by the user); plugin, the `deviceStore` section of the plugin data. Entries `device-id` (16 random bytes as 32 hex; the manifest `device` carries `<label>-<first 12 hex>`) and `sequence-floor.json` | `cli/device-store-node.ts`, `src/plugin/device-store-plugin.ts`, `src/sync/device-store.ts` |
 | Sequence floor | `sequence-floor.json`, format 1: per vault ID (32 hex), the highest accepted manifest `sequence`, its `identity` (64 hex) and the write time `at`; at most 64 vaults, the oldest `at` dropped beyond that; every write re-reads the file and keeps the higher sequence; strict decoding, a damaged file is refused and never repaired | `src/sync/sequence-floor.ts` |
 | Pull limits | in-flight segment memory budget 128 MiB; at most 6 files in flight (6 at segment exponent 23, 4 at 24); ask before fetching above 512 MiB (`--max-bytes`; plugin `pullConfirmAboveMb`, 64 to 8192); the plugin accepts a whole 200 body only up to 32 MiB and fetches only segment exponents of 20 or more; `--list-versions` and Restore list the newest 20 history names and decrypt files of at most 8 MiB. Every number is a proposal, not a measurement | `src/sync/pull-budget.ts`, `cli/pull-versions.ts`, `src/plugin/pull-restore.ts` |
-| Marker | `.ipfs-sync-fixture` holding `fixture` (user or generator) or `pulled-fixture` (pull, when it populated an empty directory; `publish` refuses it until the user writes `fixture` by hand); read up to 64 bytes | `src/sync/fixture-marker.ts`, `src/core/config/node-safety.ts` |
+| Marker (history) | `.ipfs-sync-fixture` held `fixture` (user or generator) or `pulled-fixture` (pull); read up to 64 bytes. Since `mvp-07b-guard-removal` nothing that gates an operation reads the result and pull writes none; the parsing stays exported. The names stay in `src/sync/fixture-constants.ts` | `src/sync/publish-guard.ts`, `src/sync/fixture-constants.ts` |
 
 Error classes (`src/crypto/errors.ts`): only a genuine AES-GCM authentication failure is reported as
 `authentication-failed`, and callers treat it as tampering, a wrong key or a moved object. `malformed-input` is
@@ -347,7 +350,8 @@ missing; a known-answer check of HKDF, HMAC and AES-GCM runs on first unlock.
 
 ### 8.4 What one publish does
 
-In this order: marker guard (before the passphrase is looked at and before any request); in the CLI, the publish lock
+In this order: (the marker guard of earlier trees, which ran before the passphrase and any request, is a no-op on
+`mvp-07b-guard-removal`); in the CLI, the publish lock
 and then the passphrase; a keyless idle check (below); unlock, from the local key-slot copy first, so the wrong-passphrase check is local (the run still sends two read-only
 requests, `files/stat` and `key/list`, before it unlocks); publication-key lookup; journal check and resume; read-only inspection of the MFS root (bounded
 listings, plaintext-root refusal, key slots and `manifest.enc` fetched through the gateway under their caps); sequence
@@ -431,7 +435,9 @@ The uncomfortable parts, stated plainly:
   is not free of look-alike characters (S and 5, Z and 2, G and 6, I and L).
 - **There is no recovery.** A lost passphrase, together with the loss of every copy of the key slots, makes the vault
   permanently unreadable. The local slot copy protects only against the node deleting the file.
-- **The fixture marker is an accident guard, not a control.** Anyone who can create the file can override it (§8.9).
+- **Real notes are accepted on the branch, and nothing independent has reviewed it.** The old marker was an accident
+  guard, not a control, and is gone there (§8.9). What is left between a real vault and harm is the passphrase and the
+  limits listed in §8.7.
 - **Local state is plaintext at rest.** `state.<h>.json` and `journal.<h>.json` hold vault paths. The `.ipfs-sync/` folder
   must be excluded from iCloud, Dropbox, Syncthing, backup tools and any other synchronisation. Deleting it resets the
   local state and turns this device into a stranger to the roots it published to (§8.7). Since `mvp-07b` there is no
@@ -586,10 +592,10 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   sync lock (`src/plugin/abandon-flow.ts`), so a CLI publish running against the same vault folder is not stopped by a
   plugin abandon. Refusal messages quote
   `ABANDON_HOW` (`src/sync/abandon-hint.ts`). The abandon dialogs have never run in Obsidian.
-- **Legacy 0.2.0 markers.** `pull` refuses the three marker contents release 0.2.0 wrote or accepted (`fixture copy
-  created by ipfs-sync pull`, empty, `marker`) with a message that the marker predates this version and must be
-  re-marked deliberately (`src/sync/pull-guard.ts`, `src/sync/fixture-marker.ts`). `publish` uses that wording only for
-  the pulled-copy text; the other two get the generic refusal.
+- **Legacy 0.2.0 markers (history).** Before the guard removal, `pull` refused the three marker contents release 0.2.0
+  wrote or accepted (`fixture copy created by ipfs-sync pull`, empty, `marker`) and `publish` used that wording only for
+  the pulled-copy text. On `mvp-07b-guard-removal` no marker content is refused; `legacyMarkerProblem` and the marker
+  readers stay exported in `src/sync/publish-guard.ts` and nothing that gates an operation reads them.
 - **Plugin key-slot copy.** The plugin writes its local key-slot copy through Obsidian's adapter, and that write is not
   crash-atomic; the CLI copy is atomic (temporary file, then rename).
 - **Plugin lock file.** Creation is a check that the file does not exist, then a rename of a fully written temporary
@@ -650,8 +656,8 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   unexplained; the relaunch loop that followed was an iOS file-provider hang (watchdog 0x8BADF00D) cleared by restarting
   the phone. These are measurements of that build, not claims about the encrypted pull: an encrypted publish or pull
   has not run on a phone, nothing was measured above 50 MB, background and suspend behaviour is unknown, and Android is
-  untested. A phone test installs through BRAT from a GitHub pre-release with its own tag, and until the guard is
-  removed (`mvp-07b`) it is a fixture-only build.
+  untested. A phone test installs through BRAT from a GitHub pre-release with its own tag. On `mvp-07b-guard-removal`
+  such a build takes a real vault, and its behaviour with one is unmeasured.
 
 Unverified, or unenforced, at the time of writing:
 1. Anything inside Obsidian: the setup, unlock and abandon dialogs, an encrypted publish from the plugin, HKDF, HMAC and
@@ -702,8 +708,9 @@ Deferred or accepted, recorded so they are not lost:
   up automatically (a few bytes in `.ipfs-sync/`); delete it by hand if you find one.
 - Cosmetic, accepted: after an abandon, a second Publish can open a second unlock dialog over the first (the first is
   cancelled by the generation check). Whether `settling` deduplicates it was not verified.
-- The pull notice `FIXTURE_ONLY_PULL_NOTICE` (`src/plugin/pull-notices.ts`) now reads "no files outside .obsidian/ and
-  .ipfs-sync/"; before, it named only `.obsidian/` although the guard also ignores `.ipfs-sync/`.
+- History: the pull notice `FIXTURE_ONLY_PULL_NOTICE` once read "no files outside .obsidian/ and .ipfs-sync/". On
+  `mvp-07b-guard-removal` the constant keeps its name and carries neutral text ("pull was refused. Nothing was sent to
+  the node and no file changed."), and no marker refusal reaches it.
 - W-14 (untouched blobs are never re-verified), W-15 (mass removal) and W-16 (the plugin's `readRange` re-reads
   the whole file per segment, so a file over 8 MiB edited during upload can be uploaded as a mix of versions) were
   preconditions for removing the guard in `mvp-07b`. W-15 is now partly answered by the mass-removal guard (the 49 percent
@@ -727,26 +734,57 @@ a new 0600 file created exclusively (`--passphrase-file`) and prints only the pa
 once per session, keeps only the non-extractable key set in memory, never writes a passphrase or key to `data.json`, and
 never opens a dialog from the timer.
 
-### 8.9 The publish guard
+### 8.9 The publish guard, its removal and the release gate
 
-Until `mvp-07b` removes it (below), publish (CLI and plugin) and `init` refuse any vault whose `.ipfs-sync-fixture` file does not
-hold the text `fixture`, before a passphrase is looked at and before any request. `pulled-fixture` (written by pull), an
-empty marker and any other text are refused; pull accepts `fixture` and `pulled-fixture`. A directory that pull populated
-therefore cannot be published from until the user writes `fixture` into the marker by hand, which is the user's own
-statement that it holds no real notes. The message states that encryption is implemented but not yet independently
-reviewed or verified in Obsidian. **The marker is not protection:
-anyone who can create a file in the vault can create it, and then the refusal is overridden.** Removing the guard is a
-named `mvp-07b` task that requires the security reviewer's sign-off, a recorded in-Obsidian run, and a phone timing of the
-key derivation or an explicit, informed operator acceptance (a timing on an iPhone now exists, §8.7 "Mobile"; whether it
-meets the precondition is for the operator and the reviewer). The case-fold and
-Windows path hardening for authenticated manifests landed in `mvp-07a` as the pull path policy (§8.10).
+**History.** Until the removal below, publish (CLI and plugin) and `init` refused any vault whose `.ipfs-sync-fixture`
+file did not hold the text `fixture`, before a passphrase was looked at and before any request. `pulled-fixture`
+(written by pull), an empty marker and any other text were refused, and pull accepted `fixture` and `pulled-fixture`.
+**The marker was never protection: anyone who can create a file in the vault can create it.** Removing the guard was a
+named `mvp-07b` task that requires the security reviewer's sign-off, a recorded in-Obsidian run, and a phone timing of
+the key derivation or an explicit, informed operator acceptance (a timing on an iPhone exists, §8.7 "Mobile"; whether it
+meets the precondition is for the operator and the reviewer). The case-fold and Windows path hardening for authenticated
+manifests landed in `mvp-07a` as the pull path policy (§8.10). `main` still holds the guard.
 
-**How the guard is removed, and what gates the release (delivered as tools; the removal itself is not done).** The fixture
-policy is centralised on `main` in `src/sync/fixture-constants.ts` (no imports), `publish-guard.ts`, `pull-guard.ts` and
-`state-folder-guard.ts`, with the symlinked-state-folder check called from the first step of the pull independent of the
-policy. The removal is one commit on a branch `mvp-07b-guard-removal` cut from `main`: the two policy modules become
-permissive with every export name kept, and `main` keeps the guard until a fast-forward-only merge; neither the branch nor
-`tests/unit/guard-permissive.test.ts` exists yet. The release is gated by `tools/check-guard-preconditions.mjs`, which
+**The branch that now exists.** Branch `mvp-07b-guard-removal` was cut from `main` at `ef50b1c` (the 0.3.0 version bump
+in `manifest.json` and `package.json`, committed before the branch so the release tool edits no hashed file). It carries
+one removal commit, `38db5f8`, which replaces the contents of `src/sync/publish-guard.ts` and `src/sync/pull-guard.ts`
+with permissive versions and keeps every export name and signature. `assertPublishMarker` and `assertFixtureVault`
+return without checking, `enablesPull` answers true, `assertPullDestination` and `assertVaultPullDestination` return
+`{ needsMarker: false }`, `writeFixtureMarker` does nothing, and the notice, settings and help copy carry neutral text
+("Any vault can be published.", "Any directory can be pulled into."). The marker parsing stays exported for its callers;
+`src/sync/fixture-constants.ts` is unchanged. The commit also adds `tests/unit/guard-permissive.test.ts` (16 tests),
+deletes `tests/unit/fixture-marker.test.ts` on this branch only, and adapts 20 other test files that asserted the old
+refusals. It had not been run as a whole suite when this section was written; the phase gate (task 6.4) runs it once.
+
+What stays refused, independent of the old policy: a state folder that is a symbolic link (`state-folder-guard.ts`,
+called by the pull engine's first step and by both destination functions), a destination that exists and is not a
+directory, a mass removal (§8.7), a missing or wrong passphrase, the path policy (§8.10), the locks, a sequence below the
+recorded floor, and a plaintext root. After the removal a real vault publishes encrypted, a non-empty directory pulls
+with the conflict policy, and the pull writes no marker.
+
+**What the branch does not have.** No review record of this tree, no recorded manual operator run, no phone timing, no
+tag and no release record. v0.3.0 is not cut. Anyone who publishes a real vault from this branch does so on the strength
+of static reads of earlier trees by one model each (§8.1) and nothing else.
+
+**The uncomfortable fact about `main`.** `main` is one commit ahead of the branch's base: `871257c` (the vault-agent UI
+design set; it touches `docs/`, `AGENTS.md`, `.gitignore`, `.claude/agents/uiux-lead.md`,
+`.agent-team/ipfs-sync/team.json` and `.agents/UI_UX_PROTOCOL.md`, none of them in the scope of T). The branch does not
+contain it, so a fast-forward-only merge of the branch into `main` is not possible until the branch is rebased onto
+`main` or `main` is merged into it. Either changes commit ids. Do that before the review record is written, not after:
+the git-history form of item A binds the record to the reviewed commit, and the operator decides how.
+
+**What the checker and the release tool bind to.** They bind to the committed tree of the branch HEAD, never to `main`
+and never to the working tree. T is the hash over the scoped files of that commit (package and build files,
+`manifest.json`, `src/`, `cli/`, `tools/release/`, `tools/feature-op-mvp-07/` and the checker, recorder and release
+tools; the exact list is `TREE_SCOPE` in `tools/check-guard-preconditions.mjs`). The removal commit changes `src/`, so
+T of this branch differs from T of `main`, and the reviewer reads this tree. `README.md`, `CHANGELOG.md`, `DESIGN.md` and
+`docs/operator/encrypted-vault.md` are outside T. The checker hashes them from the commit into the evidence
+(`DOCUMENT_FILES`) and requires the six limit sentences in the README and in this section. A documentation commit on the
+branch therefore changes the documentation hashes in the evidence and does not change T; a change to any scoped file
+after the review record or after the operator run changes T, and both must be redone.
+
+**How the release is gated (delivered as tools).** The policy is centralised in `src/sync/fixture-constants.ts` (no
+imports), `publish-guard.ts`, `pull-guard.ts` and `state-folder-guard.ts`. The release is gated by `tools/check-guard-preconditions.mjs`, which
 exits 0 only when all of these pass: a tree hash T over a fixed scope of tracked files (blob bytes from the object
 database; untracked, ignored, staged or flagged files in scope fail); build hashes B from a clean export built twice with
 a scrubbed environment (`--build` copies the verified outputs into `dist/plugin/` and `dist/cli/` and writes
@@ -763,8 +801,9 @@ checklist tests run in the clean export with zero skips, the limit sentences pre
 and `pnpm audit --prod` matched against dated accepted findings. The release tool (`tools/release-mvp-07.mjs`) runs the
 checker in the same invocation, copies the checked bytes, asserts their hashes, edits no scoped file, needs a typed
 `I accept an unsigned review record for <T8>` for the git form, and never runs git, tags, pushes or publishes. State
-today: the checker, the recorder and the release tool are built and tested; the operator-run script, the review record and
-the branch are not, so item B and item A cannot pass and no release can be recorded. The review record, the operator-run
+today: the checker, the recorder, the release tool, the operator-run script and the branch are built; the review record,
+a recorded manual operator run and a phone timing are not, so items A, B and C cannot pass and no release can be
+recorded. Item B counts only a manual run in Obsidian desktop against the shared node; a script-only result does not. The review record, the operator-run
 record and the phone-timing record are attestations, not proofs (§8.7).
 
 ### 8.10 What one pull does
@@ -780,7 +819,8 @@ In order, and what each step may write:
 
 1. Flag combinations that are never valid are refused before any request (`--resolve-fork` with `--allow-rollback`;
    `--allow-rollback` without `--root-cid` or `--manifest`; `--resolve-fork` with either of those).
-2. The destination guard (marker rule above; state folder not a symbolic link). Refusal exits 2.
+2. The destination guard (the destination is absent or a directory, and the state folder is not a symbolic link; the
+   marker rule of earlier trees is gone on `mvp-07b-guard-removal`). Refusal exits 2.
 3. The in-process lock and `publish.lock` are taken (a held lock is a stop with publish's own text); `.ipfs-sync/tmp/` is
    swept while the lock is held; the state file is read (a damaged one is a stop); the target is resolved (name with
    `nocache`, `--root-cid`, or `--manifest`); the root is listed once; `keyslots.json` and `manifest.enc` are read by the
@@ -797,8 +837,8 @@ In order, and what each step may write:
    plaintext sha256 (L missing: fetch; L = R: unchanged; L = B: replace; B = R: locally modified, left alone; otherwise
    conflict; with no `B`, a file that differs from the node's is a conflict). The size-and-mtime shortcut is bypassed when this device's exclusion
    list differs from the manifest's. A total above the ceiling needs a yes (otherwise every file to fetch is `unfetched`
-   and nothing is requested). The `pulled-fixture` marker is written before the first vault file when the destination was
-   empty. Blobs are listed and read from `/ipfs/<manifest.rootCID>/`, never the root's mutable `current/`, by a bounded
+   and nothing is requested). No marker is written (earlier trees wrote `pulled-fixture` before the first vault file
+   when the destination was empty). Blobs are listed and read from `/ipfs/<manifest.rootCID>/`, never the root's mutable `current/`, by a bounded
    pool; each file goes through the free-space check (CLI only), `.ipfs-sync/tmp/<id>.part` (every segment authenticated;
    identifier, size and sha256 equal to the entry), the write-time path check, a conflict copy of the local file where the
    pull would replace an edit (made first; if it cannot be written the replace is aborted), and the rename.

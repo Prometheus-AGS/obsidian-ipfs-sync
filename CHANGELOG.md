@@ -4,16 +4,78 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries describe what exists in the code;
 anything not yet built is under "Known limitations" or not mentioned.
 
-## [Unreleased] - key management, history pruning, mass-removal guard, plaintext removal (fixture-only, after the pull below)
+## [Unreleased] - guard removal: real notes are accepted (branch `mvp-07b-guard-removal`, not a release)
 
-**Still fixture-only. Do not use it on real notes.** This section is change `mvp-07b-keys-history-guard-release-2`, the
+**This is a branch, not a release.** Release v0.3.0 is not cut: `manifest.json` and `package.json` read 0.3.0
+(commit `ef50b1c`), and there is no tag, no GitHub release and no release record. `main` still holds the fixture-only
+guard. This entry is task 6.3 of change `mvp-07b-keys-history-guard-release-2`; it describes the removal commit
+`38db5f8` and the documentation that goes with it. It sits above the 07b material below.
+
+**What you should expect.** The tool now accepts a real vault and encrypts it. Nothing has been run inside Obsidian or on
+a phone. No independent review of this tree has been recorded. The Release 2 evidence (the review record, the operator
+run in Obsidian desktop against the shared node, the phone timing) is pending until the iteration-9 release steps
+(tasks 6.4 to 7.3). The whole test suite had not been run on this branch when this entry was written; the phase gate
+(task 6.4) runs it once. Read "Real notes: what you accept" in `README.md` before you publish anything you cannot lose
+or cannot expose.
+
+### Removed
+
+- **The fixture-only guard.** `src/sync/publish-guard.ts` and `src/sync/pull-guard.ts` are permissive and keep every
+  export name and signature. `init`, `publish`, the `keys` commands, `prune-history` and the plugin's Publish no longer
+  need a `.ipfs-sync-fixture` marker. A pull is allowed into any directory (the usual conflict policy applies) and
+  writes no marker, so a pulled copy can be published from. The marker parsing stays exported for its callers; nothing
+  that gates an operation reads the result.
+- **The fixture-only copy.** The publish and pull refusal notices no longer say fixture-only. The plugin settings
+  callout now says every publish is encrypted with your vault passphrase and that without it the published data cannot
+  be read. The CLI help says "Any vault can be published." and "Any directory can be pulled into."
+- `tests/unit/fixture-marker.test.ts` is deleted on this branch only; the pre-removal suite stays on `main`.
+
+### Added
+
+- `tests/unit/guard-permissive.test.ts` (16 tests): publish without a marker, pull into a non-empty directory, no marker
+  written by pull, and the refusal that stays.
+
+### Changed
+
+- The tests that asserted the old refusals are adapted: 20 test files, 2 integration and 18 unit (the list is in
+  `git show 38db5f8 --stat`).
+- `README.md`, `DESIGN.md` section 8.9 and the operator runbook describe real-notes operation and its risks instead of
+  fixture-only operation. Where they still say fixture, it is history (release 0.2.0 and the earlier trees) or the
+  generator of the synthetic test vault (`pnpm fixture:generate`), which still writes its marker; the marker has no meaning.
+
+### Unchanged, and still refused
+
+- A symbolic-link state folder (`state-folder-guard.ts`, the first step of the pull engine), a destination that exists and
+  is not a directory, a mass removal, a missing passphrase, the path policy, the locks, the sequence floor and a
+  plaintext root.
+- `.ipfs-sync-fixture` stays on the default exclusion list, so a leftover marker is never published. `excludesHash` is
+  unchanged.
+
+### Security and limits
+
+- Encrypted does not mean invisible: paths are encrypted, and the node operator still sees the number of files, their
+  exact sizes, when you publish, and that the vault exists. Published ciphertext is permanent and public: old roots stay
+  pinned and the public `keyslots.json` allows offline guessing of the passphrase.
+- Losing the passphrase loses the vault. There is no recovery. The plaintext is on every device that holds the vault, and
+  `.ipfs-sync/` holds paths and temporary plaintext.
+- A timer never asks the cost question, so it stays out of a High-cost vault until you unlock by hand. The plugin's
+  `requestUrl` buffers whole bodies; mobile behaviour with a real vault is unmeasured.
+- The limits recorded in the 07b entry below stay, in particular: the sequence floor does not stop a node from showing an
+  old copy to a device that has no recorded state, and rewrap does not revoke the old passphrase or any old copy of the key
+  slot. The mass-removal guard does not catch the removal of 49 percent of the entries.
+
+## [Unreleased] - key management, history pruning, mass-removal guard, plaintext removal (history: written while the tree was fixture-only, after the pull below)
+
+*History.* When this section was written the tree was fixture-only; the guard is removed on branch
+`mvp-07b-guard-removal` (entry above). The statements below that say fixture-only, or that the guard-removal branch was
+not built, describe that earlier state. This section is change `mvp-07b-keys-history-guard-release-2`, the
 code tasks only (`tasks.md` 1.x to 4.5, 4.8 and the added 2.3 and 2.4). It is covered by automated tests with fake nodes.
 It has not been run inside Obsidian, on a phone, or by the operator against the shared node, and it has not been
-independently reviewed. Not built: the operator-run script `tools/feature-op-mvp-07.mjs` (4.6, 4.7a, 4.7b), the
-guard-removal branch (6.2), coalescing of auto-publishes (not built; the operator chose the CLI command plus a plugin prune
-action in 1.8) and the check of the TTL a remote resolver sees after the restore form (4.9; the shared-node test of the
-explicit options is recorded, see Changed). The plugin prune action (2.5) is built and covered by fake-DOM and wiring tests
-only. Nothing here is tagged or released, and no release can pass the checker today.
+independently reviewed. At that point not built: the operator-run script `tools/feature-op-mvp-07.mjs` (4.6, 4.7a, 4.7b;
+it exists now), the guard-removal branch (6.2; it exists now), coalescing of auto-publishes (not built; the operator chose
+the CLI command plus a plugin prune action in 1.8) and the check of the TTL a remote resolver sees after the restore form
+(4.9; the shared-node test of the explicit options is recorded, see Changed). The plugin prune action (2.5) is built and
+covered by fake-DOM and wiring tests only. Nothing here is tagged or released, and no release can pass the checker today.
 
 ### Added
 
@@ -96,10 +158,11 @@ only. Nothing here is tagged or released, and no release can pass the checker to
 
 ## [Unreleased] - encrypted pull and second-device publish (fixture-only, after the encrypted publish below)
 
-**Still fixture-only. Do not use it on real notes.** This section is change `mvp-07-encrypted-pull-second-device`, task
+*History: when this was written the tree was fixture-only; the guard is removed on branch `mvp-07b-guard-removal`
+(entry at the top).* This section is change `mvp-07-encrypted-pull-second-device`, task
 group `07a`: the read side of the encrypted vault. It is covered by automated tests with fake nodes. It has not been run
 inside Obsidian, on a phone, or by the operator against the shared node, and it has not been independently reviewed. The
-`publish` and `init` guard (`.ipfs-sync-fixture` must hold `fixture`) is unchanged and is removed in `mvp-07b`. Nothing
+`publish` and `init` guard (`.ipfs-sync-fixture` must hold `fixture`) was unchanged then; `mvp-07b` removes it. Nothing
 here is tagged or released. The v0.2.0 pre-release is still the plaintext build and does not contain any of this.
 
 ### Added
@@ -209,10 +272,11 @@ here is tagged or released. The v0.2.0 pre-release is still the plaintext build 
 
 ## [Unreleased] - encrypted publish (fixture-only, after 0.2.0)
 
-**Still fixture-only. Do not use it on real notes.** Publishing is now encrypted, but the encryption is not
-independently reviewed to the standard real notes need and has never been run inside Obsidian. `publish` and `init`
-accept only a vault whose `.ipfs-sync-fixture` file holds the text `fixture`. That marker is an accident guard, not a
-control: anyone who can create the file can override the refusal. This section describes change
+*History: when this was written the tree was fixture-only; the guard is removed on branch `mvp-07b-guard-removal`
+(entry at the top).* Publishing was then encrypted, but the encryption was not independently reviewed to the standard
+real notes need and had never been run inside Obsidian (still true). `publish` and `init` accepted only a vault whose
+`.ipfs-sync-fixture` file held the text `fixture`. That marker was an accident guard, not a control: anyone who could
+create the file could override the refusal. This section describes change
 `mvp-06-encrypted-vault-publish` as it stood when it was written; where the section above differs (pull of an encrypted
 vault, state format 3, history names with a sequence prefix, the exclusion list, `--repair` in the ahead case), the section
 above is current. Nothing here is tagged or released.
