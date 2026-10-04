@@ -1,7 +1,7 @@
 {
   "id": "ipfs-sync",
   "name": "IPFS Sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minAppVersion": "1.12.3",
   "description": "Sync your vault over IPFS via your own kubo node. Snapshot sync now, CRDT + AI layer later.",
   "author": "gqadonis",
