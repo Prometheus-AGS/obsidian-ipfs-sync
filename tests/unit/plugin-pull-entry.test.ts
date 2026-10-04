@@ -4,7 +4,8 @@ import IpfsSyncPlugin from "../../src/plugin";
 import { setPluginSeams } from "../../src/plugin/plugin-seams";
 import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
 import { createFakeGateway, type FakeGateway } from "../helpers/fake-gateway";
-import { IPNS_NAME, seedRemote } from "../helpers/pull-fixtures";
+import { plantPlaintextRoot } from "../helpers/plugin-pull-rig";
+import { IPNS_NAME } from "../helpers/pull-fixtures";
 import { serveGateway } from "../helpers/request-url-node";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { referencePassphrase } from "../vectors/slot-helpers";
@@ -13,8 +14,6 @@ import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, setReq
 const MANIFEST = { id: "ipfs-sync", version: "0.2.0" } as unknown as PluginManifest;
 const MFS = "/obsidian-vault-sync/mvp05-entry";
 const KEYS = [{ name: "obsidian-vault-sync", id: IPNS_NAME }];
-const TREE = "bafytreeone000000000000";
-const ROOT = "bafyrootone000000000000";
 
 function settings(patch: Partial<PluginSettings> = {}): PluginSettings {
   return { ...defaultSettings(), mfsRoot: MFS, ownedKeys: [IPNS_NAME], ...patch };
@@ -31,14 +30,14 @@ async function loadPlugin(data: unknown, adapter: MemoryAdapter): Promise<Loaded
   const plugin = new IpfsSyncPlugin(app as unknown as App, MANIFEST);
   const stub = plugin as unknown as StubPlugin;
   stub.data = data;
-  setPluginSeams(plugin, { allowPlaintextV1: true }); // the plaintext reader is off in a real plugin; these tests are about the plaintext path
   await plugin.onload();
   return { plugin, stub, app };
 }
 
-async function remoteNode(files: Record<string, string>): Promise<{ gateway: FakeGateway; paths: string[] }> {
+/** A node whose published root is an old plaintext publication (a `manifest.json`, no key slots). */
+function plaintextNode(files: Record<string, string>): { gateway: FakeGateway; paths: string[] } {
   const gateway = createFakeGateway();
-  await seedRemote(gateway, files, { tree: TREE, root: ROOT });
+  plantPlaintextRoot(gateway, files);
   const served = serveGateway(gateway, KEYS);
   setRequestUrlHandler(served.handler);
   return { gateway, paths: served.paths };
@@ -77,50 +76,45 @@ describe("plugin entry: pull", () => {
       "show-status:Show status",
       "abandon-vault:Abandon this vault",
       "clear-stale-lock:Clear stale publish lock",
+      "measure-key-derivation:Measure key derivation time",
     ]);
     expect(stub.ribbonIcons.map((r) => r.title)).toEqual(["IPFS Sync: publish vault", "IPFS Sync: pull vault"]);
     expect(stub.statusBarItems).toHaveLength(1);
   });
 
-  it("pulls with one conflict: a single notice updated in place, names the copy, and only reads from the node", async () => {
+  it("refuses a plaintext root: a single notice that says plaintext publications are no longer supported, nothing written, only reads from the node", async () => {
     const adapter = fixtureVault();
     adapter.put("a.md", "local text", 5000);
-    adapter.put("c.md", "charlie", 5000);
     const { plugin, stub } = await loadPlugin(settings(), adapter);
-    const { paths } = await remoteNode({ "a.md": "remote text", "b.md": "bravo", "c.md": "charlie" });
+    const { paths } = plaintextNode({ "a.md": "remote text", "b.md": "bravo" });
 
     const outcome = await plugin.pullVault();
-    expect(outcome.kind).toBe("pulled");
+    expect(outcome).toMatchObject({ kind: "refused", reason: "plaintext-unsupported" });
 
     expect(Notice.shown).toHaveLength(1);
     const notice = Notice.shown[0];
-    expect(notice?.message).toContain("Pull complete: 2 fetched, 1 unchanged, 1 conflicts, 0 failed, 0 remote deletions kept");
-    expect(notice?.message).toMatch(/Conflict copies: a \(ipfs conflict \d{4}-\d{2}-\d{2}\)\.md/);
+    expect(notice?.message).toContain("plaintext publications are no longer supported");
     expect(notice?.hidden).toBe(false);
     vi.runAllTimers();
     expect(notice?.hidden).toBe(true);
 
-    expect(stub.statusBarItems[0]?.text).toMatch(/pull \d{2}:\d{2}: 2 fetched, 1 conflicts/);
-    expect(adapter.text("a.md")).toBe("remote text");
-    const copy = [...adapter.files.keys()].find((path) => path.startsWith("a (ipfs conflict"));
-    expect(adapter.text(copy ?? "")).toBe("local text");
+    expect(adapter.text("a.md")).toBe("local text");
+    expect(adapter.files.has("b.md")).toBe(false);
+    expect([...adapter.files.keys()].some((path) => path.startsWith("a (ipfs conflict"))).toBe(false);
 
-    // Read-only: name resolve, key list, one listing of the root (the decrypting pull's first look, which finds no key slots here) and gateway GETs, all through requestUrl.
+    // Read-only: name resolve, key list, one listing of the root (the decrypting pull's first look, which finds no key slots here), all through requestUrl; the manifest is never fetched.
     expect(paths.length).toBeGreaterThan(0);
     for (const path of paths) expect(path, path).toMatch(/^(POST \/api\/v0\/(key\/list|name\/resolve|ls)|GET \/ipfs\/)/);
+    expect(paths.some((path) => path.includes("manifest.json"))).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
-
-    const stored = stub.data as { lastPull?: Record<string, unknown> };
-    expect(stored.lastPull).toMatchObject({ fetched: 2, unchanged: 1, conflicts: 1, failed: 0, remoteDeleted: 0 });
-    expect(Object.keys(stored.lastPull ?? {}).sort()).toEqual(["at", "conflicts", "failed", "fetched", "manifestCid", "remoteDeleted", "rootCid", "unchanged"]);
-    expect(JSON.stringify(stored.lastPull)).not.toMatch(/\.md/);
+    expect((stub.data as { lastPull?: unknown }).lastPull).toBeUndefined();
   });
 
   it("refuses a real vault with a notice, sends nothing to the node and changes no file", async () => {
     const adapter = new MemoryAdapter();
     adapter.put("notes/real.md", "private", 5000);
     const { plugin } = await loadPlugin(settings(), adapter);
-    await remoteNode({ "notes/real.md": "remote" });
+    plaintextNode({ "notes/real.md": "remote" });
     requestUrlCalls.length = 0;
 
     const outcome = await plugin.pullVault();
@@ -168,24 +162,20 @@ describe("plugin entry: pull", () => {
     expect(Notice.shown).toEqual([]);
   });
 
-  it("waits for the layout, pulls once when catch-up is on, and shows nothing when the vault is already current", async () => {
+  it("waits for the layout, then pulls once when catch-up is on; a plaintext root is refused with one notice and nothing written", async () => {
     const adapter = fixtureVault();
-    const first = await loadPlugin(settings(), adapter);
-    await remoteNode({ "a.md": "alpha", "b.md": "bravo" });
-    await first.plugin.pullVault();
-    vi.runAllTimers();
-
-    Notice.reset();
-    requestUrlCalls.length = 0;
-    const second = await loadPlugin({ ...(first.stub.data as PluginSettings), catchUpOnLoad: true }, adapter);
+    const loaded = await loadPlugin(settings({ catchUpOnLoad: true }), adapter);
+    plaintextNode({ "a.md": "alpha", "b.md": "bravo" });
     // The plugin has loaded; nothing is requested until the workspace is ready.
-    expect(second.stub.commands).toHaveLength(7);
+    expect(loaded.stub.commands).toHaveLength(8);
     expect(requestUrlCalls).toEqual([]);
 
-    second.app.workspace.markLayoutReady();
-    await vi.waitFor(() => expect((second.stub.data as PluginSettings).lastPull).toMatchObject({ fetched: 0, unchanged: 2, conflicts: 0, failed: 0 }));
-    expect(Notice.shown).toEqual([]);
-    expect(second.stub.statusBarItems[0]?.text).toBe("");
+    loaded.app.workspace.markLayoutReady();
+    await vi.waitFor(() => expect(Notice.shown).toHaveLength(1));
+    expect(Notice.shown[0]?.message).toContain("plaintext publications are no longer supported");
+    expect(adapter.files.has("a.md")).toBe(false);
+    expect((loaded.stub.data as PluginSettings).lastPull).toBeUndefined();
+    expect(loaded.stub.statusBarItems[0]?.text).toBe("");
   });
 
   it("loads normally and shows one failure notice when the node cannot be reached on load", async () => {
@@ -193,7 +183,7 @@ describe("plugin entry: pull", () => {
       throw new Error("network is unreachable");
     });
     const loaded = await loadPlugin(settings({ catchUpOnLoad: true }), fixtureVault());
-    expect(loaded.stub.commands).toHaveLength(7);
+    expect(loaded.stub.commands).toHaveLength(8);
     expect(Notice.shown).toEqual([]);
 
     loaded.app.workspace.markLayoutReady();
@@ -213,9 +203,9 @@ describe("plugin entry: pull", () => {
     expect(requestUrlCalls).toEqual([]);
   });
 
-  it("W-12: exposes neither the passphrase source nor the plaintext-v1 switch as a property", async () => {
+  it("W-12: exposes the passphrase source as no property, and has no plaintext-v1 switch at all", async () => {
     const { plugin } = await loadPlugin(settings(), fixtureVault());
-    setPluginSeams(plugin, { passphraseSource: () => referencePassphrase(), allowPlaintextV1: true });
+    setPluginSeams(plugin, { passphraseSource: () => referencePassphrase() });
     const names = [...Object.getOwnPropertyNames(plugin), ...Object.getOwnPropertyNames(Object.getPrototypeOf(plugin) as object)];
     expect(names).not.toContain("passphraseSource");
     expect(names).not.toContain("allowPlaintextV1");

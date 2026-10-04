@@ -5,7 +5,8 @@ import { DEFAULT_IPNS_TTL } from "../kubo";
 import type { CommitDeps, FloorPort, PublishTarget } from "./commit-ports";
 import { createCommitNode } from "./commit-node";
 import { decodeManifestFile, encodeManifestFile } from "./encrypted-manifest";
-import { assertPublishMarker } from "./fixture-marker";
+import { assertPublishMarker } from "./publish-guard";
+import { assertNoMaintenanceJournal } from "./maintenance-journal";
 import { createRootInspector, type RootInspector } from "./node-reader";
 import { noVault, passphraseRequired } from "./publish-refusals";
 import { openPublicationKey, type PublicationKey } from "./publish-key";
@@ -132,6 +133,8 @@ function commitDeps(deps: PublishDeps, checked: CheckedTarget, opened: OpenedVau
 }
 
 export async function openSession(deps: PublishDeps, options: PublishOptions, checked: CheckedTarget): Promise<PublishSession> {
+  // A key-management operation in flight (maintenance.<h>.json) pauses publish: refused before the record is read and before any derivation.
+  await assertNoMaintenanceJournal(deps.host.kv, checked.mfsRoot);
   const state = await loadState(deps.host.kv, checked.mfsRoot, options.repair === true);
   const inspector = createRootInspector(deps.client, checked.mfsRoot);
   const opened = await unlock(deps, options, checked, state, inspector);

@@ -43,6 +43,8 @@ export interface PublishPlan {
   readonly dropped: readonly DroppedEntry[];
   /** Vault paths that were in the baseline and are gone or now excluded: file.changed events. */
   readonly removedPaths: readonly string[];
+  /** The removed and dropped paths that this run's exclusion list matches (sorted): removals the exclusion list caused, which the mass-removal guard reports and does not count. */
+  readonly exclusionRemoved: readonly string[];
   /** `current/<xx>/<name>` of blobs to delete: recorded blobs of removed files and stray blob-shaped names. */
   readonly blobRemovals: readonly string[];
   readonly mtimes: Readonly<Record<string, number>>;
@@ -144,6 +146,7 @@ export async function buildPublishPlan(input: PlanInput): Promise<PublishPlan> {
     carried: carried.kept.map(([path]) => path).sort(),
     dropped: carried.dropped.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     removedPaths: delta.removed,
+    exclusionRemoved: gone.filter((path) => input.excluded?.(path) === true).sort(),
     blobRemovals: [...removals].sort(),
     mtimes: delta.mtimes,
     hashed: delta.hashed,

@@ -5,12 +5,14 @@ import { sweepStaleParts } from "./blob-fetch";
 import type { DeviceStore } from "./device-store";
 import { ManifestFormatError, decodeManifestFile, type EncryptedManifest } from "./encrypted-manifest";
 import { parseHistoryName } from "./history-names";
+import { assertNoMaintenanceJournal } from "./maintenance-journal";
 import { isUnreadableManifest } from "./manifest-auth";
 import { manifestIdentity } from "./manifest-identity";
 import { KEYSLOTS_READ_CAP, MANIFEST_READ_CAP, readRemoteFile } from "./node-reader";
 import { escapeForDisplay, evaluatePathPolicy, summarizeRefusals, type PathPolicyResult } from "./path-policy";
 import { PullSourceError, PullStopError, PullTargetError, type PullStopReason } from "./pull-errors";
 import { assertPullDestination, type GuardFs } from "./pull-guard";
+import { assertStateFolderSafe } from "./state-folder-guard";
 import {
   checkPullFlags,
   effectiveRecord,
@@ -213,6 +215,7 @@ function asStop(error: unknown): PullStopError | undefined {
   if (error instanceof PublishRefusedError && (error.code === "remote-object-too-large" || error.code === "remote-object-invalid")) {
     return new PullStopError("remote-object", shown(error.message), { cause: error });
   }
+  if (error instanceof PublishRefusedError && error.code === "maintenance-pending") return new PullStopError("maintenance-pending", shown(error.message), { cause: error });
   if (error instanceof VaultKeysError) return new PullStopError(vaultKeysReason(error), shown(error.message), { cause: error });
   if (error instanceof CryptoError) return cryptoStop(error);
   return undefined;
@@ -223,6 +226,7 @@ function vaultKeysReason(error: VaultKeysError): PullStopReason {
     case "vault-mismatch":
     case "slots-without-manifest":
     case "no-key-slots":
+    case "plaintext-root":
     case "locked":
       return error.code;
     default:
@@ -250,6 +254,18 @@ function cryptoStop(error: CryptoError): PullStopError | undefined {
     default:
       return undefined;
   }
+}
+
+/**
+ * A refusal that tells a person to accept the changed key slots names, for an explicit `--root-cid` root, that root and the rollback flag as well
+ * (mvp-07b task 1.5): restoring an older root across a rewrap goes through `keys accept-slots --root-cid <root> --allow-rollback`. `--manifest` reads
+ * the current root's key slots and needs no accept on a device that holds the current copy, so it gets no such suffix. The CID is the one the reader
+ * accepted as a token, and is escaped anyway.
+ */
+function withRestoreHint(stop: PullStopError, target: PullTarget): PullStopError {
+  if (target.kind !== "root-cid" || stop.reason !== "vault-mismatch" || !stop.message.includes("keys accept-slots")) return stop;
+  const hint = `for this explicit root, name it and allow the rollback: ipfs-sync keys accept-slots <vault> --root-cid ${shown(target.cid)} --allow-rollback (with the passphrase of that root)`;
+  return new PullStopError(stop.reason, `${stop.message}; ${hint}`, { ...(stop.costs === undefined ? {} : { costs: stop.costs }), cause: stop.cause });
 }
 
 function toStop(error: PullStopError): PullStop {
@@ -299,6 +315,8 @@ function nodeAccess(client: PullNodeClient, reader: RootReader): NodeAccess {
       return entry === undefined ? undefined : readRemoteFile(client, entry, "keyslots.json", KEYSLOTS_READ_CAP);
     },
     manifestPresent: async () => uniqueEntry(await reader.entries(), "manifest.enc")?.type === "file",
+    // A listing check only: `manifest.json` is never requested, so a planted one is not read.
+    plaintextManifestPresent: async () => (await reader.entries()).some((entry) => entry.name === "manifest.json"),
   };
 }
 
@@ -575,6 +593,7 @@ function lockLostStop(error: unknown): PullStopError | undefined {
 export async function encryptedPull<R>(deps: EncryptedPullDeps<R>, options: EncryptedPullOptions): Promise<EncryptedPullOutcome<R>> {
   const badFlags = checkPullFlags(options.target.kind, options.flags);
   if (badFlags !== undefined) return { kind: "stopped", stop: { reason: badFlags.reason, message: badFlags.message } };
+  await assertStateFolderSafe(deps.host.fs);
   const { needsMarker } = await (deps.assertDestination ?? assertPullDestination)(deps.host.fs);
 
   let locks: HeldLocks;
@@ -587,6 +606,8 @@ export async function encryptedPull<R>(deps: EncryptedPullDeps<R>, options: Encr
   try {
     let verified: VerifiedPull;
     try {
+      // A pending key-management operation pauses the pull before anything is swept or read: the shared tree may hold its half-finished write.
+      await assertNoMaintenanceJournal(deps.host.kv, options.mfsRoot);
       const sweptParts = (await sweepStaleParts(deps.host.fs)).removed;
       const state = await readRootState(deps.host.kv, options.mfsRoot);
       const run: RunContext<R> = { deps, options, state, needsMarker, sweptParts, lock: locks.lock, verifyHeld: locks.verifyHeld };
@@ -594,7 +615,7 @@ export async function encryptedPull<R>(deps: EncryptedPullDeps<R>, options: Encr
     } catch (error) {
       const stop = asStop(error) ?? lockLostStop(error);
       if (stop === undefined) throw error;
-      return { kind: "stopped", stop: toStop(stop) };
+      return { kind: "stopped", stop: toStop(withRestoreHint(stop, options.target)) };
     }
     return { kind: "completed", verified, result: await deps.stage(verified) };
   } finally {

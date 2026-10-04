@@ -1,6 +1,6 @@
 import { BLOB_HEADER_BYTES, BLOB_SEGMENT_OVERHEAD, parseBlobHeader } from "../crypto";
 import type { GatewayStream, KuboClient } from "../kubo";
-import { PLUGIN_MIN_EXPONENT, RANGE_PROBE_MARGIN_BYTES, WHOLE_BODY_LIMIT } from "./pull-budget";
+import { PLUGIN_MIN_EXPONENT, RANGE_PROBE_MARGIN_BYTES, WHOLE_BODY_LIMIT, blobsPerSizeClass } from "./pull-budget";
 
 /**
  * Where the bytes of one encrypted blob come from. The fetch core (`blob-fetch.ts`) reads it from offset 0, once, in
@@ -154,6 +154,24 @@ function exponentOf(header: Uint8Array): number | undefined {
     // Not a readable header (bad magic, exponent outside 16..24): the decryptor refuses it from the bytes we hand on.
     return undefined;
   }
+}
+
+/**
+ * Send the header probe of the smallest blob in every size class, one at a time, smallest first, and stop at the first
+ * answer that shows the gateway ignores Range (review finding B2-03: a gateway can honour Range for one size and answer a
+ * larger blob with a full body). Returns the number of probes sent. A transport failure is thrown, as with `probe`.
+ */
+export async function probeSizeClasses(
+  sources: { probe(location: GatewayBlobLocation): Promise<unknown>; state(): RangeState },
+  blobs: readonly GatewayBlobLocation[],
+): Promise<number> {
+  let sent = 0;
+  for (const blob of blobsPerSizeClass(blobs)) {
+    await sources.probe(blob);
+    sent += 1;
+    if (sources.state() === "ignored") break;
+  }
+  return sent;
 }
 
 /**

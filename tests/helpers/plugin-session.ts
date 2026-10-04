@@ -1,4 +1,5 @@
 import type { SyncConfig } from "../../src/core/config";
+import type { CostPolicy } from "../../src/crypto";
 import { requestUrlTransport } from "../../src/plugin/request-url-transport";
 import type { VaultAdapter } from "../../src/plugin/obsidian-fs";
 import {
@@ -35,6 +36,8 @@ export interface SessionRigOptions {
   readonly typed?: readonly (string | undefined)[];
   /** The setup dialog: default confirms with the displayed passphrase. */
   readonly setup?: (request: SetupRequest) => Promise<SetupResult | undefined>;
+  /** The cost policy of the opener (task 2.4); absent: a slot above the default cost is refused. */
+  readonly costPolicy?: CostPolicy;
 }
 
 /**
@@ -60,7 +63,7 @@ export function sessionRig(options: SessionRigOptions): SessionRig {
   const now = (): Date => new Date(1_800_000_000_000);
   const session = createSessionKeys({
     dialogs,
-    open: createVaultOpener({ store: options.store, adapter: options.adapter, transport: requestUrlTransport, now, createClient: options.createClient, createParams: FLOOR_PARAMS }),
+    open: createVaultOpener({ store: options.store, adapter: options.adapter, transport: requestUrlTransport, now, createClient: options.createClient, createParams: FLOOR_PARAMS, ...(options.costPolicy === undefined ? {} : { costPolicy: options.costPolicy }) }),
     vaultExists: createVaultProbe({ store: options.store, adapter: options.adapter, now }),
   });
   return { session, unlockRequests, setupRequests, events, derivations: () => events.filter((event) => event.kind === "start").length };

@@ -36,18 +36,15 @@ export class ConflictPreserveError extends Error {
   }
 }
 
-/**
- * Thrown by the plaintext (version 1) reader when the resolved root holds an encrypted vault (key slots or an encrypted
- * manifest). That reader never decrypts; an encrypted vault is pulled by the decrypting pull (`encrypted-pull.ts`).
- */
-export class EncryptedVaultError extends Error {
+/** The one wording for a root that serves a plaintext manifest and no key slots. It names no flag and no recorded state: there is no way around it. */
+export const PLAINTEXT_UNSUPPORTED_MESSAGE =
+  "plaintext publications are no longer supported by this version, and this root holds one (a manifest.json and no key slots); nothing was written.";
+
+/** The root is a plaintext publication, which no code path of this version reads. */
+export class PlaintextUnsupportedError extends Error {
   constructor() {
-    super(
-      "this root holds an encrypted vault, which the plaintext reader does not read: an encrypted vault is pulled by the decrypting pull, not by this path. " +
-        "Nothing in the vault was written and no key derivation ran. This device has recorded that an encrypted vault was seen, so plaintext reads " +
-        "of this destination, root and key are refused from now on.",
-    );
-    this.name = "EncryptedVaultError";
+    super(PLAINTEXT_UNSUPPORTED_MESSAGE);
+    this.name = "PlaintextUnsupportedError";
   }
 }
 
@@ -62,6 +59,8 @@ export type PullStopReason =
   | "older"
   | "unfinished-publish"
   | "fork"
+  /** A key-management operation (a rewrap or a history prune) is pending on this device: the text names `keys discard` and `keys accept-slots`. */
+  | "maintenance-pending"
   /** The in-process lock is held by another operation. */
   | "busy"
   /** `publish.lock` is held (or unreadable, or was lost): the text is publish's own. */
@@ -72,7 +71,10 @@ export type PullStopReason =
   | "state-unreadable"
   /** The name or the explicit root could not be turned into a root, or no key names a target. */
   | "target-unresolved"
+  /** The root holds no key slots and its listing does not name a `manifest.json`: empty, unknown, or a vault that lost its slots. */
   | "no-key-slots"
+  /** The root lists a `manifest.json` and holds no key slots: a plaintext publication, which no code path of this version reads. The text is `PLAINTEXT_UNSUPPORTED_MESSAGE`. */
+  | "plaintext-root"
   | "slots-without-manifest"
   /** The node's slot file differs from this device's copy or record, or belongs to another vault than the manifest. */
   | "vault-mismatch"
@@ -110,24 +112,5 @@ export class PullStopError extends Error {
     this.name = "PullStopError";
     this.reason = reason;
     this.costs = options?.costs;
-  }
-}
-
-/**
- * The plaintext (version 1) reader was not allowed. `flag-required`: it is off unless `--allow-plaintext-v1` is given, because
- * anyone who can write to the node can forge a plaintext manifest. `downgrade`: an encrypted vault was seen here before, so a
- * root that now serves plaintext is refused even with the flag.
- */
-export class PlaintextV1RefusedError extends Error {
-  readonly reason: "flag-required" | "downgrade";
-
-  constructor(reason: "flag-required" | "downgrade") {
-    super(
-      reason === "flag-required"
-        ? "this root serves a plaintext (version 1) manifest. Reading it is off unless you pass --allow-plaintext-v1, because anyone who can write to the node can forge one. Nothing was written."
-        : "an encrypted vault was seen for this destination, root or key before, and this root now serves a plaintext manifest. That may be a downgrade, so it is refused even with --allow-plaintext-v1. Nothing was written.",
-    );
-    this.name = "PlaintextV1RefusedError";
-    this.reason = reason;
   }
 }

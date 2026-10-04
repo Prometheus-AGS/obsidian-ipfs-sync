@@ -35,6 +35,9 @@ export class Notice {
   }
 }
 
+/** Obsidian's `Platform` flags, as a desktop app reports them. A test that needs another platform assigns these fields and restores them. */
+export const Platform = { isDesktopApp: true, isMobile: false, isIosApp: false, isAndroidApp: false };
+
 export class App {
   readonly vault: { readonly adapter: MemoryAdapter };
   readonly workspace = new Workspace();

@@ -8,8 +8,11 @@ import type { CanonicalPassphrase } from "../crypto";
  */
 export interface PluginSeams {
   readonly passphraseSource?: () => CanonicalPassphrase | undefined;
-  /** Lets the plaintext (version 1) pull reader run. Off unless set here. */
-  readonly allowPlaintextV1?: boolean;
+  /**
+   * The derivation the "Measure key derivation time" command times. Production leaves it out and the command runs one key-slot creation at the
+   * default cost (several seconds); a test sets a stand-in so the command can be driven at the plugin entry without that cost.
+   */
+  readonly measureDerive?: () => Promise<void>;
 }
 
 const seams = new WeakMap<object, PluginSeams>();

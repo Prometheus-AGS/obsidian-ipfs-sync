@@ -277,16 +277,22 @@ describe("a held UnlockedVault (R5-06)", () => {
 });
 
 describe("abandon", () => {
-  it("records the latch before the first rename, and records nothing when there is nothing to move", async () => {
+  it("records no latch: it only renames, and does nothing when there is nothing to move", async () => {
     expect((await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 5 })).moved).toEqual([]);
     expect(host.mutations).toEqual([]);
     await open(nodeWith(), { create: GENERATED, createParams: FLOOR });
     host.mutations.length = 0;
     await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 6 });
-    const firstRename = host.mutations.findIndex((entry) => /rename/.test(entry));
-    const latchWrite = host.mutations.findIndex((entry) => entry.includes("encrypted-seen.json"));
-    expect(latchWrite).toBeGreaterThanOrEqual(0);
-    expect(latchWrite).toBeLessThan(firstRename);
+    expect(host.mutations.length).toBeGreaterThan(0);
+    expect(host.mutations.every((entry) => /rename/.test(entry))).toBe(true);
+    expect(host.files.has(".ipfs-sync/encrypted-seen.json")).toBe(false);
+  });
+
+  it("needs only the stat, rename and read capabilities (the latch write is gone)", async () => {
+    await open(nodeWith(), { create: GENERATED, createParams: FLOOR });
+    const fs = { stat: (path: string) => host.fs.stat(path), rename: (from: string, to: string) => host.fs.rename(from, to), read: (path: string) => host.fs.read(path) };
+    const result = await abandonVault({ fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 7 });
+    expect(result.moved.length).toBeGreaterThan(0);
   });
 
   it("needs the typed confirmation; then moves copy, state and journal to a backup and never touches a node", async () => {
@@ -302,11 +308,10 @@ describe("abandon", () => {
     expect(result.moved).toHaveLength(3);
     expect(result.backupDir).toBe(`.ipfs-sync/abandoned-${digest}-1700`);
     expect([...host.files.keys()].sort()).toEqual(
-      [".ipfs-sync/encrypted-seen.json", ".ipfs-sync/state.other.json", `${result.backupDir}/journal.json`, `${result.backupDir}/keyslots.json`, `${result.backupDir}/state.json`].sort(),
+      [".ipfs-sync/state.other.json", `${result.backupDir}/journal.json`, `${result.backupDir}/keyslots.json`, `${result.backupDir}/state.json`].sort(),
     );
-    // The downgrade latch was written through the same fs, before anything moved (R5-02).
-    expect(host.files.has(".ipfs-sync/encrypted-seen.json")).toBe(true);
-    expect(JSON.parse(new TextDecoder().decode(host.files.get(".ipfs-sync/encrypted-seen.json")?.data))).toMatchObject({ encryptedSeen: true, sightings: [{ mfsRoot: ROOT, key: "abandon" }] });
+    // No downgrade latch is written: the sequence floor (07a) is the evidence, and abandon keeps it.
+    expect(host.files.has(".ipfs-sync/encrypted-seen.json")).toBe(false);
     // A fresh vault can now be created in the same root name with no local knowledge.
     const fresh = await open(nodeWith(), { create: GENERATED, createParams: FLOOR });
     expect(fresh.origin).toBe("created");

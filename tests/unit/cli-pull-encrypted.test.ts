@@ -53,10 +53,10 @@ describe("pull --help", () => {
       "--max-bytes",
       "--accept-large",
       "--list-versions",
-      "--allow-plaintext-v1",
     ]) {
       expect(result.out).toContain(flag);
     }
+    for (const removed of ["--allow-plaintext-v1", "--manifest-file"]) expect(result.out).not.toContain(removed);
     expect(result.out).not.toContain("pull is not supported yet");
     expect(result.out).not.toContain("Only plaintext (version 1) publications can be pulled");
   });
@@ -205,6 +205,47 @@ describe("flags that are refused before any request", () => {
     expect(wrongVault.code).toBe(1);
     expect(wrongVault.err).toContain("--expect-vault-id");
     await expectNothingPulled();
+  });
+});
+
+describe("removed plaintext flags and a plaintext root (mvp-07b 3.1b)", () => {
+  /** The node serves a root that holds a `manifest.json` and neither key slots nor `manifest.enc`. */
+  function servePlaintextRoot(): void {
+    for (const path of [...rig.node.files.keys()]) {
+      if (path.startsWith(`${MFS_ROOT}/manifests/`) || path === `${MFS_ROOT}/keyslots.json` || path === `${MFS_ROOT}/manifest.enc`) rig.node.files.delete(path);
+    }
+    rig.node.files.set(`${MFS_ROOT}/manifest.json`, new TextEncoder().encode(JSON.stringify({ version: 1, files: {} })));
+    rig.repoint();
+    rig.requests.length = 0;
+  }
+  const manifestJsonReads = (): string[] => rig.requests.filter((request) => request.endsWith("manifest.json"));
+
+  it.each([["--allow-plaintext-v1"], ["--manifest-file", "manifest.json"]])("%s is an unknown option: exit 2, no request, nothing written", async (...flags: string[]) => {
+    const result = await rig.pull(flags);
+    expect(result.code).toBe(2);
+    expect(result.err).toMatch(/[Uu]nknown option/);
+    expect(rig.requests).toEqual([]);
+    expect(await exists(rig.vaultB)).toBe(false);
+  });
+
+  it("refuses a root that serves a plaintext manifest.json and no key slots: exit 2, the no-longer-supported text, nothing written, the manifest never read", async () => {
+    servePlaintextRoot();
+    const result = await rig.pull(["--accept-first-pull"]);
+    expect(result.code).toBe(2);
+    expect(result.err).toContain("pull refused: plaintext publications are no longer supported");
+    expect(result.err).not.toMatch(/--allow|--manifest-file|downgrade/);
+    expect(manifestJsonReads()).toEqual([]);
+    await expectNothingPulled();
+  });
+
+  it("refuses the same root for a name target whatever else was recorded here: a device that holds a floor and a state is refused the same way", async () => {
+    expect((await rig.pull(["--accept-first-pull"])).code).toBe(0);
+    servePlaintextRoot();
+    const result = await rig.pull();
+    expect(result.code).toBe(2);
+    expect(result.err).toContain("plaintext publications are no longer supported");
+    expect(manifestJsonReads()).toEqual([]);
+    expect(await exists(join(rig.vaultB, ".ipfs-sync", "publish.lock"))).toBe(false);
   });
 });
 

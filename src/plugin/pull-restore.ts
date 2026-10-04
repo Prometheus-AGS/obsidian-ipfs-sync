@@ -1,5 +1,5 @@
 import type { HostFs, HostKv } from "../core/host-bridge";
-import { CryptoError, OversizeInputError, type CanonicalPassphrase, type KdfProgress, type VaultKeys } from "../crypto";
+import { CryptoError, OversizeInputError, type CanonicalPassphrase, type KdfParams, type KdfProgress, type VaultKeys } from "../crypto";
 import type { KuboClient, MfsEntry } from "../kubo";
 import type { DeviceStore } from "../sync/device-store";
 import { stateRecordOf } from "../sync/encrypted-pull";
@@ -119,6 +119,8 @@ export interface RestoreUnlockInput {
   /** A session-held vault: byte-identical slots need no derivation. */
   readonly unlocked?: UnlockedVault;
   readonly passphrase?: CanonicalPassphrase;
+  /** Task 2.4: shows the cost of a slot above the default and asks. Absent: such a slot is refused before any derivation. */
+  readonly confirmCost?: (costs: readonly KdfParams[]) => Promise<boolean>;
   readonly onProgress?: KdfProgress;
 }
 
@@ -145,6 +147,7 @@ export async function unlockForRestore(input: RestoreUnlockInput): Promise<Unloc
       manifestPresent: async () => (await entries()).some((entry) => entry.name === "manifest.enc" && entry.type === "file"),
     },
     recordFor: recordLookup({ state: stateRecordOf(state, undefined, undefined), deviceStore: input.deviceStore }),
+    confirmCost: input.confirmCost,
     onProgress: input.onProgress,
   });
   return unlock.vault;

@@ -1,4 +1,5 @@
 import { PluginSettingTab, type App, type Plugin } from "obsidian";
+import { PUBLISH_SCOPE_SETTINGS_COPY } from "../sync/publish-guard";
 import { AUTH_SCHEMES } from "./settings-model";
 import {
   addNote,
@@ -13,7 +14,6 @@ import {
 import {
   AUTH_INCOMPLETE,
   AUTH_SCHEME_LABELS,
-  FIXTURE_NOTICE,
   FIXTURE_NOTICE_TITLE,
   SECRETS_WARNING,
   SECRETS_WARNING_TITLE,
@@ -80,7 +80,7 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     this.slots.clear();
     const root = this.containerEl;
     root.empty();
-    addNote(root, FIXTURE_NOTE_ID, FIXTURE_NOTICE_TITLE, FIXTURE_NOTICE);
+    addNote(root, FIXTURE_NOTE_ID, FIXTURE_NOTICE_TITLE, PUBLISH_SCOPE_SETTINGS_COPY);
     this.renderEndpoints(root);
     this.renderPublication(root);
     this.encryption?.render(root);

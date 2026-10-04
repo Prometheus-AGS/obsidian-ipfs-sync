@@ -2,7 +2,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { FEATURE_OP_FILE, PLUGIN_ARTIFACTS } from "./constants.mjs";
 
 export const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const readText = (path) => (existsSync(path) ? readFileSync(path, "utf8") : null);
@@ -44,14 +43,14 @@ function artifactFacts(root, name) {
   return { name, present: true, path, size: bytes.length, sha256: sha256(bytes), mtimeMs: statSync(path).mtimeMs };
 }
 
-export function gatherFacts(root, { featureOpPath } = {}) {
+export function gatherFacts(root, { featureOpPath, descriptor }) {
   const rootManifest = readJson(join(root, "manifest.json"));
   const distManifest = readJson(join(root, "dist", "plugin", "manifest.json"));
   const pkg = readJson(join(root, "package.json"));
   const git = gitFacts(root);
   const cliPath = join(root, "dist", "cli", "ipfs-sync.mjs");
   const cliBytes = existsSync(cliPath) ? readFileSync(cliPath) : null;
-  const featureOp = featureOpPath ?? join(root, FEATURE_OP_FILE);
+  const featureOp = featureOpPath ?? join(root, descriptor.featureOpFile);
   const readme = readText(join(root, "README.md"));
   const changelog = readText(join(root, "CHANGELOG.md"));
   return {
@@ -64,7 +63,7 @@ export function gatherFacts(root, { featureOpPath } = {}) {
       root: rootManifest.ok ? rootManifest.value.minAppVersion ?? null : null,
       dist: distManifest.ok ? distManifest.value.minAppVersion ?? null : null,
     },
-    artifacts: PLUGIN_ARTIFACTS.map((name) => artifactFacts(root, name)),
+    artifacts: descriptor.pluginArtifacts.map((name) => artifactFacts(root, name)),
     cli: cliBytes ? { path: cliPath, size: cliBytes.length, sha256: sha256(cliBytes), text: cliBytes.toString("utf8") } : null,
     git,
     tagExists: (tag) => existsSync(join(root, ".git", "refs", "tags", tag)) || git.packedRefs.includes(`refs/tags/${tag}`),

@@ -1,27 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { planDelta } from "../../src/sync/diff";
-import { createExclusionMatcher, excludesHash } from "../../src/sync/exclusions";
+import { planDelta, type DeltaBaseline, type DeltaEntry } from "../../src/sync/diff";
+import { createExclusionMatcher } from "../../src/sync/exclusions";
 import { HASH_CHUNK_BYTES, SINGLE_READ_LIMIT_BYTES, hashFile, sha256Hex } from "../../src/sync/hash";
-import { buildManifest, parseManifest, ManifestError } from "../../src/sync/manifest";
 import { scanVault } from "../../src/sync/scan";
-import { StateError, buildState, decodeState, encodeState, readState, writeState, type LocalState } from "../../src/sync/state";
 import { createMemoryHost } from "../helpers/memory-host";
+
+// Hashing, scan and delta planning. The v1 manifest and local-state suites that shared this file went with the plaintext reader (mvp-07b 3.1c).
 
 const HELLO_SHA = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
 
-async function stateFor(host: ReturnType<typeof createMemoryHost>): Promise<LocalState> {
+/** What the last publish left, as a structural baseline: every current file as an entry (a placeholder CID rides along) and its mtime. */
+async function stateFor(host: ReturnType<typeof createMemoryHost>): Promise<DeltaBaseline<DeltaEntry & { readonly cid: string }>> {
   const scanned = await scanVault(host.fs, createExclusionMatcher());
   const plan = await planDelta(host.fs, scanned, undefined);
-  const files = Object.fromEntries(
-    plan.writes.map((w) => [w.path, { sha256: w.sha256, size: w.size, cid: `bafycid-${w.path}` }] as const),
-  );
-  return buildState({
-    mfsRoot: "/obsidian-vault-sync/default",
-    key: "obsidian-vault-sync",
-    rootCid: "bafyroot0000000",
-    manifest: buildManifest({ rootCid: "bafycurrent0000", publishedAt: "2026-09-30T00:00:00.000Z", device: "t", files, excludesHash: await excludesHash() }),
-    mtimes: plan.mtimes,
-  });
+  const files = Object.fromEntries(plan.writes.map((w) => [w.path, { sha256: w.sha256, size: w.size, cid: `bafycid-${w.path}` }] as const));
+  return { manifest: { files }, mtimes: plan.mtimes };
 }
 
 describe("hashing", () => {
@@ -51,30 +44,6 @@ describe("hashing", () => {
     host.put("edge.bin", new Uint8Array(SINGLE_READ_LIMIT_BYTES));
     await hashFile(host.fs, "edge.bin", SINGLE_READ_LIMIT_BYTES);
     expect(host.reads.wholeReads).toEqual(["edge.bin"]);
-  });
-});
-
-describe("manifest", () => {
-  it("reads a v1 manifest back: exactly the v1 top-level fields, and the file entries as written", async () => {
-    const input = {
-      rootCid: "bafycurrent0000",
-      publishedAt: "2026-09-30T00:00:00.000Z",
-      device: "cli",
-      files: { "notes/hello.md": { sha256: HELLO_SHA, size: 5, cid: "bafkfile00000" } },
-      excludesHash: await excludesHash(),
-    };
-    const text = JSON.stringify(buildManifest(input));
-    expect(Object.keys(JSON.parse(text) as object).sort()).toEqual(["device", "excludesHash", "files", "publishedAt", "rootCID", "version"]);
-    expect(JSON.parse(text).version).toBe(1);
-    expect(parseManifest(text).files["notes/hello.md"]).toEqual(input.files["notes/hello.md"]);
-  });
-
-  it.each([
-    "not json",
-    JSON.stringify({ version: 2 }),
-    JSON.stringify({ version: 1, rootCID: "c", publishedAt: "t", device: "d", excludesHash: "zz", files: {} }),
-  ])("rejects an invalid manifest %#", (text) => {
-    expect(() => parseManifest(text)).toThrowError(ManifestError);
   });
 });
 
@@ -156,26 +125,5 @@ describe("delta planning", () => {
     host.put("constructor", "new file");
     const plan = await planDelta(host.fs, await scanVault(host.fs, createExclusionMatcher()), state);
     expect(plan.writes.map((w) => `${w.kind}:${w.path}`)).toEqual(["added:constructor"]);
-  });
-});
-
-describe("local state", () => {
-  it("round-trips through the kv store with equal bytes", async () => {
-    const host = createMemoryHost();
-    host.put("a.md", "one");
-    const state = await stateFor(host);
-    await writeState(host.kv, state);
-    const again = await readState(host.kv);
-    expect(again).toEqual(state);
-    expect(encodeState(again as LocalState)).toEqual(encodeState(state));
-    expect(host.kvStore.has("state.json")).toBe(true);
-  });
-
-  it("is absent before the first publish and refuses a corrupt record loudly", async () => {
-    const host = createMemoryHost();
-    expect(await readState(host.kv)).toBeUndefined();
-    host.kvStore.set("state.json", new TextEncoder().encode("{ broken"));
-    await expect(readState(host.kv)).rejects.toBeInstanceOf(StateError);
-    expect(() => decodeState(new TextEncoder().encode('{"version":9}'))).toThrowError(/unsupported state version/);
   });
 });

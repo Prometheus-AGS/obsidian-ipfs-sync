@@ -249,6 +249,20 @@ export function prepareSlot(slot: PassphraseSlotRecord): PreparedSlot {
 }
 
 /**
+ * Refuse a file that lists ANY slot of a type this build does not know, not only among the (at most two) slots an
+ * unlock tries. A rewrap writes a file with one slot; an unknown slot (a future hardware-key slot, say) would be
+ * silently dropped, so the rewrap stops before it derives anything. `parseKeySlots` keeps every slot of the file
+ * (up to 8, unknown ones verbatim), so this scan sees them all.
+ */
+export function assertNoUnknownSlots(document: ParsedKeySlots): ParsedKeySlots {
+  assertParsed(document);
+  if (document.slots.some((slot) => !isPassphraseSlot(slot))) {
+    throw new CryptoError("unsupported-format", "cannot rewrap a file with slot types this version does not know");
+  }
+  return document;
+}
+
+/**
  * The passphrase slots an unlock will try: unknown types are skipped, at most two are taken in list order, and
  * ALL of them are validated here, so a bad first slot refuses the whole unlock even when the second is good.
  * Raises `no-usable-slot` when no passphrase slot remains.

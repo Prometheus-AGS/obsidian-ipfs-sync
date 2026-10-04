@@ -1,8 +1,9 @@
-import { ConfigError, FIXTURE_MARKER, MARK_FIXTURE_HINT } from "../core/config";
+import type { ConfigError } from "../core/config";
 import { escapeForDisplay } from "../sync/path-policy";
 import type { PublishResult } from "../sync/publish";
 import { OwnedKeyNotRecordedError } from "../sync/publish-errors";
-import { PublishRefusedError } from "../sync/publish-refusals";
+import { PublishRefusedError, type MassRemovalCounts } from "../sync/publish-refusals";
+import { massRemovalTimerNotice } from "./mass-removal-dialog-model";
 
 /**
  * The text the user sees. Every message is built from names, counts and CIDs; error messages of the
@@ -11,11 +12,6 @@ import { PublishRefusedError } from "../sync/publish-refusals";
 
 const PREFIX = "IPFS Sync:";
 const SHORT_CID = 16;
-
-export const FIXTURE_ONLY_NOTICE =
-  `${PREFIX} publishing is off for this vault. Encryption is implemented but not yet independently reviewed or verified in Obsidian, ` +
-  `so only fixture vaults (a ${FIXTURE_MARKER} file at the vault root holding the text "fixture") can be published; ` +
-  `real vaults are allowed after that review. ${MARK_FIXTURE_HINT} Nothing was sent to the node.`;
 
 export const PASSPHRASE_REQUIRED_NOTICE =
   `${PREFIX} the vault is locked, so nothing was sent to the node. Run Publish vault again to enter the passphrase.`;
@@ -118,4 +114,14 @@ export function failedNotice(error: unknown): string {
 /** Another publish (this vault's command-line tool, or an earlier run) holds the lock file. The timer skips silently; a manual run shows this. */
 export function lockHeldNotice(error: PublishRefusedError): string {
   return `${PREFIX} ${error.message} (--break-lock is an option of the ipfs-sync command line tool.) A lock with no heartbeat for 15 minutes is replaced automatically. Nothing was sent to the node.`;
+}
+
+/** The auto-publish timer was stopped by the mass-removal guard. It never opens a dialog; the words are the dialog model's. */
+export function massRemovalTimerRefusal(counts: MassRemovalCounts): string {
+  return `${PREFIX} ${massRemovalTimerNotice(counts)}`;
+}
+
+/** A manual publish that the guard stopped and the person did not confirm (cancelled the dialog, or none could open). Counts only; no path. */
+export function massRemovalDeclinedNotice(counts: MassRemovalCounts): string {
+  return `${PREFIX} publish stopped: it would remove ${counts.removing} of ${counts.remaining} entries from the published vault and the removal was not confirmed. Nothing was written.`;
 }

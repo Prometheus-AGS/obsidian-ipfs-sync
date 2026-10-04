@@ -2,7 +2,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { STATE_FOLDER, untrustedPathReason } from "../../src/sync/manifest-paths";
-import * as fromPullPlan from "../../src/sync/pull-plan";
 
 describe("untrusted path rules (manifest-v2 spec, 'Untrusted path rules')", () => {
   const refused: readonly [string, string][] = [
@@ -33,11 +32,6 @@ describe("untrusted path rules (manifest-v2 spec, 'Untrusted path rules')", () =
     for (const path of ["notes/daily/2026-01-01.md", "a.md", "a/.hidden", "a/b.c/d", "x/.ipfs-sync/y", ".ipfs-syncx/a", "\u00e9t\u00e9/caf\u00e9.md", "a b/c d.md", "__proto__", "1:/a", "dd:/a"]) {
       expect(untrustedPathReason(path), path).toBeUndefined();
     }
-  });
-
-  it("pull-plan re-exports the same function and constant (no behaviour change)", () => {
-    expect(fromPullPlan.untrustedPathReason).toBe(untrustedPathReason);
-    expect(fromPullPlan.STATE_FOLDER).toBe(STATE_FOLDER);
   });
 
   it("the encrypted manifest module no longer imports pull-plan, and manifest-paths.ts imports nothing", () => {

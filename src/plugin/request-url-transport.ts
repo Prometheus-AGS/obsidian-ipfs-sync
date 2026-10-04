@@ -1,5 +1,6 @@
-import { requestUrl } from "obsidian";
+import { Platform, requestUrl } from "obsidian";
 import type { Transport } from "../kubo";
+import { createRangeStreamingTransport, desktopNodeModules } from "./range-streaming-transport";
 
 /**
  * The plugin's transport: Obsidian's `requestUrl` instead of `fetch`. The node answers a request from the
@@ -42,3 +43,11 @@ async function send(url: string, init: RequestInit): Promise<Response> {
 }
 
 export const requestUrlTransport: Transport = Object.assign(send, { transportName: "requestUrl" });
+
+/**
+ * The transport of a decrypting pull: ranged gateway reads stream through Node on desktop (a hostile gateway's oversize body
+ * is cut off after the probe margin), everything else, and every request on mobile, goes through `requestUrl`.
+ */
+export function pullTransport(): Transport {
+  return createRangeStreamingTransport({ fallback: requestUrlTransport, node: desktopNodeModules(Platform.isDesktopApp) });
+}

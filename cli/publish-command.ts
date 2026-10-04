@@ -7,7 +7,7 @@ import { CryptoError, describeKdfCost, wipe, type CanonicalPassphrase, type KdfP
 import { KuboError, type KuboClient } from "../src/kubo";
 import { createDeviceIdProvider, DeviceStoreError, type DeviceStore } from "../src/sync/device-store";
 import { BlobTransferError } from "../src/sync/encrypted-transfer";
-import { assertPublishMarker } from "../src/sync/fixture-marker";
+import { assertPublishMarker } from "../src/sync/publish-guard";
 import { ManifestFormatError } from "../src/sync/encrypted-manifest";
 import { HostNotImplementedError } from "../src/sync/host-errors";
 import { publishVault, type PublishOptions, type PublishResult } from "../src/sync/publish";
@@ -35,6 +35,8 @@ export interface PublishFlags {
   readonly recoverSlots: boolean;
   /** `--allow-full-reupload`: allow uploading again more than 256 MiB of files the node lost. */
   readonly allowFullReupload: boolean;
+  /** `--allow-mass-removal`: let a publish that removes every remaining entry, or more than half of them, run without asking. */
+  readonly allowMassRemoval: boolean;
 }
 
 export interface PublishContext {
@@ -110,13 +112,14 @@ export function printPathLists(io: CliIo, result: PublishResult): void {
   const lists: readonly (readonly [number, string, readonly string[]])[] = [
     [result.carried.length, "not published from this device (no current copy here; kept as the node has them)", result.carried],
     [result.dropped.length, "dropped from the manifest (excluded here or unsafe path)", result.dropped.map((entry) => entry.path)],
+    [(result.exclusionRemoved ?? []).length, "removed because the exclusion list now matches them (not counted by the mass-removal check)", result.exclusionRemoved ?? []],
     [result.skipped.length, "skipped (over the host's read cap, or changed while being read)", result.skipped.map((file) => file.path)],
   ];
   for (const [count, what, paths] of lists) if (count > 0) io.out(`note: ${count} path${count === 1 ? "" : "s"} ${what}: ${namesText(paths)}`);
 }
 
 /** Answers for the questions the engine may ask. A run that cannot ask (no terminal) answers no. */
-function askingOptions(ctx: PublishContext): Pick<PublishOptions, "confirmRepair" | "confirmRecover" | "confirmFullReupload" | "costPolicy"> {
+function askingOptions(ctx: PublishContext): Pick<PublishOptions, "confirmRepair" | "confirmRecover" | "confirmFullReupload" | "confirmMassRemoval" | "costPolicy"> {
   const { confirm } = ctx.io;
   if (confirm === undefined) return {};
   const costs = (params: readonly KdfParams[]): string => params.map(describeKdfCost).join("; ");
@@ -124,6 +127,12 @@ function askingOptions(ctx: PublishContext): Pick<PublishOptions, "confirmRepair
     confirmRepair: (warning) => confirm(`${warning} Continue?`),
     confirmRecover: (params) => confirm(`Unlocking these key slots costs ${costs(params)} of memory and time on this device. Continue?`),
     confirmFullReupload: (bytes) => confirm(`About ${Math.ceil(bytes / (1024 * 1024))} MiB of this vault's files must be uploaded again. Continue?`),
+    confirmMassRemoval: (counts) =>
+      confirm(
+        `This publish would remove ${counts.removing} of ${counts.remaining} entries from the vault manifest` +
+          `${counts.exclusionDriven > 0 ? ` (${counts.exclusionDriven} more are removed by the exclusion list and are not counted)` : ""}. ` +
+          "An unmounted or emptied vault folder looks the same. Continue?",
+      ),
     costPolicy: { approveCost: (params) => confirm(`A key slot on the node costs ${describeKdfCost(params)} to unlock, above the default. Continue?`) },
   };
 }
@@ -170,6 +179,7 @@ async function publishWithHosts(ctx: PublishContext, host: HostBridge, lock: Pub
         repair: ctx.flags.repair,
         recoverSlots: ctx.flags.recoverSlots,
         allowFullReupload: ctx.flags.allowFullReupload,
+        allowMassRemoval: ctx.flags.allowMassRemoval,
         ...askingOptions(ctx),
       },
     );

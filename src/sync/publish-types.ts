@@ -5,6 +5,7 @@ import type { KuboClient } from "../kubo";
 import type { SkippedFile } from "./diff";
 import type { DeviceStore } from "./device-store";
 import type { DroppedEntry } from "./publish-plan";
+import type { MassRemovalCounts } from "./publish-refusals";
 import type { ConfirmRepair } from "./repair";
 import type { UnlockedVault } from "./vault-keys";
 
@@ -74,6 +75,13 @@ export interface PublishOptions {
   /** Asks about that re-upload when the flag is absent; without it the re-upload is refused. */
   readonly confirmFullReupload?: (bytes: number) => Promise<boolean>;
   readonly onUnlockProgress?: KdfProgress;
+  /** `--allow-mass-removal`: let a publish that removes every remaining entry, or more than half of them, run unasked. */
+  readonly allowMassRemoval?: boolean;
+  /**
+   * Asks about such a publish when the flag is absent. Without it the publish is refused: an unattended timer publish passes none,
+   * so it never opens a dialog and never removes most of a vault.
+   */
+  readonly confirmMassRemoval?: (counts: MassRemovalCounts) => Promise<boolean>;
 }
 
 export interface PublishResult {
@@ -91,6 +99,8 @@ export interface PublishResult {
   readonly carried: readonly string[];
   /** Carried entries that left the manifest: this device's exclusion list matches them, or their path has an unsafe shape. */
   readonly dropped: readonly DroppedEntry[];
+  /** Paths removed from the manifest because the exclusion list now matches them (sorted); not counted by the mass-removal guard. Absent on a run that sent nothing. */
+  readonly exclusionRemoved?: readonly string[];
   readonly keyId: string;
   readonly keyCreated: boolean;
   /** CID of `<mfsRoot>` (the IPNS value). Present when published. */

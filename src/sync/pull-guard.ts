@@ -1,14 +1,39 @@
-import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE, PULLED_MARKER_VALUE, type MarkerState } from "../core/config";
 import type { HostFs } from "../core/host-bridge";
-import { REMARK_PULL_HINT, enablesPull, legacyMarkerProblem, readLegacyMarker, readMarkerState } from "./fixture-marker";
-import { PullGuardError } from "./pull-errors";
+import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE, PULLED_MARKER_VALUE } from "./fixture-constants";
 import { STATE_FOLDER } from "./manifest-paths";
-import { findSymlink } from "./symlink-guard";
-import { TEMP_DIR } from "./temp-files";
+import { PullGuardError } from "./pull-errors";
+import {
+  HELP_CONTINUATION_INDENT,
+  REMARK_PULL_HINT,
+  enablesPull,
+  legacyMarkerProblem,
+  readLegacyMarker,
+  readMarkerState,
+  type MarkerState,
+} from "./publish-guard";
+import { assertStateFolderSafe } from "./state-folder-guard";
+
+// The pull side of the fixture policy (mvp-07b task 3.2): the destination rules, the marker pull writes, and the
+// copy that states the rule. The guard removal (task 6.2) replaces the bodies and keeps every export name.
+// The symbolic-link check on the state folder is not policy; it lives in `state-folder-guard.ts`.
 
 const MARKER_TEXT = `${PULLED_MARKER_VALUE}\n`;
 
 export type GuardFs = Pick<HostFs, "stat" | "read" | "lstat" | "list" | "write">;
+
+/** The plugin's refusal notice for a pull into a populated directory without a fixture marker. */
+export const FIXTURE_ONLY_PULL_NOTICE =
+  "IPFS Sync: pull is off for this vault. Pull into a populated directory without a fixture marker stays disabled in this build. " +
+  `Only fixture vaults (a ${FIXTURE_MARKER} file at the vault root holding the text "${FIXTURE_MARKER_VALUE}" or "${PULLED_MARKER_VALUE}") or vaults with no files outside .obsidian/ and .ipfs-sync/ can be pulled into. ` +
+  "Nothing was sent to the node and no file changed.";
+
+const I = HELP_CONTINUATION_INDENT;
+
+/** The `pull` paragraph of the CLI help: which destinations are accepted (wrapped as the help text wraps it). */
+export const PULL_SCOPE_HELP =
+  `The\n${I}destination must be absent, empty or hold the ${FIXTURE_MARKER} marker ("${FIXTURE_MARKER_VALUE}" or\n` +
+  `${I}"${PULLED_MARKER_VALUE}") until encryption has been independently reviewed (a pulled fresh directory\n` +
+  `${I}gets "${PULLED_MARKER_VALUE}", which pull accepts and publish refuses).`;
 
 /** A marker file that exists but holds neither accepted word (an empty marker from an earlier release, or other text). */
 async function refuseUnusableMarker(fs: GuardFs, state: MarkerState): Promise<void> {
@@ -31,8 +56,7 @@ async function refuseUnusableMarker(fs: GuardFs, state: MarkerState): Promise<vo
 export async function assertPullDestination(fs: GuardFs): Promise<{ readonly needsMarker: boolean }> {
   const root = await fs.stat("");
   if (root !== undefined && root.kind !== "directory") throw new PullGuardError("the destination exists and is not a directory");
-  const link = await findSymlink(fs, TEMP_DIR);
-  if (link !== undefined) throw new PullGuardError(`"${link}" is a symbolic link; pull will not write its state through it`);
+  await assertStateFolderSafe(fs);
   if (root === undefined) return { needsMarker: true };
   const marker = await readMarkerState(fs);
   if (enablesPull(marker)) return { needsMarker: false };
@@ -73,8 +97,7 @@ async function firstNoteFile(fs: Pick<HostFs, "list">): Promise<string | undefin
 export async function assertVaultPullDestination(fs: GuardFs): Promise<{ readonly needsMarker: boolean }> {
   const root = await fs.stat("");
   if (root?.kind !== "directory") throw new PullGuardError("the destination is not a directory");
-  const link = await findSymlink(fs, TEMP_DIR);
-  if (link !== undefined) throw new PullGuardError(`"${link}" is a symbolic link; pull will not write its state through it`);
+  await assertStateFolderSafe(fs);
   const marker = await readMarkerState(fs);
   if (enablesPull(marker)) return { needsMarker: false };
   await refuseUnusableMarker(fs, marker);

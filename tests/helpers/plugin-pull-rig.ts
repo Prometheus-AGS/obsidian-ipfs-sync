@@ -5,7 +5,7 @@ import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-
 import { createSyncLock, type SyncLock } from "../../src/plugin/sync-lock";
 import type { FakeGateway } from "./fake-gateway";
 import { createFakeGateway, type FakeGatewayOptions } from "./fake-gateway";
-import { IPNS_NAME, seedRemote } from "./pull-fixtures";
+import { IPNS_NAME } from "./pull-fixtures";
 import { MemoryAdapter } from "../support/memory-adapter";
 
 export const MFS = "/obsidian-vault-sync/mvp05-test";
@@ -60,8 +60,6 @@ export interface RigOptions {
   readonly gateway?: FakeGatewayOptions;
   readonly flushEditors?: () => Promise<void>;
   readonly lock?: SyncLock;
-  /** The plaintext (version 1) reader is off by default in the plugin; the rig switches it on unless a test says otherwise. */
-  readonly allowPlaintextV1?: boolean;
 }
 
 /** A pull runner over a memory vault and a recording fake gateway that also answers `key/list`. */
@@ -80,7 +78,6 @@ export function pullRig(options: RigOptions = {}): PullRig {
     bus,
     lock,
     flushEditors: options.flushEditors,
-    allowPlaintextV1: () => options.allowPlaintextV1 ?? true,
     createClient: () => gateway.client,
     now: () => NOW,
     newId: () => `id${(counter += 1)}`,
@@ -88,11 +85,15 @@ export function pullRig(options: RigOptions = {}): PullRig {
   return { adapter, gateway, store, runner, bus, lock, events, pull: () => runner.run() };
 }
 
-export const FILES_V1 = { "notes/a.md": "alpha", "notes/b.md": "bravo", "c.md": "charlie" };
-
-/** Publish state as the node would hold it after `files` were published. */
-export async function seed(rig: PullRig, files: Readonly<Record<string, string>>, generation: 1 | 2 = 1): Promise<void> {
-  await seedRemote(rig.gateway, files, generation === 1 ? { tree: TREE1, root: ROOT1 } : { tree: TREE2, root: ROOT2, previousRoot: ROOT1 });
+/**
+ * What an old plaintext publication left on the node: a `manifest.json` and a `current/` tree, no key slots and no
+ * `manifest.enc`. The manifest bytes are never parsed by anything (no plaintext reader exists), so they are a stub.
+ */
+export function plantPlaintextRoot(gateway: Pick<FakeGateway, "objects" | "names">, files: Readonly<Record<string, string>> = { "notes/a.md": "alpha" }): void {
+  const encode = (text: string): Uint8Array => new TextEncoder().encode(text);
+  for (const [path, text] of Object.entries(files)) gateway.objects.set(`${TREE1}/${path}`, encode(text));
+  gateway.objects.set(`${ROOT1}/manifest.json`, encode(JSON.stringify({ version: 1, rootCID: TREE1 })));
+  gateway.names.set(IPNS_NAME, `/ipfs/${ROOT1}`);
 }
 
 /** A vault as Obsidian creates one: only `.obsidian/` and the plugin's own folder. */

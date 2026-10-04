@@ -1,6 +1,7 @@
 import { createExclusionMatcher, type ExclusionMatcher } from "./exclusions";
 import { readJournal } from "./journal";
 import { RootStateError } from "./local-record";
+import { readMaintenanceJournal } from "./maintenance-journal";
 import { untrustedPathReason } from "./manifest-paths";
 import { statIfPresent } from "./node-reader";
 import { openPublicationKey } from "./publish-key";
@@ -57,6 +58,8 @@ export async function idlePublishResult(deps: PublishDeps, options: PublishOptio
   if (options.repair === true) return undefined;
   const state = await readRecord(deps, checked);
   if (state === undefined || (await readJournal(deps.host.kv, checked.mfsRoot)).kind !== "none") return undefined;
+  // A pending key-management operation also sends the run down the normal path, where `openSession` refuses it with its own text.
+  if ((await readMaintenanceJournal(deps.host.kv, checked.mfsRoot)).kind !== "none") return undefined;
   if ((await statIfPresent(deps.client, checked.mfsRoot))?.cid !== state.rootCid) return undefined;
   const key = await openPublicationKey(deps.client, checked.keyName, options.ownedKeys, options.recordOwnedKey);
   if (key.absent) return undefined;

@@ -19,7 +19,7 @@ import type { HostFs, HostKv } from "../core/host-bridge";
 import { ABANDON_HOW } from "./abandon-hint";
 import type { DeviceStore } from "./device-store";
 import { sha256Hex } from "./hash";
-import { LATCH_KEY, recordEncryptedSeen } from "./pull-latch";
+import { PLAINTEXT_UNSUPPORTED_MESSAGE } from "./pull-errors";
 import { SequenceFloorError, readFloor } from "./sequence-floor";
 
 /*
@@ -48,7 +48,9 @@ export type VaultKeysErrorCode =
   | "recover-declined"
   | "abandon-not-confirmed"
   | "locked"
-  | "no-key-slots";
+  | "no-key-slots"
+  /** The root lists a `manifest.json` and holds no key slots: a plaintext publication, which no code path of this version reads. */
+  | "plaintext-root";
 
 /** An orchestration refusal. Messages are fixed text; they never contain a passphrase, key or path. */
 export class VaultKeysError extends Error {
@@ -84,6 +86,11 @@ export interface NodeAccess {
   /** `keyslots.json` of the root, already size-bounded by the caller (stat before read, 16 KiB cap), or `undefined`. */
   fetchKeySlots(): Promise<Uint8Array | undefined>;
   manifestPresent(): Promise<boolean>;
+  /**
+   * Whether the root's listing names a `manifest.json`. Pull-mode only, asked when the root holds no key slots, to tell a plaintext
+   * publication from an empty or unknown root. A listing check: the file is never requested, and nothing it holds is read.
+   */
+  plaintextManifestPresent?(): Promise<boolean>;
 }
 
 /**
@@ -287,7 +294,14 @@ export const ACCEPT_SLOTS_HOW = 'accept them with the accept-slots action of key
 const PULL_SLOTS_DIFFER = `the node's key slots differ from this device's copy; no derivation was run on the node's parameters and nothing was written. If the change is expected (a passphrase change on another device), ${ACCEPT_SLOTS_HOW}`;
 const PULL_SLOTS_RECORDED_DIFFER = `the node's key slots differ from the ones this device recorded; no derivation was run and nothing was written. If the change is expected, ${ACCEPT_SLOTS_HOW}`;
 const PULL_NO_SLOTS = "the target holds no key slots: it is not an encrypted vault, or it lost its key slots; nothing was derived or written";
-const PULL_NO_MANIFEST = "the root holds key slots but no manifest.enc: the manifest is withheld or not yet published; the vault was treated as neither empty nor creatable, and nothing was derived or written";
+
+/** The refusal for a root without key slots: a plaintext publication when the listing names `manifest.json`, otherwise an empty, unknown or slot-less root. */
+async function absentSlotsError(node: NodeAccess): Promise<VaultKeysError> {
+  if ((await node.plaintextManifestPresent?.()) === true) return new VaultKeysError("plaintext-root", PLAINTEXT_UNSUPPORTED_MESSAGE);
+  return new VaultKeysError("no-key-slots", PULL_NO_SLOTS);
+}
+
+const PULL_NO_MANIFEST ="the root holds key slots but no manifest.enc: the manifest is withheld or not yet published; the vault was treated as neither empty nor creatable, and nothing was derived or written";
 
 export interface PullOpenInput {
   /** Read-only on purpose: the pull-mode open never persists the key-slot copy. */
@@ -332,6 +346,9 @@ export interface PulledVault {
 /** Cost confirmation for the slots about to be derived. A held vault that covers the bytes derives nothing and asks nothing. */
 async function pullCostPolicy(input: PullOpenInput, document: ParsedKeySlots, bytes: Bytes): Promise<CostPolicy | undefined> {
   if (input.unlocked !== undefined && sameBytes(input.unlocked.keySlots, bytes)) return undefined;
+  // No passphrase: nothing will be derived (the open ends as `locked`), so there is nothing to approve. A host that prompts for the passphrase
+  // after a `locked` stop would otherwise show the cost question twice, the first time before it has even asked for the passphrase.
+  if (input.passphrase === undefined) return undefined;
   const costs = prepareTriedSlots(document).map((slot) => slot.params);
   if (!costs.some(exceedsDefaultCost) || input.confirmCost === undefined) return undefined;
   let approved = false;
@@ -350,7 +367,7 @@ async function pullWithCopy(input: PullOpenInput, copy: Bytes): Promise<PulledVa
   // Local first: a wrong passphrase fails here, before any request to the node.
   const { keys } = await unlockBytes(input, copy, await pullCostPolicy(input, parsed, copy));
   const remote = await input.node.fetchKeySlots();
-  if (remote === undefined) throw new VaultKeysError("no-key-slots", PULL_NO_SLOTS);
+  if (remote === undefined) throw await absentSlotsError(input.node);
   if (!sameBytes(remote, copy)) throw new VaultKeysError("vault-mismatch", PULL_SLOTS_DIFFER);
   if (!(await input.node.manifestPresent())) throw new VaultKeysError("slots-without-manifest", PULL_NO_MANIFEST);
   return { keys, vaultId: parsed.vaultId, keySlots: copy, keySlotsSha256: await sha256Hex(copy), origin: "local-copy", copyToStore: undefined };
@@ -384,7 +401,7 @@ export async function openVaultForPull(input: PullOpenInput): Promise<PulledVaul
   const copy = await readCopy(input.fs, await keySlotsCopyPath(input.mfsRoot));
   if (copy !== undefined) return pullWithCopy(input, copy);
   const remote = await input.node.fetchKeySlots();
-  if (remote === undefined) throw new VaultKeysError("no-key-slots", PULL_NO_SLOTS);
+  if (remote === undefined) throw await absentSlotsError(input.node);
   return pullFromNode(input, remote);
 }
 
@@ -396,8 +413,8 @@ export async function persistKeySlotsCopy(fs: Pick<HostFs, "write">, mfsRoot: st
 /* ---------- abandon ---------- */
 
 export interface AbandonInput {
-  /** `read` and `write` are for the downgrade latch (`encrypted-seen.json` in the same `.ipfs-sync/` folder the hosts' key-value store uses). */
-  readonly fs: Pick<HostFs, "stat" | "rename" | "read" | "write">;
+  /** `read` is for the vault id the local files name (to look up the floor); abandon writes nothing, it only renames. */
+  readonly fs: Pick<HostFs, "stat" | "rename" | "read">;
   readonly mfsRoot: string;
   /** Must equal `ABANDON_CONFIRMATION`, typed by the user. */
   readonly confirmation: string;
@@ -420,15 +437,6 @@ export function describeAbandonFloor(floor: AbandonFloor): string {
 }
 
 const HEX32 = /^[0-9a-f]{32}$/;
-
-/** The latch file, reached through the file capability at the path the hosts' key-value store uses. */
-function latchStore(fs: AbandonInput["fs"]): Pick<HostKv, "get" | "set"> {
-  const path = `${STATE_DIR}/${LATCH_KEY}`;
-  return {
-    get: async () => ((await fs.stat(path))?.kind === "file" ? fs.read(path) : undefined),
-    set: async (_key, value) => fs.write(path, value),
-  };
-}
 
 /** The vault id this root's files name: the key-slot copy first, else the state. `undefined` when neither parses (the files are about to be moved, not trusted). */
 async function localVaultId(fs: AbandonInput["fs"], digest: string, present: readonly string[]): Promise<string | undefined> {
@@ -464,9 +472,9 @@ async function floorKept(input: AbandonInput, digest: string, present: readonly 
 
 /**
  * Move this root's local key-slot copy, state and journal into a backup folder. The node is never touched (there is no
- * node parameter), and the user can then start a new vault in an empty MFS root. Before anything moves, the
- * encrypted-seen latch is recorded, so abandoning cannot re-open the plaintext-v1 reader for this destination (R5-02).
- * The sequence floor lives in the device store, which abandon only reads (before moving anything) to report it.
+ * node parameter), and the user can then start a new vault in an empty MFS root. No latch is recorded: no code path
+ * reads a plaintext manifest, and the sequence floor is the downgrade evidence. The floor lives in the device store,
+ * which abandon only reads (before moving anything) to report it.
  */
 export async function abandonVault(
   input: AbandonInput,
@@ -475,12 +483,12 @@ export async function abandonVault(
   const digest = await rootDigest(input.mfsRoot);
   const backupDir = `${STATE_DIR}/abandoned-${digest}-${input.nowMs}`;
   const present: string[] = [];
-  for (const kind of ["keyslots", "state", "journal"]) {
+  // `maintenance` too: a pending key-management journal that stayed behind would block publish and pull on the new vault in the same root.
+  for (const kind of ["keyslots", "state", "journal", "maintenance"]) {
     if ((await input.fs.stat(`${STATE_DIR}/${kind}.${digest}.json`)) !== undefined) present.push(kind);
   }
   if (present.length === 0) return { backupDir, moved: [], floor: { status: "none" } };
   const floor = await floorKept(input, digest, present);
-  await recordEncryptedSeen(latchStore(input.fs), { ipnsName: "", mfsRoot: input.mfsRoot, key: "abandon", at: new Date(input.nowMs).toISOString() });
   const moved: string[] = [];
   for (const kind of present) {
     const from = `${STATE_DIR}/${kind}.${digest}.json`;

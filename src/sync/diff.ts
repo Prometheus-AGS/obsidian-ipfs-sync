@@ -1,7 +1,6 @@
 import type { HostFs } from "../core/host-bridge";
 import { hashFile } from "./hash";
 import { FileChangedDuringReadError, HostReadCapError } from "./host-errors";
-import type { ManifestFile } from "./manifest";
 import type { ScannedFile } from "./scan";
 
 /** What change detection needs of the last published record: the plaintext hash and size per path, and the mtimes. */
@@ -10,7 +9,7 @@ export interface DeltaEntry {
   readonly size: number;
 }
 
-export interface DeltaBaseline<E extends DeltaEntry = ManifestFile> {
+export interface DeltaBaseline<E extends DeltaEntry = DeltaEntry> {
   readonly manifest: { readonly files: Readonly<Record<string, E>> };
   readonly mtimes: Readonly<Record<string, number>>;
 }
@@ -23,7 +22,7 @@ export interface PendingWrite {
   readonly size: number;
 }
 
-export interface DeltaPlan<E extends DeltaEntry = ManifestFile> {
+export interface DeltaPlan<E extends DeltaEntry = DeltaEntry> {
   /** New or changed files, in path order. */
   readonly writes: readonly PendingWrite[];
   /** Files already on the node with the same content, as their manifest entries. */
@@ -100,7 +99,7 @@ async function classify<E extends DeltaEntry>(
  * transfers only if the sha256 differs. Files are hashed one at a time so memory
  * stays bounded on mobile.
  */
-export async function planDelta<E extends DeltaEntry = ManifestFile>(
+export async function planDelta<E extends DeltaEntry = DeltaEntry>(
   fs: Pick<HostFs, "read" | "readRange">,
   scanned: readonly ScannedFile[],
   previous: DeltaBaseline<E> | undefined,

@@ -3,6 +3,7 @@ import {
   DEFAULT_KDF_PARAMS,
   assertKdfParams,
   deriveKek,
+  describeKdfCost,
   enforceCostPolicy,
   type CostPolicy,
   type KdfFunction,
@@ -11,12 +12,13 @@ import {
 } from "./argon2";
 import { constantTimeEqual, utf8, wipe, type Bytes } from "./bytes";
 import { fromHex, toHex } from "./codec";
-import { CryptoError } from "./errors";
+import { CryptoError, KdfCostDowngradeError } from "./errors";
 import { deriveAesGcmKey, hkdfSha256, importHkdfKey } from "./hkdf";
 import { LABEL_SLOT_WRAP, SLOT_ID_BYTES, VAULT_ID_BYTES, VCK_BYTES, createVaultKeys, type VaultKeys } from "./key-derivation";
 import {
   COMMITMENT_BYTES,
   KEY_SLOTS_VERSION,
+  assertNoUnknownSlots,
   markParsed,
   parseKeySlots,
   prepareTriedSlots,
@@ -161,6 +163,49 @@ export interface CreatedKeySlots {
   readonly slotId: string;
 }
 
+interface WrapSlotInput {
+  /** The secret the new slot's KEK is derived from. */
+  readonly secret: CanonicalPassphrase;
+  readonly vaultIdBytes: Bytes;
+  readonly vck: Bytes;
+  readonly params: KdfParams;
+  readonly onProgress?: KdfProgress;
+}
+
+interface WrappedSlotFile {
+  readonly document: ParsedKeySlots;
+  readonly bytes: Bytes;
+  readonly slotId: string;
+}
+
+/**
+ * One fresh passphrase slot wrapping `vck`, as a complete one-slot document. Draw order: slot id(16), salt(16),
+ * wrap nonce(12). The caller owns and wipes `vck` and `vaultIdBytes`; the KEK, the slot id and the commitment are
+ * overwritten here.
+ */
+async function wrapPassphraseSlot(input: WrapSlotInput, random: RandomSource, deps: KeySlotDeps): Promise<WrappedSlotFile> {
+  const { vaultIdBytes, vck, params } = input;
+  const id = randomBytes(random, SLOT_ID_BYTES);
+  const salt = randomBytes(random, 16);
+  const nonce = randomBytes(random, 12);
+  let kek: Bytes | undefined;
+  let commitment: Bytes | undefined;
+  try {
+    kek = await (deps.kdf ?? deriveKek)(input.secret, salt, params, input.onProgress);
+    const secrets = await deriveSlotSecrets(kek, vaultIdBytes, { id, params, salt });
+    commitment = secrets.commitment;
+    const wrapped = await aesGcmEncrypt(await secrets.wrapKey(), nonce, vck, slotAad(vaultIdBytes, id, params, salt));
+    const document: KeySlotsDocument = {
+      version: KEY_SLOTS_VERSION,
+      vaultId: toHex(vaultIdBytes),
+      slots: [slotRecordFrom({ idHex: toHex(id), params, salt, nonce, wrapped, commit: commitment })],
+    };
+    return { document: markParsed(document), bytes: serializeKeySlots(document), slotId: toHex(id) };
+  } finally {
+    wipe(kek, commitment, id);
+  }
+}
+
 /**
  * @internal test use only: create with injected randomness and collaborators. Draw order:
  * vaultId(16), VCK(32), slotId(16), salt(16), wrap nonce(12).
@@ -173,29 +218,79 @@ export async function createKeySlotsInternal(input: CreateKeySlotsInput, random:
   await (deps.selfTest ?? ensureSelfTest)();
   const vaultIdBytes = randomBytes(random, VAULT_ID_BYTES);
   const vck = randomBytes(random, VCK_BYTES);
-  const id = randomBytes(random, SLOT_ID_BYTES);
-  const salt = randomBytes(random, 16);
-  const nonce = randomBytes(random, 12);
-  let kek: Bytes | undefined;
   try {
-    kek = await (deps.kdf ?? deriveKek)(input.passphrase, salt, params, input.onProgress);
-    const secrets = await deriveSlotSecrets(kek, vaultIdBytes, { id, params, salt });
-    const wrapped = await aesGcmEncrypt(await secrets.wrapKey(), nonce, vck, slotAad(vaultIdBytes, id, params, salt));
-    const document: KeySlotsDocument = {
-      version: KEY_SLOTS_VERSION,
-      vaultId: toHex(vaultIdBytes),
-      slots: [slotRecordFrom({ idHex: toHex(id), params, salt, nonce, wrapped, commit: secrets.commitment })],
-    };
-    wipe(secrets.commitment);
-    return {
-      document: markParsed(document),
-      bytes: serializeKeySlots(document),
-      keys: await createVaultKeys(vaultIdBytes, vck),
-      slotId: toHex(id),
-    };
+    const slot = await wrapPassphraseSlot({ secret: input.passphrase, vaultIdBytes, vck, params, onProgress: input.onProgress }, random, deps);
+    return { ...slot, keys: await createVaultKeys(vaultIdBytes, vck) };
   } finally {
-    wipe(kek, vck, vaultIdBytes, id);
+    wipe(vck, vaultIdBytes);
   }
+}
+
+/** The new secret of a rewrap. */
+export type RewrapSecret =
+  /** Change passphrase: a passphrase generated here. User-chosen secrets are never offered. */
+  | { readonly kind: "generated"; readonly passphrase: GeneratedPassphrase }
+  /**
+   * Increase cost: keep the passphrase that just unlocked the vault. It need not be a generated one (it may have been
+   * typed), because the unlock is the proof that it already protects this vault; no new secret is introduced.
+   */
+  | { readonly kind: "reuse" };
+
+export interface RewrapInput {
+  /** The current key-slot file, parsed. */
+  readonly document: ParsedKeySlots;
+  /** The current passphrase; derived a second time here because the vault key is not extractable after unlock. */
+  readonly passphrase: CanonicalPassphrase;
+  readonly next: RewrapSecret;
+  /** Cost of the new slot; within the floors and ceilings. */
+  readonly params: KdfParams;
+  /** Lets the new memory or iterations fall below the current slot's. Without it a lower choice is refused. */
+  readonly allowDowngrade?: boolean;
+  /** Needed to unlock a current slot above the default cost, exactly as for an ordinary unlock. */
+  readonly costPolicy?: CostPolicy;
+  readonly onProgress?: KdfProgress;
+}
+
+export interface RewrappedKeySlots {
+  readonly document: ParsedKeySlots;
+  /** The exact bytes to write as `keyslots.json`: only the new slot. */
+  readonly bytes: Bytes;
+  readonly slotId: string;
+  readonly params: KdfParams;
+}
+
+/**
+ * @internal test use only: rewrap with injected randomness and collaborators. Draw order: slot id(16), salt(16),
+ * wrap nonce(12). Order of checks, all before the first derivation: brand and unknown-slot scan over EVERY slot in
+ * the file, new passphrase brand, new cost within the ceilings, no silent downgrade against the tried slots, then
+ * the unlock (cost policy, derivation 1) and the new slot (derivation 2).
+ */
+export async function rewrapKeySlotsInternal(input: RewrapInput, random: RandomSource, deps: KeySlotDeps): Promise<RewrappedKeySlots> {
+  assertCanonicalPassphrase(input.passphrase);
+  const current = assertNoUnknownSlots(input.document);
+  const secret = input.next.kind === "reuse" ? input.passphrase : assertGenerated(input.next.passphrase);
+  assertKdfParams(input.params);
+  const tried = prepareTriedSlots(current).map((slot) => slot.params);
+  const floor: KdfParams = { m: Math.max(...tried.map((p) => p.m)), t: Math.max(...tried.map((p) => p.t)), p: tried[0]?.p ?? input.params.p };
+  if (input.allowDowngrade !== true && (input.params.m < floor.m || input.params.t < floor.t)) {
+    throw new KdfCostDowngradeError(floor, input.params, `the new cost ${describeKdfCost(input.params)} is lower than the current ${describeKdfCost(floor)}; a downgrade needs explicit confirmation`);
+  }
+  const { vck, vaultIdBytes } = await unwrapVckInternal({ document: current, passphrase: input.passphrase, onProgress: input.onProgress, costPolicy: input.costPolicy }, deps);
+  try {
+    const slot = await wrapPassphraseSlot({ secret, vaultIdBytes, vck, params: input.params, onProgress: input.onProgress }, random, deps);
+    return { ...slot, params: { m: input.params.m, t: input.params.t, p: input.params.p } };
+  } finally {
+    wipe(vck, vaultIdBytes);
+  }
+}
+
+/**
+ * Replace the key-slot file by one holding a single new slot (fresh slot id, salt, nonce, commitment) that wraps the
+ * SAME vault key. The raw key bytes exist only inside this function and are overwritten. Vault content is not
+ * re-encrypted and old copies of the file keep opening the vault.
+ */
+export function rewrapKeySlots(input: RewrapInput): Promise<RewrappedKeySlots> {
+  return rewrapKeySlotsInternal(input, secureRandom, {});
 }
 
 /** Create a new vault: a fresh VCK and vault identifier and one passphrase slot with a key commitment. */

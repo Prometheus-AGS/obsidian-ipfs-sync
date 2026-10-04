@@ -6,7 +6,6 @@ import { authorizeRepair, planRepair, type RepairFacts } from "../../src/sync/re
 import { rootFileNames } from "../../src/sync/root-files";
 import { RootStateError } from "../../src/sync/local-record";
 import { readRootState, writeRootState } from "../../src/sync/root-state";
-import { StateError } from "../../src/sync/state";
 import { assertSequenceAllowsPublish, classifySequence } from "../../src/sync/sequence-rules";
 import { MFS_ROOT, scenario, type Scenario } from "../helpers/commit-scenario";
 
@@ -81,7 +80,6 @@ describe("sequence rules", () => {
       refusals.lockUnreadable().message,
       refusals.lockLost().message,
       new RootStateError("state is not valid JSON").message,
-      new StateError("state is not valid JSON").message,
     ];
     for (const text of texts) expect(text).not.toMatch(/\bdelet|\bremove\b.*\b(state|record)\b|force a full publish/i);
   });

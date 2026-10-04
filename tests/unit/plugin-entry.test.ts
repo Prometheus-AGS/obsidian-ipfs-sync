@@ -44,6 +44,7 @@ describe("plugin entry", () => {
       "show-status:Show status",
       "abandon-vault:Abandon this vault",
       "clear-stale-lock:Clear stale publish lock",
+      "measure-key-derivation:Measure key derivation time",
     ]);
     expect(stub.ribbonIcons).toHaveLength(2);
     expect(stub.statusBarItems).toHaveLength(1);

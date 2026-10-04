@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  assertFixtureVault,
   assertKeyOwnedForPublish,
   assertMfsMutationPath,
   assertValidKeyName,
   classifyKey,
-  classifyMarkerText,
   isValidKeyName,
   validateMfsRoot,
 } from "../../src/core/config";
+import { assertFixtureVault, classifyMarkerText } from "../../src/sync/publish-guard";
 
 describe("validateMfsRoot", () => {
   it.each([

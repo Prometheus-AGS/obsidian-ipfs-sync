@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util";
 import type { RawAuthInput, RawConfigLayer, RawEndpointInput } from "../src/core/config";
+import type { CostPresetName } from "../src/sync/key-management";
 
 export interface ParsedArgs {
   readonly command: string | undefined;
@@ -13,8 +14,12 @@ export interface ParsedArgs {
   readonly repair: boolean;
   readonly recoverSlots: boolean;
   readonly allowFullReupload: boolean;
+  /** `--allow-mass-removal`: publish only. */
+  readonly allowMassRemoval: boolean;
   /** `--yes-abandon`: confirm the abandon command without typing the word (abandon only). */
   readonly yesAbandon: boolean;
+  /** `--yes-discard`: confirm `keys discard` without a terminal (keys discard only). */
+  readonly yesDiscard: boolean;
   /** `--passphrase-file <path>`: where `init` writes the passphrase it generates (init only). */
   readonly passphraseFile: string | undefined;
   readonly configPath: string | undefined;
@@ -22,14 +27,36 @@ export interface ParsedArgs {
   readonly flagsLayer: RawConfigLayer;
   /** Flags only `pull` understands; other commands reject them. */
   readonly pull: PullFlags;
+  /** Flags only `keys` understands; other commands reject them. */
+  readonly keys: KeysFlags;
+  /** Flags only `prune-history` understands; other commands reject them. */
+  readonly prune: PruneFlags;
+}
+
+export interface PruneFlags {
+  /** `--keep <n>`: the number of history files to keep (at least 20 are always kept). Required by `prune-history`. */
+  readonly keep: number | undefined;
+  /** `--dry-run`: print the files that would be removed and stop; nothing is written, no lock is taken. */
+  readonly dryRun: boolean;
+  /** `--yes-prune`: the non-interactive yes to the removal question. */
+  readonly yesPrune: boolean;
+}
+
+/** The cost presets of `keys increase-cost` and `keys change-passphrase`; the numbers live in `src/sync/key-management.ts` (`COST_PRESETS`). */
+export const COST_PRESET_NAMES = ["standard", "high"] as const satisfies readonly CostPresetName[];
+
+export interface KeysFlags {
+  /** `--cost standard|high`: the cost of the new key slot. `increase-cost` needs it; `change-passphrase` keeps the current cost without it. */
+  readonly cost: CostPresetName | undefined;
+  /** `--accept-no-revocation`: the non-interactive yes to the statement that old passphrases and old slot copies keep working. */
+  readonly acceptNoRevocation: boolean;
+  /** `--allow-downgrade`: the non-interactive yes to a new cost below the current one (change-passphrase only). */
+  readonly allowDowngrade: boolean;
 }
 
 export interface PullFlags {
-  /** `--allow-plaintext-v1`: let the plaintext (version 1) reader run; refused anyway once an encrypted vault was seen. */
-  readonly allowPlaintextV1: boolean;
   readonly name: string | undefined;
   readonly manifest: string | undefined;
-  readonly manifestFile: string | undefined;
   /** `--root-cid <cid>`: pull an explicit immutable root instead of the name (encrypted vaults). */
   readonly rootCid: string | undefined;
   /** `--allow-rollback`: with `--root-cid` or `--manifest`, accept an older sequence as a restore. */
@@ -75,12 +102,12 @@ const OPTIONS = {
   repair: { type: "boolean" },
   "recover-slots": { type: "boolean" },
   "allow-full-reupload": { type: "boolean" },
-  "allow-plaintext-v1": { type: "boolean" },
+  "allow-mass-removal": { type: "boolean" },
   "yes-abandon": { type: "boolean" },
+  "yes-discard": { type: "boolean" },
   "passphrase-file": { type: "string" },
   name: { type: "string" },
   manifest: { type: "string" },
-  "manifest-file": { type: "string" },
   "root-cid": { type: "string" },
   "allow-rollback": { type: "boolean" },
   "resolve-fork": { type: "boolean" },
@@ -90,6 +117,12 @@ const OPTIONS = {
   "max-bytes": { type: "string" },
   "accept-large": { type: "boolean" },
   "list-versions": { type: "boolean" },
+  cost: { type: "string" },
+  "accept-no-revocation": { type: "boolean" },
+  "allow-downgrade": { type: "boolean" },
+  keep: { type: "string" },
+  "dry-run": { type: "boolean" },
+  "yes-prune": { type: "boolean" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -172,10 +205,8 @@ function pullFlags(values: ReturnType<typeof parseStrict>["values"]): PullFlags 
     throw new UsageError("--expect-vault-id needs 32 lowercase hexadecimal characters (the vault id the key slots carry)");
   }
   return {
-    allowPlaintextV1: values["allow-plaintext-v1"] ?? false,
     name: values.name,
     manifest: values.manifest,
-    manifestFile: values["manifest-file"],
     rootCid: values["root-cid"],
     allowRollback: values["allow-rollback"] ?? false,
     resolveFork: values["resolve-fork"] ?? false,
@@ -186,6 +217,17 @@ function pullFlags(values: ReturnType<typeof parseStrict>["values"]): PullFlags 
     acceptLarge: values["accept-large"] ?? false,
     listVersions: values["list-versions"] ?? false,
   };
+}
+
+function keysFlags(values: ReturnType<typeof parseStrict>["values"]): KeysFlags {
+  const cost = values.cost;
+  const known = COST_PRESET_NAMES.find((name) => name === cost);
+  if (cost !== undefined && known === undefined) throw new UsageError(`--cost needs one of ${COST_PRESET_NAMES.join(", ")}, got "${cost}"`);
+  return { cost: known, acceptNoRevocation: values["accept-no-revocation"] ?? false, allowDowngrade: values["allow-downgrade"] ?? false };
+}
+
+function pruneFlags(values: ReturnType<typeof parseStrict>["values"]): PruneFlags {
+  return { keep: positiveInteger("--keep", values.keep), dryRun: values["dry-run"] ?? false, yesPrune: values["yes-prune"] ?? false };
 }
 
 /** Parse argv (without node and script). Throws UsageError on unknown flags; each command checks its own operands. */
@@ -201,10 +243,14 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     repair: parsed.values.repair ?? false,
     recoverSlots: parsed.values["recover-slots"] ?? false,
     allowFullReupload: parsed.values["allow-full-reupload"] ?? false,
+    allowMassRemoval: parsed.values["allow-mass-removal"] ?? false,
     yesAbandon: parsed.values["yes-abandon"] ?? false,
+    yesDiscard: parsed.values["yes-discard"] ?? false,
     passphraseFile: parsed.values["passphrase-file"],
     configPath: parsed.values.config,
     flagsLayer: toLayer(parsed.values),
     pull: pullFlags(parsed.values),
+    keys: keysFlags(parsed.values),
+    prune: pruneFlags(parsed.values),
   };
 }

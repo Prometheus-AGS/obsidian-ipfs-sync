@@ -53,7 +53,7 @@ export function sortHistory(view: HistoryView): readonly MfsEntry[] {
 export function assessHistoryCount(view: HistoryView): string | undefined {
   if (view.overflow || view.entries.length >= HISTORY_REFUSE_AT) throw historyFull(view.overflow ? undefined : view.entries.length);
   if (view.entries.length >= HISTORY_WARN_AT) {
-    return `manifests/ on the node holds ${view.entries.length} history files; publishing stops at ${HISTORY_REFUSE_AT}. Archive old ones with \`ipfs-sync prune-history\` (not available in this build) or plan a new MFS root.`;
+    return `manifests/ on the node holds ${view.entries.length} history files; publishing stops at ${HISTORY_REFUSE_AT}. Remove old ones with \`ipfs-sync prune-history <vault> --keep <n>\` or with Prune history in the Encryption section of the plugin settings, or plan a new MFS root.`;
   }
   return undefined;
 }

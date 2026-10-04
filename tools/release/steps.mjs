@@ -1,24 +1,26 @@
 // The ordered outward steps as text. Nothing here is executed; the tool never spawns git or gh.
-import { CLI_TARBALL, DEFAULT_OUT, RECEIPT_TOOL, REPO, TAG, VERSION } from "./constants.mjs";
+import { RECEIPT_TOOL } from "./constants.mjs";
 
-export function outwardSteps({ facts, outDir = DEFAULT_OUT, assetNames }) {
+export function outwardSteps({ descriptor, facts, outDir = descriptor.outDir, assetNames }) {
+  const { tag, repo } = descriptor;
   const branch = facts.git.branch ?? "<BRANCH UNKNOWN>";
   const assets = assetNames.map((name) => `${outDir}/${name}`);
+  const releaseWord = descriptor.prerelease ? "pre-release" : "release";
   return [
     {
       id: "commit",
-      title: "Commit the version bump and every change that belongs in the tag",
+      title: descriptor.commitStepTitle,
       decision: "The operator names the exact paths; the tool does not choose them. Review `git status` and `git diff --stat` first.",
       commands: [
         "git add <PATHS CHOSEN BY THE OPERATOR>",
-        `git commit -m "release: ${TAG} (fixture-only pre-release)"`,
+        `git commit -m "${descriptor.commitMessage}"`,
       ],
     },
     {
       id: "tag",
-      title: `Create the annotated tag ${TAG} on the commit from the previous step`,
+      title: `Create the annotated tag ${tag} on the commit from the previous step`,
       decision: "Show the commit SHA to the operator before running.",
-      commands: [`git tag -a ${TAG} -m "IPFS Sync ${VERSION} (fixture-only pre-release)" <COMMIT SHA FROM THE COMMIT STEP>`],
+      commands: [`git tag -a ${tag} -m "${descriptor.tagMessage}" <COMMIT SHA FROM THE COMMIT STEP>`],
     },
     {
       id: "push-branch",
@@ -28,16 +30,16 @@ export function outwardSteps({ facts, outDir = DEFAULT_OUT, assetNames }) {
     },
     {
       id: "push-tag",
-      title: `Push tag ${TAG} to origin`,
+      title: `Push tag ${tag} to origin`,
       decision: "A pushed tag is not reversible by this project.",
-      commands: [`git push origin ${TAG}`],
+      commands: [`git push origin ${tag}`],
     },
     {
       id: "github-prerelease",
-      title: `Create the GitHub pre-release ${TAG} on ${REPO}`,
-      decision: "Shown with the repository, tag, target commit, asset list with checksums and the release notes text. Marked pre-release and not latest. Flags are not checked against the installed gh version.",
+      title: `Create the GitHub ${releaseWord} ${tag} on ${repo}`,
+      decision: `Shown with the repository, tag, target commit, asset list with checksums and the release notes text. ${descriptor.prerelease ? "Marked pre-release and not latest. " : ""}Flags are not checked against the installed gh version.`,
       commands: [
-        `gh release create ${TAG} --repo ${REPO} --verify-tag --prerelease --latest=false --title "IPFS Sync ${VERSION} (fixture-only)" --notes-file ${outDir}/release-notes.md ${assets.join(" ")}`,
+        `gh release create ${tag} --repo ${repo} --verify-tag${descriptor.prerelease ? " --prerelease --latest=false" : ""} --title "${descriptor.releaseTitle}" --notes-file ${outDir}/release-notes.md ${assets.join(" ")}`,
       ],
     },
     {
@@ -48,5 +50,3 @@ export function outwardSteps({ facts, outDir = DEFAULT_OUT, assetNames }) {
     },
   ];
 }
-
-export const cliTarballName = CLI_TARBALL;

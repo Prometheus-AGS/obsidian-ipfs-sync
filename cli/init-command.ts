@@ -2,19 +2,10 @@ import { rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { HostFs } from "../src/core/host-bridge";
 import { assertMfsMutationPath, validateMfsRoot, type EnvMap, type SyncConfig } from "../src/core/config";
-import {
-  CryptoError,
-  PassphraseFormatError,
-  canonicalizePassphrase,
-  constantTimeEqual,
-  formatPassphrase,
-  generatePassphrase,
-  wipe,
-  type GeneratedPassphrase,
-} from "../src/crypto";
+import { CryptoError, generatePassphrase, wipe, type GeneratedPassphrase } from "../src/crypto";
 import { KuboError, type KuboClient } from "../src/kubo";
 import { writeKeySlotsFile } from "../src/sync/encrypted-transfer";
-import { assertPublishMarker } from "../src/sync/fixture-marker";
+import { assertPublishMarker } from "../src/sync/publish-guard";
 import { createRootInspector, type RootInspector } from "../src/sync/node-reader";
 import { acquirePublishLock, type PublishLock } from "../src/sync/publish-lock";
 import { PublishRefusedError } from "../src/sync/publish-refusals";
@@ -26,7 +17,8 @@ import { HostPathError, createNodeHostBridge } from "./node-host-bridge";
 import { PassphraseInputError } from "./passphrase-errors";
 import { assertPassphraseFileCreatable, createPassphraseFile, hasPosixModes, type FileHost } from "./passphrase-file";
 import { PASSPHRASE_ENV, PASSPHRASE_FILE_ENV } from "./passphrase-input";
-import { promptHidden, type PromptTerminal } from "./passphrase-prompt";
+import { NO_POSIX_CHECK_TEXT, NO_RECOVERY_TEXT, passphraseFileContent, showAndConfirm, type ShowWords } from "./passphrase-show";
+import type { PromptTerminal } from "./passphrase-prompt";
 import { assertDirectory } from "./publish-command";
 import { createNodeLockContext, createNodeLockFile } from "./publish-lock-file";
 
@@ -51,12 +43,10 @@ export class InitRefusedError extends Error {
   }
 }
 
-const NO_RECOVERY_TEXT =
-  "There is no recovery. If this passphrase is lost, the vault's data is lost permanently: nobody can reset it or decrypt the data without it. Keep a copy in a password manager.";
-const CASE_TEXT = "Letters are not case-sensitive and the hyphens are optional when you type it.";
-const GROUP_SIZE = 5;
-const FILE_GROUP_SEPARATOR = 0x2d;
-const LINE_FEED = 0x0a;
+const INIT_WORDS: ShowWords = {
+  heading: "Your vault passphrase (shown once, never stored by this program):",
+  nothingDone: "no vault was created and nothing was written to the node",
+};
 
 /** Failures `init` reports as a plain message with exit code 1. */
 const REPORTED_FAILURES = [
@@ -69,54 +59,6 @@ const REPORTED_FAILURES = [
   HostPathError,
   KuboError,
 ] as const;
-
-/** The 25 symbols in five hyphen-separated groups with a line feed, as bytes (no string copy of the secret is made). */
-function fileContent(generated: GeneratedPassphrase): Uint8Array {
-  const groups = generated.length / GROUP_SIZE;
-  const out = new Uint8Array(generated.length + groups);
-  let at = 0;
-  for (let group = 0; group < groups; group += 1) {
-    out.set(generated.subarray(group * GROUP_SIZE, (group + 1) * GROUP_SIZE), at);
-    at += GROUP_SIZE;
-    out[at] = group === groups - 1 ? LINE_FEED : FILE_GROUP_SEPARATOR;
-    at += 1;
-  }
-  return out;
-}
-
-/** Show the passphrase once, then require it again. A mismatch, or text that is not a valid passphrase, creates nothing. */
-async function showAndConfirm(terminal: PromptTerminal, generated: GeneratedPassphrase): Promise<void> {
-  if (terminal.output.isTTY !== true) {
-    throw new PassphraseInputError("no-terminal", "the passphrase can only be shown on a terminal, and standard error is not one; use --passphrase-file <path>");
-  }
-  terminal.output.write(
-    [
-      "",
-      "Your vault passphrase (shown once, never stored by this program):",
-      "",
-      `    ${formatPassphrase(generated)}`,
-      "",
-      "Save it in a password manager now. " + CASE_TEXT,
-      NO_RECOVERY_TEXT,
-      "",
-      "",
-    ].join("\n"),
-  );
-  const typed = await promptHidden(terminal, "Enter the passphrase again to confirm: ");
-  try {
-    const canonical = canonicalizePassphrase(typed);
-    const same = constantTimeEqual(canonical, generated);
-    wipe(canonical);
-    if (!same) throw new PassphraseInputError("mismatch", "the passphrase entered again does not match; no vault was created and nothing was written to the node");
-  } catch (error) {
-    if (error instanceof PassphraseFormatError) {
-      throw new PassphraseInputError("mismatch", `the passphrase entered again is not valid (${error.message}); no vault was created and nothing was written to the node`);
-    }
-    throw error;
-  } finally {
-    wipe(typed);
-  }
-}
 
 /** `init` creates a vault only in an empty root: any entry at all, a vault's or not, is refused. */
 async function assertRootIsEmpty(inspector: RootInspector): Promise<void> {
@@ -154,9 +96,6 @@ function printFileConsequences(ctx: InitContext, path: string): void {
   ctx.io.err(NO_RECOVERY_TEXT);
 }
 
-const NO_POSIX_CHECK_TEXT =
-  "warning: Windows has no POSIX mode check, so nothing verifies that only you can read the passphrase file: it inherits the access list of its folder. Keep the folder private and copy the file somewhere safe.";
-
 /**
  * Keep the passphrase file unless this device holds no key-slot copy. The copy is written before the vault is finished, so a
  * failure after that point leaves a copy only this passphrase opens; deleting the file would orphan the vault. Never throws:
@@ -182,13 +121,13 @@ async function createVault(ctx: InitContext, lock: PublishLock, mfsRoot: string,
   const state = await readRootState(host.kv, mfsRoot);
   if (ctx.passphraseFile === undefined) {
     if (ctx.terminal === undefined) throw new PassphraseInputError("no-terminal", "init needs an interactive terminal");
-    await showAndConfirm(ctx.terminal, generated);
+    await showAndConfirm(ctx.terminal, generated, INIT_WORDS);
   } else if (!hasPosixModes(ctx.file)) {
     ctx.io.err(NO_POSIX_CHECK_TEXT);
   }
   let written: string | undefined;
   if (ctx.passphraseFile !== undefined) {
-    const content = fileContent(generated);
+    const content = passphraseFileContent(generated);
     try {
       written = await createPassphraseFile(ctx.passphraseFile, content, ctx.file);
     } finally {

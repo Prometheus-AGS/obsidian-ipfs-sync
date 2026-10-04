@@ -1,12 +1,12 @@
-// `record`: writes the LOCAL release record. It edits manifest.json and package.json (version bump), runs the
-// project build, and writes files under the output directory. It never runs git or gh and never writes a
-// publication receipt.
+// `record`: writes the LOCAL release record. Per the descriptor it edits manifest.json and package.json (version
+// bump) and runs the project build (Release 1), or does neither (descriptor.record.bumpVersions and .build false:
+// it reads the existing files). It writes files under the output directory. It never runs git or gh and never
+// writes a publication receipt.
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { assemble } from "./assemble.mjs";
 import { bumpManifestText, bumpPackageText } from "./bump.mjs";
-import { DEFAULT_OUT, MIN_APP_VERSION, REPO, TAG, VERSION } from "./constants.mjs";
 import { gatherFacts, sha256 } from "./facts.mjs";
 import { blockers } from "./plan.mjs";
 
@@ -18,21 +18,23 @@ const parseEvidence = (spec, root) => {
   return { path, observed: at === -1 ? null : spec.slice(at + 1) };
 };
 
-function checkPreconditions(facts, evidence, outDir, noBuild) {
-  const problems = blockers(facts).filter((item) => !item.startsWith("CHANGELOG.md") && !item.startsWith("README.md"));
+function checkPreconditions(descriptor, facts, evidence, outDir, noBuild) {
+  const { version, minAppVersion } = descriptor;
+  const problems = blockers(facts, descriptor).filter((item) => !item.startsWith("CHANGELOG.md") && !item.startsWith("README.md"));
   for (const item of evidence) if (!existsSync(item.path)) problems.push(`Evidence path does not exist: ${item.path}`);
   if (existsSync(outDir) && readdirSync(outDir).length > 0) problems.push(`Output directory is not empty: ${outDir}`);
   if (!facts.rootManifest.ok || !facts.pkg.ok) problems.push("manifest.json or package.json is missing or unreadable.");
-  if (noBuild && (facts.versions.dist !== VERSION || facts.minAppVersion.dist !== MIN_APP_VERSION)) {
-    problems.push(`--no-build given but dist/plugin/manifest.json reads ${facts.versions.dist} / ${facts.minAppVersion.dist}, not ${VERSION} / ${MIN_APP_VERSION}.`);
+  if (noBuild && (facts.versions.dist !== version || facts.minAppVersion.dist !== minAppVersion)) {
+    const why = descriptor.record.build ? "--no-build given" : "this release does not build";
+    problems.push(`${why} but dist/plugin/manifest.json reads ${facts.versions.dist} / ${facts.minAppVersion.dist}, not ${version} / ${minAppVersion}.`);
   }
   if (problems.length) throw new Refusal(problems.map((item) => `- ${item}`).join("\n"));
 }
 
-function applyBump(root) {
+function applyBump(root, descriptor) {
   for (const [file, bump] of [["manifest.json", bumpManifestText], ["package.json", bumpPackageText]]) {
     const path = join(root, file);
-    writeFileSync(path, bump(readFileSync(path, "utf8")));
+    writeFileSync(path, bump(readFileSync(path, "utf8"), descriptor));
   }
 }
 
@@ -43,33 +45,25 @@ function runBuild(root, out) {
   if (result.status !== 0) throw new Error(`pnpm build exited with ${result.status ?? result.error?.message}`);
 }
 
-function claimsFor({ facts, evidence, files }) {
-  const demo = evidence.length > 0;
-  return [
-    { claim: "Version fields read 0.2.0 and minAppVersion 1.12.3", evidence: ["manifest.json", "package.json"], status: "evidenced" },
-    { claim: "Artifacts are byte-identical to dist/plugin/", evidence: ["SHA256SUMS"], status: "evidenced" },
-    { claim: "Feature operation passed", evidence: [facts.featureOp.path], status: facts.featureOp.verdict === "passing" ? "evidenced" : "unverified" },
-    { claim: "Pull-with-conflict demonstrated in Obsidian desktop on macOS", evidence: evidence.map((e) => e.path), status: demo ? "evidenced" : "unverified" },
-    { claim: "Mobile works", evidence: [], status: "unverified" },
-    { claim: `Release is published (${files.length} assets)`, evidence: [], status: "unverified" },
-  ];
-}
-
-export function runRecord({ root, outRel = DEFAULT_OUT, featureOpPath, evidenceSpecs = [], noBuild = false, out }) {
+export function runRecord({ descriptor, root, outRel = descriptor.outDir, featureOpPath, evidenceSpecs = [], noBuild = false, out }) {
+  const { version, minAppVersion, tag, repo } = descriptor;
   const outDir = resolve(root, outRel);
   const evidence = evidenceSpecs.map((spec) => parseEvidence(spec, root));
-  const before = gatherFacts(root, { featureOpPath });
-  checkPreconditions(before, evidence, outDir, noBuild);
+  const before = gatherFacts(root, { featureOpPath, descriptor });
+  const skipBuild = noBuild || !descriptor.record.build;
+  checkPreconditions(descriptor, before, evidence, outDir, skipBuild);
 
-  applyBump(root);
-  out(`bumped manifest.json to ${VERSION} (minAppVersion ${MIN_APP_VERSION}) and package.json to ${VERSION}`);
-  if (!noBuild) runBuild(root, out);
+  if (descriptor.record.bumpVersions) {
+    applyBump(root, descriptor);
+    out(`bumped manifest.json to ${version} (minAppVersion ${minAppVersion}) and package.json to ${version}`);
+  }
+  if (!skipBuild) runBuild(root, out);
 
-  const facts = gatherFacts(root, { featureOpPath });
-  if (facts.versions.dist !== VERSION || facts.minAppVersion.dist !== MIN_APP_VERSION) {
+  const facts = gatherFacts(root, { featureOpPath, descriptor });
+  if (facts.versions.dist !== version || facts.minAppVersion.dist !== minAppVersion) {
     throw new Error(`after the build dist/plugin/manifest.json reads ${facts.versions.dist} / ${facts.minAppVersion.dist}; root files were already bumped`);
   }
-  const built = assemble(facts, { evidenceSupplied: evidence.length > 0 });
+  const built = assemble(facts, { descriptor, evidenceSupplied: evidence.length > 0 });
   mkdirSync(outDir, { recursive: true });
   for (const file of built.files) {
     if (file.bytes) writeFileSync(join(outDir, file.name), file.bytes);
@@ -80,13 +74,13 @@ export function runRecord({ root, outRel = DEFAULT_OUT, featureOpPath, evidenceS
   writeFileSync(join(outDir, "release-notes.md"), built.notes);
 
   const evidenceDoc = {
-    schemaVersion: 1, version: VERSION, tag: TAG, repository: REPO, createdAt: new Date().toISOString(),
+    schemaVersion: 1, version, tag, repository: repo, createdAt: new Date().toISOString(),
     source: { branch: facts.git.branch, commit: facts.git.commit, workingTreeInspected: false },
     artifacts: built.files.map(({ name, size, sha256: sum }) => ({ name, size, sha256: sum })),
     cliTarballContents: built.tarball?.contents ?? [],
     featureOperation: { path: facts.featureOp.path, verdict: facts.featureOp.verdict, sha256: facts.featureOp.sha256 ?? null },
     evidence: evidence.map((item) => ({ path: item.path, exists: existsSync(item.path), sha256: sha256(readFileSync(item.path)), observed: item.observed ?? "not stated by the operator" })),
-    claims: claimsFor({ facts, evidence, files: built.files }),
+    claims: descriptor.claims({ descriptor, facts, evidence, files: built.files }),
     unverified: built.unverified,
     publication: { status: "pending", receipt: null, reason: "Local record only. No tag, push or release was made by this tool. The cadence publication receipt requires public HTTPS URLs and an advertising page and was not produced." },
   };

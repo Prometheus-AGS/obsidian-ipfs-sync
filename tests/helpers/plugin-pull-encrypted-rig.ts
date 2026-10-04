@@ -1,4 +1,5 @@
 import { createSyncEventBus, type SyncEventBus } from "../../src/core/events";
+import type { KdfParams } from "../../src/crypto";
 import type { GatewayRange, GatewayStream } from "../../src/kubo";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import type { PullDialogs } from "../../src/plugin/pull-dialogs";
@@ -158,6 +159,8 @@ export interface EncryptedPluginOptions {
   readonly session?: { provider(): UnlockedVault | undefined };
   readonly corruptSegments?: number;
   readonly lock?: SyncLock;
+  /** The cost-confirm port of the runner (task 2.4); absent: a slot above the default cost is refused. */
+  readonly confirmCost?: (costs: readonly KdfParams[]) => Promise<boolean>;
   /** No passphrase prompt and no dialogs: the way a bare runner (or a quiet run) has them. */
   readonly bare?: boolean;
 }
@@ -181,6 +184,7 @@ export function pluginOver(publisher: Rig, options: EncryptedPluginOptions = {})
     now: () => NOW,
     newId: () => `part${(counter += 1)}`,
     ...(options.session === undefined ? {} : { session: options.session }),
+    ...(options.confirmCost === undefined ? {} : { confirmCost: options.confirmCost }),
     ...(options.bare === true ? {} : { passphrase, dialogs }),
   });
   const host = (): ReturnType<typeof createObsidianHostBridge> => createObsidianHostBridge({ adapter });

@@ -47,13 +47,34 @@ describe("per-root file names", () => {
 });
 
 describe("root state (format 3)", () => {
-  it("round trips byte for byte and records the vault, the key-slot hash and the latch", async () => {
+  it("round trips byte for byte and records the vault and the key-slot hash, with no latch field", async () => {
     const s = await scenario();
     const encoded = encodeRootState(s.state1);
     const decoded = decodeRootState(encoded);
     expect(encodeRootState(decoded)).toEqual(encoded);
-    expect(decoded).toMatchObject({ version: 3, vaultId: s.keys.vaultId, keyslotsSha256: KEYSLOTS_SHA, sequence: 1, encryptedSeen: true });
-    expect(text(encoded)).not.toMatch(/passphrase|secret/i);
+    expect(decoded).toMatchObject({ version: 3, vaultId: s.keys.vaultId, keyslotsSha256: KEYSLOTS_SHA, sequence: 1 });
+    expect(decoded).not.toHaveProperty("encryptedSeen");
+    expect(text(encoded)).not.toMatch(/encryptedSeen|passphrase|secret/i);
+  });
+
+  it("reads a format 3 file written by an earlier build that carried the latch, and drops the field on the next write", async () => {
+    const s = await scenario();
+    const raw = JSON.parse(text(encodeRootState(s.state1))) as Record<string, unknown>;
+    const earlier = bytes(JSON.stringify({ ...raw, encryptedSeen: true }));
+    const decoded = decodeRootState(earlier);
+    expect(decoded).not.toHaveProperty("encryptedSeen");
+    expect(encodeRootState(decoded)).toEqual(encodeRootState(s.state1));
+  });
+
+  it("upgrades a format 2 record whether or not it carries the latch, and no decision reads it", async () => {
+    const s = await scenario();
+    const raw = JSON.parse(text(encodeRootState(s.state1))) as Record<string, unknown>;
+    const v2 = { version: 2, mfsRoot: raw["mfsRoot"], key: raw["key"], rootCid: raw["rootCid"], vaultId: raw["vaultId"], keyslotsSha256: raw["keyslotsSha256"], sequence: raw["sequence"], manifest: raw["manifest"], mtimes: raw["mtimes"] };
+    for (const latch of [{ encryptedSeen: true }, { encryptedSeen: false }, {}]) {
+      const upgraded = decodeRootState(bytes(JSON.stringify({ ...v2, ...latch })));
+      expect(upgraded).toMatchObject({ version: 3, sequence: 1, complete: true, unmaterialized: [], previousIdentity: null });
+      expect(upgraded).not.toHaveProperty("encryptedSeen");
+    }
   });
 
   it("keeps a path named __proto__ as data", async () => {
@@ -77,7 +98,6 @@ describe("root state (format 3)", () => {
     ["invalid JSON", () => bytes("{ broken")],
     ["not an object", () => bytes("[]")],
     ["a format 1 record", () => bytes('{"version":1}')],
-    ["a format 2 record without its latch", (raw: Record<string, unknown>) => bytes(JSON.stringify({ ...raw, version: 2, encryptedSeen: false }))],
     ["a format 4 record", (raw: Record<string, unknown>) => bytes(JSON.stringify({ ...raw, version: 4 }))],
     ["a sequence that differs from the manifest", (raw: Record<string, unknown>) => bytes(JSON.stringify({ ...raw, sequence: 9 }))],
     ["a vaultId that differs from the manifest", (raw: Record<string, unknown>) => bytes(JSON.stringify({ ...raw, vaultId: "9".repeat(32) }))],

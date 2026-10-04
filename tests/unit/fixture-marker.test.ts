@@ -5,13 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../../cli/io";
 import { readTextIfPresent, type ConfigDeps } from "../../cli/load-config";
 import { runCli } from "../../cli/run";
-import { FIXTURE_MARKER } from "../../src/core/config";
+import { FIXTURE_MARKER } from "../../src/sync/fixture-constants";
 import { createSyncEventBus } from "../../src/core/events";
 import { createPublishRunner } from "../../src/plugin/publish-runner";
 import { loadSettings } from "../../src/plugin/settings-migration";
 import { defaultSettings } from "../../src/plugin/settings-model";
 import { createSettingsStore } from "../../src/plugin/settings-store";
-import { assertPublishMarker, readMarkerState } from "../../src/sync/fixture-marker";
+import { assertPublishMarker, readMarkerState } from "../../src/sync/publish-guard";
 import { publishVault } from "../../src/sync/publish";
 import { assertPullDestination, assertVaultPullDestination } from "../../src/sync/pull-guard";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
@@ -19,8 +19,6 @@ import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge"
 import { createFakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { createMemoryHost } from "../helpers/memory-host";
-import { FILES_V1, ROOT1, TREE1, harness } from "../helpers/pull-harness";
-import { seedRemote } from "../helpers/pull-fixtures";
 import { sessionRig } from "../helpers/plugin-session";
 import { initVault } from "../helpers/vault-init";
 import { MemoryAdapter } from "../support/memory-adapter";
@@ -94,31 +92,6 @@ describe("publish marker: engine", () => {
     host.put(`${FIXTURE_MARKER}/inner`, "x");
     expect(await readMarkerState(host.fs)).toBe("absent");
     await expect(assertPublishMarker(host.fs)).rejects.toMatchObject({ code: "fixture-marker-required" });
-  });
-});
-
-describe("publish marker: a directory populated by pull is refused by publish", () => {
-  it("pull writes pulled-fixture into an empty destination, and publish then refuses it with no request", async () => {
-    const h = harness();
-    await seedRemote(h.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
-    await h.run();
-    expect(new TextDecoder().decode(h.host.files.get(FIXTURE_MARKER)?.data)).toBe("pulled-fixture\n");
-
-    const node = createFakeNode();
-    const attempt = publishVault(
-      { client: node.client, host: h.host, bus: createSyncEventBus() },
-      { mfsRoot: MFS_ROOT, keyName: KEY, ownedKeys: [], recordOwnedKey: async () => undefined, passphrase: referencePassphrase() },
-    );
-    await expect(attempt).rejects.toMatchObject({ code: "fixture-marker-required" });
-    await expect(attempt).rejects.toThrowError(/says "pulled-fixture"/);
-    expect(node.calls).toEqual([]);
-  });
-
-  it("a second pull into the pulled destination is still accepted", async () => {
-    const h = harness();
-    await seedRemote(h.gateway, FILES_V1, { tree: TREE1, root: ROOT1 });
-    await h.run();
-    await expect(h.run()).resolves.toMatchObject({ failed: 0 });
   });
 });
 

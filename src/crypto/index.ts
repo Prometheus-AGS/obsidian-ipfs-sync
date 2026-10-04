@@ -83,6 +83,7 @@ export { concatBytes, constantTimeEqual, copyBytes, hasLoneSurrogate, utf8, wipe
 export { fromBase32Lower, fromBase64, fromHex, toBase32Lower, toBase64, toHex } from "./codec";
 export {
   CryptoError,
+  KdfCostDowngradeError,
   KdfCostRefusedError,
   KdfParamsError,
   OversizeInputError,
@@ -122,10 +123,14 @@ export {
 } from "./key-slot-format";
 export {
   createKeySlots,
+  rewrapKeySlots,
   unlockKeySlots,
   unlockKeySlotsBytes,
   type CreateKeySlotsInput,
   type CreatedKeySlots,
+  type RewrapInput,
+  type RewrapSecret,
+  type RewrappedKeySlots,
   type UnlockInput,
   type UnlockedVault,
 } from "./key-slots";

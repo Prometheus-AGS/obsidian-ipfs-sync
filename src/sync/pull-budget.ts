@@ -54,6 +54,21 @@ export function exceedsPullCeiling(totalBytes: number, ceilingBytes: number = PU
   return totalBytes > ceilingBytes;
 }
 
+/** The size class of a blob length: `floor(log2(length))`. A hostile gateway can choose its own rule; the class only stops it from being tested at one size. */
+export function sizeClassOf(totalLength: number): number {
+  return Math.floor(Math.log2(Math.max(1, totalLength)));
+}
+
+/** The smallest blob of each size class, ascending by length (the first in order on a tie). */
+export function blobsPerSizeClass<T extends { readonly totalLength: number }>(blobs: readonly T[]): T[] {
+  const byClass = new Map<number, T>();
+  for (const blob of blobs) {
+    const kept = byClass.get(sizeClassOf(blob.totalLength));
+    if (kept === undefined || blob.totalLength < kept.totalLength) byClass.set(sizeClassOf(blob.totalLength), blob);
+  }
+  return [...byClass.values()].sort((a, b) => a.totalLength - b.totalLength);
+}
+
 /** The blob to send the range probe for: the one with the smallest length (the first in order on a tie), or undefined for none. */
 export function smallestBlob<T extends { readonly totalLength: number }>(blobs: readonly T[]): T | undefined {
   let smallest: T | undefined;

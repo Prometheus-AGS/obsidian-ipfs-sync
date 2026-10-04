@@ -1,6 +1,5 @@
-// mvp-07a task 4.5: decideThreeWay moved out of pull-plan.ts into three-way.ts. Every row of the table, and the old import path still works.
+// mvp-07a task 4.5: decideThreeWay moved out of pull-plan.ts into three-way.ts. Every row of the table (pull-plan.ts is gone since mvp-07b 3.1c).
 import { describe, expect, it } from "vitest";
-import * as fromPullPlan from "../../src/sync/pull-plan";
 import { decideThreeWay, type ThreeWayOutcome } from "../../src/sync/three-way";
 
 describe("decideThreeWay (three-way.ts)", () => {
@@ -26,9 +25,5 @@ describe("decideThreeWay (three-way.ts)", () => {
 
   it.each(table)("L=%s B=%s R=%s -> %s", (local, base, remote, outcome) => {
     expect(decideThreeWay(local, base, remote)).toBe(outcome);
-  });
-
-  it("pull-plan re-exports the same function", () => {
-    expect(fromPullPlan.decideThreeWay).toBe(decideThreeWay);
   });
 });

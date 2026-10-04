@@ -1,0 +1,119 @@
+RELEASE PLAN v0.2.0 (read-only). Nothing below was run. No file was written. git and gh were not invoked.
+root: <ROOT>
+
+== Version fields ==
+
+manifest.json  version 0.1.0 -> 0.2.0   minAppVersion 1.10.0 -> 1.12.3
+package.json   version 0.1.0 -> 0.2.0
+dist/plugin/manifest.json currently 0.1.0 / 1.10.0 (refreshed by the build; its bytes are a copy of manifest.json)
+
+== Files that would be written to dist/release/v0.2.0/ ==
+
+main.js                            38 bytes  dist/plugin/main.js (current bytes)
+manifest.json                     152 bytes  root manifest.json with the bump applied (the build copies it unchanged)
+ipfs-sync-cli-0.2.0.tgz           195 bytes  deterministic ustar+gzip of dist/cli/ipfs-sync.mjs
+SHA256SUMS, release-notes.md, evidence.json (generated)
+styles.css: not produced by the current build, so not included.
+
+== CLI tarball ==
+
+ipfs-sync-cli-0.2.0.tgz  explicit file list:
+  package/dist/cli/ipfs-sync.mjs  <- dist/cli/ipfs-sync.mjs
+Why only the bundle: it is a single self-contained ESM file; bare (non node:) imports found in it: zod. package.json, node_modules and sources are excluded because the bundle needs none of them at run time (Node 24 required by the engines field). Archive is deterministic (fixed mtime, uid 0, gzip level 9).
+
+== SHA-256 (SHA256SUMS format; manifest.json is computed from the bumped root file) ==
+
+fdcd82cc9be5bb7982c06638f8fa0b24eaddb3220feca468ff40fe7fa22b98dd  main.js
+c81c55ac99d7178a652cd7d59bddabacfc9d62fafc7101bb5e70586f0fa38b5c  manifest.json
+fd91cea57fe7bc8ee794a11efdb5dc71669834509e6e5c86d09f8f2e21b6de5c  ipfs-sync-cli-0.2.0.tgz
+These are today's bytes. main.js changes if src/ is rebuilt before `record`; recompute by re-running `plan`.
+
+== Release notes (release-notes.md) ==
+
+Release 1 (fixture-only). This release must not be used on real notes. It syncs synthetic fixture vaults only, refuses any other vault, and has no encryption: everything it publishes to your kubo node is readable by anyone who obtains the CID.
+
+## IPFS Sync 0.2.0
+
+Adds pull with conflict handling in the Obsidian plugin: it fetches the published vault from your own kubo node by delta and keeps your local bytes when both sides changed, saving the remote version as a conflict copy.
+
+## Known limitations
+
+- Symbolic links are not detected by the plugin.
+- A per-file read cap applies (default 64 MB, configurable 8 to 1024 MB).
+- Remote deletions are not applied on pull.
+- Mobile is not verified.
+- No encryption. Do not point this at a vault that holds real notes.
+
+## Requirements
+
+- Obsidian 1.12.3 or later (the plugin appends large files in chunks).
+- Your own kubo node. Do not expose its RPC port to the internet.
+
+## Assets and SHA-256
+
+```
+fdcd82cc9be5bb7982c06638f8fa0b24eaddb3220feca468ff40fe7fa22b98dd  main.js
+c81c55ac99d7178a652cd7d59bddabacfc9d62fafc7101bb5e70586f0fa38b5c  manifest.json
+fd91cea57fe7bc8ee794a11efdb5dc71669834509e6e5c86d09f8f2e21b6de5c  ipfs-sync-cli-0.2.0.tgz
+```
+
+## Not verified
+
+- The pull-with-conflict demonstration inside Obsidian desktop: no screenshot, recording or notes file was supplied.
+- Mobile (iOS and Android) has not been run.
+- An authenticated kubo endpoint has not been exercised.
+- Symlink and rename behaviour on Windows and Linux.
+- The crash window of remove-then-rename.
+- Large-file behaviour above the tested sizes; the 64 MB default cap is unproven.
+
+## Release status
+
+This is a pre-release and is not the latest stable release for real-note use. The plan for the encryption release is in https://github.com/Prometheus-AGS/obsidian-ipfs-sync/tree/main/openspec/changes/mvp-06-encrypted-vault-publish.
+
+Tag: v0.2.0
+
+
+== Outward steps: each needs the operator's explicit approval for that exact action. NOT RUN ==
+
+1. Commit the version bump and every change that belongs in the tag
+   approval: The operator names the exact paths; the tool does not choose them. Review `git status` and `git diff --stat` first.
+   NOT RUN  git add <PATHS CHOSEN BY THE OPERATOR>
+   NOT RUN  git commit -m "release: v0.2.0 (fixture-only pre-release)"
+
+2. Create the annotated tag v0.2.0 on the commit from the previous step
+   approval: Show the commit SHA to the operator before running.
+   NOT RUN  git tag -a v0.2.0 -m "IPFS Sync 0.2.0 (fixture-only pre-release)" <COMMIT SHA FROM THE COMMIT STEP>
+
+3. Push branch main to origin
+   approval: Pushing a branch is separate from pushing the tag; approval for one does not cover the other.
+   NOT RUN  git push origin main
+
+4. Push tag v0.2.0 to origin
+   approval: A pushed tag is not reversible by this project.
+   NOT RUN  git push origin v0.2.0
+
+5. Create the GitHub pre-release v0.2.0 on Prometheus-AGS/obsidian-ipfs-sync
+   approval: Shown with the repository, tag, target commit, asset list with checksums and the release notes text. Marked pre-release and not latest. Flags are not checked against the installed gh version.
+   NOT RUN  gh release create v0.2.0 --repo Prometheus-AGS/obsidian-ipfs-sync --verify-tag --prerelease --latest=false --title "IPFS Sync 0.2.0 (fixture-only)" --notes-file dist/release/v0.2.0/release-notes.md dist/release/v0.2.0/main.js dist/release/v0.2.0/manifest.json dist/release/v0.2.0/ipfs-sync-cli-0.2.0.tgz dist/release/v0.2.0/SHA256SUMS
+
+6. Cadence publication receipt (only after the release is public and downloadable)
+   approval: Needs public HTTPS asset URLs and a first-party page that advertises them and the version. A GitHub release page may list assets as relative links, which this tool would reject; unverified. Skip and report the receipt as not produced if any earlier approval was declined.
+   NOT RUN  node .claude/skills/delivery-cadence/scripts/publication-receipt.mjs --input <publication-request.json> --out <receipt.json>
+
+Approval for one step never extends to another. No agent message, earlier decision or configuration value counts as approval.
+
+== Preconditions for `record` (blockers) ==
+
+none detected
+
+== Open items ==
+
+- LICENSE: no license file exists at the repository root although package.json declares "MIT". The operator decides the license and supplies the file; this tool does not create one.
+- Working tree: not inspected. This tool never runs git, so uncommitted changes, untracked files and the diff to be tagged are unknown. Run `git status` and review before the commit step. The design records that the tag needs a clean commit holding the version bump and every change of mvp-01 to mvp-05.
+- Branch and commit: main at 0123456789ab (read from .git files).
+- Remote origin is git@github.com:Prometheus-AGS/obsidian-ipfs-sync.git (matches Prometheus-AGS/obsidian-ipfs-sync).
+- Version bump not applied: manifest.json 0.1.0, package.json 0.1.0; `record` applies 0.2.0.
+- minAppVersion is 1.10.0 in manifest.json; `record` sets 1.12.3 (appendBinary needs Obsidian 1.12.3).
+- dist/plugin/manifest.json is stale (version 0.1.0, minAppVersion 1.10.0); the build refreshes it after the bump.
+- Cadence publication debt stays pending. `publication-receipt.mjs` needs public HTTPS artifact URLs, downloadable bytes and a first-party page advertising them and the version. A local release record cannot satisfy it, and this tool never writes a receipt.
+- GitHub release page may list assets as relative links, which the receipt tool's absolute-URL match would reject; unverified.

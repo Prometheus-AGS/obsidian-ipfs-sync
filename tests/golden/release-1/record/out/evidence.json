@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "version": "0.2.0",
+  "tag": "v0.2.0",
+  "repository": "Prometheus-AGS/obsidian-ipfs-sync",
+  "createdAt": "<CREATED_AT>",
+  "source": {
+    "branch": "main",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "workingTreeInspected": false
+  },
+  "artifacts": [
+    {
+      "name": "main.js",
+      "size": 38,
+      "sha256": "fdcd82cc9be5bb7982c06638f8fa0b24eaddb3220feca468ff40fe7fa22b98dd"
+    },
+    {
+      "name": "manifest.json",
+      "size": 152,
+      "sha256": "c81c55ac99d7178a652cd7d59bddabacfc9d62fafc7101bb5e70586f0fa38b5c"
+    },
+    {
+      "name": "styles.css",
+      "size": 27,
+      "sha256": "b22706ae5ae3d4dc3c5ee61960d588f9df7159299a8b24a68dea9a024552e4c7"
+    },
+    {
+      "name": "ipfs-sync-cli-0.2.0.tgz",
+      "size": 195,
+      "sha256": "fd91cea57fe7bc8ee794a11efdb5dc71669834509e6e5c86d09f8f2e21b6de5c"
+    }
+  ],
+  "cliTarballContents": [
+    "package/dist/cli/ipfs-sync.mjs"
+  ],
+  "featureOperation": {
+    "path": "<ROOT>/feature-op-mvp-05.json",
+    "verdict": "passing",
+    "sha256": "30a346e6973bcba75a4fd5bef77ab55370f5107b21942209598fdc5b386144ba"
+  },
+  "evidence": [
+    {
+      "path": "<ROOT>/evidence/demo.txt",
+      "exists": true,
+      "sha256": "0e5c7938b6dee9f07305ffa239424a057bbc547452ee4cf2ab5514b572239080",
+      "observed": "pull with conflict shown"
+    }
+  ],
+  "claims": [
+    {
+      "claim": "Version fields read 0.2.0 and minAppVersion 1.12.3",
+      "evidence": [
+        "manifest.json",
+        "package.json"
+      ],
+      "status": "evidenced"
+    },
+    {
+      "claim": "Artifacts are byte-identical to dist/plugin/",
+      "evidence": [
+        "SHA256SUMS"
+      ],
+      "status": "evidenced"
+    },
+    {
+      "claim": "Feature operation passed",
+      "evidence": [
+        "<ROOT>/feature-op-mvp-05.json"
+      ],
+      "status": "evidenced"
+    },
+    {
+      "claim": "Pull-with-conflict demonstrated in Obsidian desktop on macOS",
+      "evidence": [
+        "<ROOT>/evidence/demo.txt"
+      ],
+      "status": "evidenced"
+    },
+    {
+      "claim": "Mobile works",
+      "evidence": [],
+      "status": "unverified"
+    },
+    {
+      "claim": "Release is published (4 assets)",
+      "evidence": [],
+      "status": "unverified"
+    }
+  ],
+  "unverified": [
+    "Mobile (iOS and Android) has not been run.",
+    "An authenticated kubo endpoint has not been exercised.",
+    "Symlink and rename behaviour on Windows and Linux.",
+    "The crash window of remove-then-rename.",
+    "Large-file behaviour above the tested sizes; the 64 MB default cap is unproven."
+  ],
+  "publication": {
+    "status": "pending",
+    "receipt": null,
+    "reason": "Local record only. No tag, push or release was made by this tool. The cadence publication receipt requires public HTTPS URLs and an advertising page and was not produced."
+  }
+}

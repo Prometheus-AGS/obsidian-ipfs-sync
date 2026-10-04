@@ -2,19 +2,22 @@ import { ConfigError } from "../src/core/config";
 import type { CanonicalPassphrase } from "../src/crypto";
 import { createKuboClient } from "../src/kubo";
 import type { FreeBytes } from "../src/sync/encrypted-pull-fetch";
+import type { KeyOperations } from "../src/sync/key-management";
 import { UsageError, parseCliArgs, type ParsedArgs } from "./args";
 import { runAbandon } from "./abandon-command";
 import { HELP_TEXT } from "./help-text";
 import { runInit } from "./init-command";
 import { EXIT_OK, EXIT_USAGE, type CliIo } from "./io";
+import { KEYS_SUBCOMMANDS, runKeys, type KeysSubcommand } from "./keys-command";
 import { DEFAULT_CONFIG_PATH, loadSyncConfig, type ConfigDeps } from "./load-config";
 import { readVaultPassphrase, type FileHost, type PromptTerminal } from "./passphrase-input";
+import { runPrune } from "./prune-command";
 import { runPublish } from "./publish-command";
 import { runPull } from "./pull-command";
 import { installRequestTrace } from "./request-trace";
 import { runStatus } from "./status-command";
 
-const COMMANDS: readonly string[] = ["status", "init", "publish", "pull", "abandon"];
+const COMMANDS: readonly string[] = ["status", "init", "publish", "pull", "abandon", "keys", "prune-history"];
 
 /**
  * What the process supplies beyond configuration. `passphrase` yields the vault passphrase, already canonicalised, or
@@ -31,6 +34,8 @@ export interface CliDeps extends ConfigDeps {
   readonly userId?: number;
   /** pull: free bytes on the volume of the vault. Default: Node `statfs` of the vault directory. */
   readonly freeBytes?: FreeBytes;
+  /** keys: the cryptography (rewrap and test unlock). Absent in production; tests pass fast stand-ins. */
+  readonly keyOperations?: KeyOperations;
 }
 
 function fileHost(deps: CliDeps): FileHost {
@@ -44,9 +49,21 @@ function reportBadInput(io: CliIo, error: UsageError | ConfigError): number {
   return EXIT_USAGE;
 }
 
-/** The vault directory `init`, `publish`, `pull` and `abandon` need; `status` takes no operands. */
+/** `keys <subcommand> <vault>`: exactly those two operands, the subcommand one this build has. */
+function checkKeysOperands(args: ParsedArgs): { readonly subcommand: KeysSubcommand; readonly vault: string } {
+  const [subcommand, vault, ...rest] = args.operands;
+  if (subcommand === undefined || vault === undefined || rest.length > 0) {
+    throw new UsageError(`keys needs a subcommand and the vault directory: ipfs-sync keys <${KEYS_SUBCOMMANDS.join("|")}> <vault>`);
+  }
+  const known = KEYS_SUBCOMMANDS.find((name) => name === subcommand);
+  if (known === undefined) throw new UsageError(`unknown keys subcommand "${subcommand}" (this build has: ${KEYS_SUBCOMMANDS.join(", ")})`);
+  return { subcommand: known, vault };
+}
+
+/** The vault directory `init`, `publish`, `pull` and `abandon` need; `status` takes no operands. `keys` is checked by `checkKeysOperands`. */
 function checkOperands(args: ParsedArgs): string | undefined {
-  if (args.command === "init" || args.command === "publish" || args.command === "pull" || args.command === "abandon") {
+  if (args.command === "keys") return checkKeysOperands(args).vault;
+  if (args.command === "init" || args.command === "publish" || args.command === "pull" || args.command === "abandon" || args.command === "prune-history") {
     if (args.operands.length !== 1) throw new UsageError(`${args.command} needs exactly one argument: the vault directory`);
     return args.operands[0];
   }
@@ -54,15 +71,17 @@ function checkOperands(args: ParsedArgs): string | undefined {
   return undefined;
 }
 
-/** The flags only `pull` understands; every other command refuses them. A flag that is off (a boolean left out) is `undefined` here. */
+/** The pull flags `keys accept-slots` shares: which root to read and what to expect of it. Every other flag of `pull` stays refused there. */
+const ACCEPT_SLOTS_PULL_FLAGS: ReadonlySet<string> = new Set(["--name", "--root-cid", "--allow-rollback", "--expect-min-sequence", "--expect-vault-id"]);
+
+/** The flags only `pull` understands (and `keys accept-slots` for five of them); every other command refuses them. A flag that is off is `undefined` here. */
 function checkPullFlags(args: ParsedArgs): void {
   if (args.command === "pull") return;
+  const shared = args.command === "keys" && args.operands[0] === "accept-slots" ? ACCEPT_SLOTS_PULL_FLAGS : new Set<string>();
   const on = (flag: boolean): true | undefined => (flag ? true : undefined);
   const given = Object.entries({
     "--name": args.pull.name,
     "--manifest": args.pull.manifest,
-    "--manifest-file": args.pull.manifestFile,
-    "--allow-plaintext-v1": on(args.pull.allowPlaintextV1),
     "--root-cid": args.pull.rootCid,
     "--allow-rollback": on(args.pull.allowRollback),
     "--resolve-fork": on(args.pull.resolveFork),
@@ -72,7 +91,7 @@ function checkPullFlags(args: ParsedArgs): void {
     "--max-bytes": args.pull.maxBytes,
     "--accept-large": on(args.pull.acceptLarge),
     "--list-versions": on(args.pull.listVersions),
-  }).find(([, value]) => value !== undefined);
+  }).find(([flag, value]) => value !== undefined && !shared.has(flag));
   if (given !== undefined) throw new UsageError(`${given[0]} is only valid for the pull command`);
 }
 
@@ -84,20 +103,47 @@ function checkPublishFlags(args: ParsedArgs): void {
     "--repair": args.repair,
     "--recover-slots": args.recoverSlots,
     "--allow-full-reupload": args.allowFullReupload,
+    "--allow-mass-removal": args.allowMassRemoval,
   }).find(([, value]) => value);
   if (given !== undefined) throw new UsageError(`${given[0]} is only valid for the publish command`);
 }
 
-/** `--passphrase-file` belongs to `init` only; the other commands read `IPFS_SYNC_PASSPHRASE_FILE`. */
+/** `--passphrase-file` belongs to `init` and `keys change-passphrase`; the other commands read `IPFS_SYNC_PASSPHRASE_FILE`. */
 function checkInitFlags(args: ParsedArgs): void {
-  if (args.command !== "init" && args.passphraseFile !== undefined) {
-    throw new UsageError("--passphrase-file is only valid for the init command; publish reads the file named by IPFS_SYNC_PASSPHRASE_FILE");
+  if (args.command === "init" || args.passphraseFile === undefined) return;
+  if (args.command === "keys") return; // which subcommand takes it is judged by the command itself
+  throw new UsageError("--passphrase-file is only valid for the init command and keys change-passphrase; publish reads the file named by IPFS_SYNC_PASSPHRASE_FILE");
+}
+
+/** `--cost`, `--accept-no-revocation` and `--allow-downgrade` belong to `keys` only. */
+function checkKeysFlags(args: ParsedArgs): void {
+  if (args.command === "keys") return;
+  const given = Object.entries({ "--cost": args.keys.cost, "--accept-no-revocation": args.keys.acceptNoRevocation || undefined, "--allow-downgrade": args.keys.allowDowngrade || undefined }).find(
+    ([, value]) => value !== undefined,
+  );
+  if (given !== undefined) throw new UsageError(`${given[0]} is only valid for the keys command`);
+}
+
+/** `--keep`, `--dry-run` and `--yes-prune` belong to `prune-history` only, and `prune-history` needs `--keep` and takes one yes (a dry run asks nothing). */
+function checkPruneFlags(args: ParsedArgs): void {
+  const { keep, dryRun, yesPrune } = args.prune;
+  if (args.command !== "prune-history") {
+    const given = Object.entries({ "--keep": keep, "--dry-run": dryRun || undefined, "--yes-prune": yesPrune || undefined }).find(([, value]) => value !== undefined);
+    if (given !== undefined) throw new UsageError(`${given[0]} is only valid for the prune-history command`);
+    return;
   }
+  if (keep === undefined) throw new UsageError("prune-history needs --keep <n>: how many history files to keep (at least 20 are always kept); nothing was sent");
+  if (dryRun && yesPrune) throw new UsageError("--dry-run and --yes-prune exclude each other: a dry run removes nothing, so there is nothing to confirm; nothing was sent");
 }
 
 /** `--yes-abandon` belongs to `abandon` only. */
 function checkAbandonFlags(args: ParsedArgs): void {
   if (args.command !== "abandon" && args.yesAbandon) throw new UsageError("--yes-abandon is only valid for the abandon command");
+}
+
+/** `--yes-discard` belongs to `keys discard` only. */
+function checkDiscardFlags(args: ParsedArgs): void {
+  if (args.yesDiscard && !(args.command === "keys" && args.operands[0] === "discard")) throw new UsageError("--yes-discard is only valid for keys discard");
 }
 
 async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promise<number> {
@@ -114,8 +160,11 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
   checkPublishFlags(args);
   checkInitFlags(args);
   checkAbandonFlags(args);
+  checkDiscardFlags(args);
+  checkKeysFlags(args);
+  checkPruneFlags(args);
   // Configuration is validated in full before the first request can be sent.
-  const config = await loadSyncConfig(args, deps, { configMayBeMissing: args.command === "publish" });
+  const config = await loadSyncConfig(args, deps, { configMayBeMissing: args.command === "publish" || args.command === "keys" || args.command === "prune-history" });
   for (const warning of config.warnings) io.err(`warning: ${warning}`);
   if (args.command === "abandon" && vaultPath !== undefined) {
     // Local only: no client is created, so no request can be sent to the node.
@@ -129,6 +178,34 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
       return await runInit({ config, client, io, vaultPath, env: deps.env, now: deps.now, passphraseFile: args.passphraseFile, terminal: deps.terminal, file: fileHost(deps) });
     }
     const passphrase = deps.passphrase ?? (() => readVaultPassphrase({ ...fileHost(deps), env: deps.env, terminal: deps.terminal, warn: (text) => io.err(text) }));
+    if (args.command === "keys") {
+      return await runKeys({
+        config,
+        client,
+        io,
+        vaultPath,
+        subcommand: checkKeysOperands(args).subcommand,
+        flags: args.keys,
+        accept: {
+          name: args.pull.name,
+          rootCid: args.pull.rootCid,
+          allowRollback: args.pull.allowRollback,
+          expectVaultId: args.pull.expectVaultId,
+          expectMinSequence: args.pull.expectMinSequence,
+        },
+        yesDiscard: args.yesDiscard,
+        passphraseFile: args.passphraseFile,
+        env: deps.env,
+        now: deps.now,
+        passphrase,
+        terminal: deps.terminal,
+        file: fileHost(deps),
+        ...(deps.keyOperations === undefined ? {} : { operations: deps.keyOperations }),
+      });
+    }
+    if (args.command === "prune-history") {
+      return await runPrune({ config, client, io, vaultPath, flags: args.prune, env: deps.env, now: deps.now, passphrase });
+    }
     if (args.command === "pull") {
       return await runPull({ config, client, io, vaultPath, flags: args.pull, env: deps.env, now: deps.now, passphrase, freeBytes: deps.freeBytes });
     }
@@ -142,7 +219,7 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
       env: deps.env,
       now: deps.now,
       passphrase,
-      flags: { breakLock: args.breakLock, repair: args.repair, recoverSlots: args.recoverSlots, allowFullReupload: args.allowFullReupload },
+      flags: { breakLock: args.breakLock, repair: args.repair, recoverSlots: args.recoverSlots, allowFullReupload: args.allowFullReupload, allowMassRemoval: args.allowMassRemoval },
     });
   } finally {
     restore?.();

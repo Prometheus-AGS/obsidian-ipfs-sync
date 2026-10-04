@@ -3,19 +3,28 @@ import { createPullRunner } from "../../src/plugin/pull-runner";
 import { createSyncLock } from "../../src/plugin/sync-lock";
 import { createSyncEventBus } from "../../src/core/events";
 import { KuboHttpError } from "../../src/kubo";
-import { FILES_V1, SECRET, TODAY, freshVault, pullRig, seed, storeWith } from "../helpers/plugin-pull-rig";
+import { PLAINTEXT_UNSUPPORTED_MESSAGE } from "../../src/sync/pull-errors";
+import { ROOT1, SECRET, freshVault, plantPlaintextRoot, pullRig, storeWith } from "../helpers/plugin-pull-rig";
 import { IPNS_NAME } from "../helpers/pull-fixtures";
-import { MemoryAdapter } from "../support/memory-adapter";
 import { requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse } from "../support/obsidian-stub";
 
-const MB = 1024 * 1024;
+/**
+ * The plugin pull runner's own rules: the destination guard, the target, the node traffic of a pull, the lock, the failure
+ * notice, and what a root that holds no key slots gets. The plaintext (version 1) reader was removed by mvp-07b 3.1b; a
+ * plaintext root is refused (`plaintext-unsupported`). The decrypting pull is covered by `plugin-pull-encrypted.test.ts`.
+ */
+
+const WRITES = /^(write|remove|rename|mkdir)/;
+
+/** The outcome of a pull that passed the destination guard and found a plaintext root. */
+const PLAINTEXT_REFUSED = { kind: "refused", reason: "plaintext-unsupported" } as const;
 
 describe("plugin pull runner: destination guard", () => {
   it("refuses a vault with notes and no marker before any request, and changes nothing", async () => {
     const adapter = freshVault();
     adapter.put("notes/real.md", "private");
     const rig = pullRig({ adapter });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     adapter.calls.length = 0;
 
     const outcome = await rig.pull();
@@ -23,7 +32,7 @@ describe("plugin pull runner: destination guard", () => {
     expect(outcome.notice).toContain("Pull into a populated directory without a fixture marker stays disabled in this build");
     expect(outcome.notice).toContain(".ipfs-sync-fixture");
     expect(rig.gateway.requests).toEqual([]);
-    expect(adapter.calls.filter((call) => /^(write|remove|rename|mkdir)/.test(call))).toEqual([]);
+    expect(adapter.calls.filter((call) => WRITES.test(call))).toEqual([]);
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
     expect(rig.store.get().lastPull).toBeUndefined();
   });
@@ -31,27 +40,26 @@ describe("plugin pull runner: destination guard", () => {
   it("refuses a note nested deep in a folder, but ignores folders that hold no files", async () => {
     const nested = freshVault();
     nested.put("projects/2026/plan.md", "x");
-    expect((await pullRig({ adapter: nested }).pull()).kind).toBe("refused");
+    expect(await pullRig({ adapter: nested }).pull()).toMatchObject({ kind: "refused", reason: "fixture-only" });
 
     const emptyFolders = freshVault();
     emptyFolders.folders.add("drafts");
     emptyFolders.folders.add("drafts/2026");
     const rig = pullRig({ adapter: emptyFolders });
-    await seed(rig, FILES_V1);
-    expect((await rig.pull()).kind).toBe("pulled");
+    plantPlaintextRoot(rig.gateway);
+    expect(await rig.pull()).toMatchObject(PLAINTEXT_REFUSED);
   });
 
-  it("admits a fresh vault that holds only .obsidian and writes the marker", async () => {
-    const rig = pullRig({ adapter: freshVault() });
-    await seed(rig, FILES_V1);
-    const outcome = await rig.pull();
-    expect(outcome.kind).toBe("pulled");
-    expect(rig.adapter.text("notes/a.md")).toBe("alpha");
-    expect(rig.adapter.text("c.md")).toBe("charlie");
-    expect(rig.adapter.files.has(".ipfs-sync-fixture")).toBe(true);
-    expect(rig.adapter.files.has(".ipfs-sync/state.json")).toBe(true);
-    // The state folder holds no temp files afterwards.
-    expect([...rig.adapter.files.keys()].filter((path) => path.startsWith(".ipfs-sync/tmp/"))).toEqual([]);
+  it("admits a fresh vault that holds only .obsidian, reaches the node, and writes nothing for a root it refuses", async () => {
+    const adapter = freshVault();
+    const rig = pullRig({ adapter });
+    plantPlaintextRoot(rig.gateway);
+    adapter.calls.length = 0;
+    expect(await rig.pull()).toMatchObject(PLAINTEXT_REFUSED);
+    expect(rig.gateway.requests.length).toBeGreaterThan(0);
+    expect(adapter.files.has("notes/a.md")).toBe(false);
+    expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
+    expect([...adapter.files.keys()].filter((path) => path.startsWith(".ipfs-sync/") && path !== ".ipfs-sync/publish.lock")).toEqual([]);
   });
 
   it("admits a vault that carries the marker even when it has notes", async () => {
@@ -59,16 +67,16 @@ describe("plugin pull runner: destination guard", () => {
     adapter.put(".ipfs-sync-fixture", "fixture\n");
     adapter.put("notes/a.md", "alpha", 5000);
     const rig = pullRig({ adapter });
-    await seed(rig, FILES_V1);
-    expect((await rig.pull()).kind).toBe("pulled");
+    plantPlaintextRoot(rig.gateway);
+    expect(await rig.pull()).toMatchObject(PLAINTEXT_REFUSED);
+    expect(adapter.text("notes/a.md")).toBe("alpha");
   });
-
 });
 
 describe("plugin pull runner: node traffic", () => {
   it("sends only name resolve, key list and gateway reads", async () => {
     const rig = pullRig({ adapter: freshVault() });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     await rig.pull();
     expect(rig.gateway.requests.length).toBeGreaterThan(0);
     for (const request of rig.gateway.requests) expect(request, request).toMatch(/^(keyList|nameResolve \S+|GET \S+)/);
@@ -78,7 +86,7 @@ describe("plugin pull runner: node traffic", () => {
 
   it("asks for the key list only when no pull name is set", async () => {
     const rig = pullRig({ adapter: freshVault(), settings: { pullName: IPNS_NAME, ownedKeys: [] } });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     await rig.pull();
     expect(rig.gateway.requests).not.toContain("keyList");
     expect(rig.gateway.requests[0]).toBe(`nameResolve ${IPNS_NAME}`);
@@ -87,13 +95,13 @@ describe("plugin pull runner: node traffic", () => {
   it("stops before fetching, and writes nothing, when the default key is not owned and no name is set", async () => {
     const adapter = freshVault();
     const rig = pullRig({ adapter, settings: { ownedKeys: [] } });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     adapter.calls.length = 0;
     const outcome = await rig.pull();
     expect(outcome).toMatchObject({ kind: "refused", reason: "no-target" });
     expect(outcome.notice).toContain("pull name");
     expect(rig.gateway.requests).toEqual(["keyList"]);
-    expect(adapter.calls.filter((call) => /^(write|remove|rename|mkdir)/.test(call))).toEqual([]);
+    expect(adapter.calls.filter((call) => WRITES.test(call))).toEqual([]);
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
   });
 
@@ -123,101 +131,29 @@ describe("plugin pull runner: node traffic", () => {
 });
 
 describe("plugin pull runner: local edits", () => {
-  it("saves open editors first, so a pending edit becomes a conflict copy instead of being overwritten", async () => {
+  it("saves open editors first, before the pull makes any request", async () => {
     const flushes: string[] = [];
-    const adapter = freshVault();
-    // The destination guard reads the small marker file; a note read is any other read.
-    const noteReads = (): number => adapter.reads.filter((path) => path !== ".ipfs-sync-fixture").length;
     const rig = pullRig({
-      adapter,
+      adapter: freshVault(),
       flushEditors: async () => {
-        flushes.push(`flush after ${noteReads()} reads and ${rig.gateway.requests.length} requests`);
-        // The second pull finds an editor with content that is not on disk yet.
-        if (flushes.length === 2) adapter.put("notes/a.md", "typed but not yet saved", 9000);
+        flushes.push(`flush after ${rig.gateway.requests.length} requests`);
       },
     });
-    await seed(rig, FILES_V1);
-    expect((await rig.pull()).kind).toBe("pulled");
-
-    await seed(rig, { ...FILES_V1, "notes/a.md": "alpha from the other device" }, 2);
-    const reads = noteReads();
-    const requests = rig.gateway.requests.length;
-    const outcome = await rig.pull();
-    // The flush ran before this pull read any local file and before its first request.
-    expect(flushes[1]).toBe(`flush after ${reads} reads and ${requests} requests`);
-    expect(outcome.kind).toBe("pulled");
-    expect(adapter.text("notes/a.md")).toBe("alpha from the other device");
-    expect(adapter.text(`notes/a (ipfs conflict ${TODAY}).md`)).toBe("typed but not yet saved");
+    plantPlaintextRoot(rig.gateway);
+    expect(await rig.pull()).toMatchObject(PLAINTEXT_REFUSED);
+    expect(flushes).toEqual(["flush after 0 requests"]);
   });
 
   it("does not pull at all when the editors cannot be saved", async () => {
     const adapter = freshVault();
     const rig = pullRig({ adapter, flushEditors: () => Promise.reject(new Error("view is busy")) });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     const outcome = await rig.pull();
     expect(outcome.kind).toBe("failed");
     expect(outcome.notice).toContain("nothing was pulled");
     expect(outcome.notice).toContain("view is busy");
     expect(rig.gateway.requests).toEqual([]);
-    expect(adapter.text("c.md")).toBeUndefined();
-  });
-
-  it("leaves the conflict copy with the local bytes and the extension kept, and replaces the original", async () => {
-    const adapter = freshVault();
-    const rig = pullRig({ adapter });
-    await seed(rig, FILES_V1);
-    await rig.pull();
-    adapter.put("notes/a.md", "local text", 9000);
-    await seed(rig, { ...FILES_V1, "notes/a.md": "remote text", "notes/new.md": "only remote" }, 2);
-
-    const outcome = await rig.pull();
-    expect(outcome.kind).toBe("pulled");
-    expect(adapter.text("notes/a.md")).toBe("remote text");
-    expect(adapter.text(`notes/a (ipfs conflict ${TODAY}).md`)).toBe("local text");
-    expect(adapter.text("notes/new.md")).toBe("only remote");
-    if (outcome.kind === "pulled") {
-      expect(outcome.result).toMatchObject({ fetched: 2, conflicted: 1, failed: 0 });
-      expect(outcome.notice).toContain("Pull complete: 2 fetched");
-      expect(outcome.notice).toContain("1 conflicts, 0 failed");
-      expect(outcome.notice).toContain(`notes/a (ipfs conflict ${TODAY}).md`);
-    }
-    expect(rig.events).toEqual(["conflict notes/a.md"]);
-  });
-
-  it("does not rewrite files that did not change", async () => {
-    const adapter = freshVault();
-    const rig = pullRig({ adapter });
-    await seed(rig, FILES_V1);
-    await rig.pull();
-    const before = adapter.files.get("notes/b.md");
-    await seed(rig, { ...FILES_V1, "notes/a.md": "alpha 2" }, 2);
-    adapter.calls.length = 0;
-    await rig.pull();
-    expect(adapter.files.get("notes/b.md")).toBe(before);
-    expect(adapter.calls.some((call) => call.includes("notes/b.md") && /^(write|remove|rename)/.test(call))).toBe(false);
-  });
-});
-
-describe("plugin pull runner: read cap", () => {
-  it("counts a file above the cap as failed and still pulls the others", async () => {
-    const adapter = freshVault();
-    adapter.put(".ipfs-sync-fixture", "fixture\n");
-    adapter.put("big.bin", new Uint8Array(9 * MB), 5000);
-    const rig = pullRig({ adapter, settings: { maxReadMb: 8 } });
-    await seed(rig, { ...FILES_V1, "big.bin": "small remote text" });
-
-    const outcome = await rig.pull();
-    expect(outcome.kind).toBe("incomplete");
-    if (outcome.kind !== "incomplete") return;
-    expect(outcome.result.failed).toBe(1);
-    expect(outcome.result.failures[0]?.path).toBe("big.bin");
-    expect(outcome.result.failures[0]?.reason).toContain("8 MB");
-    expect(outcome.notice).toContain("Pull incomplete");
-    expect(outcome.notice).not.toContain("Pull complete");
-    expect(outcome.notice).toContain("big.bin");
-    expect(adapter.text("c.md")).toBe("charlie");
-    expect(adapter.files.get("big.bin")?.data.byteLength).toBe(9 * MB);
-    expect(rig.store.get().lastPull?.failed).toBe(1);
+    expect(adapter.text("notes/a.md")).toBeUndefined();
   });
 });
 
@@ -225,7 +161,7 @@ describe("plugin pull runner: one operation at a time", () => {
   it("refuses a pull while a publish holds the lock, sends nothing, then works after the release", async () => {
     const lock = createSyncLock();
     const rig = pullRig({ adapter: freshVault(), lock });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     const release = lock.tryAcquire("publish");
     expect(release).toBeDefined();
     const outcome = await rig.pull();
@@ -234,15 +170,15 @@ describe("plugin pull runner: one operation at a time", () => {
     expect(rig.gateway.requests).toEqual([]);
     expect(rig.runner.isRunning()).toBe(true);
     release?.();
-    expect((await rig.pull()).kind).toBe("pulled");
+    expect(await rig.pull()).toMatchObject(PLAINTEXT_REFUSED);
   });
 
   it("ignores a second pull while one is running and releases the lock afterwards, also after a failure", async () => {
     const rig = pullRig({ adapter: freshVault() });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     const first = rig.pull();
     expect(await rig.pull()).toMatchObject({ kind: "refused", reason: "busy" });
-    expect((await first).kind).toBe("pulled");
+    expect(await first).toMatchObject(PLAINTEXT_REFUSED);
     expect(rig.runner.isRunning()).toBe(false);
 
     rig.gateway.names.clear();
@@ -251,32 +187,10 @@ describe("plugin pull runner: one operation at a time", () => {
   });
 });
 
-describe("plugin pull runner: summary and secrets", () => {
-  it("persists counts, root CIDs and a time, and no path or secret", async () => {
-    const rig = pullRig({ adapter: freshVault() });
-    await seed(rig, FILES_V1);
-    await rig.pull();
-    const summary = rig.store.get().lastPull;
-    expect(summary).toEqual({
-      at: new Date(2026, 8, 30, 12, 0, 0).toISOString(),
-      rootCid: "bafyrootone000000000000",
-      manifestCid: "bafytreeone000000000000",
-      fetched: 3,
-      unchanged: 0,
-      conflicts: 0,
-      failed: 0,
-      remoteDeleted: 0,
-    });
-    const stored = JSON.stringify(rig.store.port.data);
-    expect(stored).not.toContain("notes/");
-    expect(stored).not.toContain("c.md");
-    // The token lives in the settings, as before; the summary itself carries none.
-    expect(JSON.stringify(summary)).not.toContain(SECRET);
-  });
-
+describe("plugin pull runner: secrets", () => {
   it("does not put credentials into a failure notice", async () => {
     const rig = pullRig({ adapter: freshVault() });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     rig.gateway.client.nameResolve = () => Promise.reject(new KuboHttpError("rpc", "https://node.test", 500, "could not resolve name"));
     const outcome = await rig.pull();
     expect(outcome.kind).toBe("failed");
@@ -284,77 +198,59 @@ describe("plugin pull runner: summary and secrets", () => {
     expect(outcome.notice).not.toContain(SECRET);
     expect(rig.adapter.files.has(".ipfs-sync-fixture")).toBe(false);
   });
-
-  it("says the summary was not saved instead of hiding it, and keeps the pull's result", async () => {
-    const rig = pullRig({ adapter: freshVault() });
-    await seed(rig, FILES_V1);
-    rig.store.port.saveData = () => Promise.reject(new Error("disk full"));
-    const outcome = await rig.pull();
-    expect(outcome.kind).toBe("pulled");
-    expect(outcome.notice).toContain("could not be saved: disk full");
-    expect(rig.adapter.text("c.md")).toBe("charlie");
-  });
-
-  it("reports progress phases with a fetched count that increases", async () => {
-    const rig = pullRig({ adapter: freshVault() });
-    await seed(rig, FILES_V1);
-    const texts: string[] = [];
-    await rig.runner.run({ onProgress: (text) => void texts.push(text) });
-    expect(texts[0]).toContain("starting");
-    const stages = texts.map((text) => text.replace(/^IPFS Sync: pull: /, ""));
-    expect(stages).toContain("resolving name...");
-    expect(stages).toContain("reading manifest...");
-    expect(stages).toContain("comparing 3 files...");
-    expect(stages).toContain("fetching 0 of 3...");
-    expect(stages).toContain("fetching 3 of 3...");
-    const counts = stages.flatMap((stage) => /^fetching (\d+) of 3/.exec(stage)?.[1] ?? []).map(Number);
-    expect(counts).toEqual([...counts].sort((a, b) => a - b));
-  });
 });
 
-describe("plugin pull runner: encrypted roots and the plaintext reader", () => {
+describe("plugin pull runner: a root without key slots", () => {
   const encrypt = (rig: ReturnType<typeof pullRig>): void => {
-    rig.gateway.objects.delete("bafyrootone000000000000/manifest.json");
-    rig.gateway.objects.set("bafyrootone000000000000/keyslots.json", new TextEncoder().encode("{}"));
-    rig.gateway.objects.set("bafyrootone000000000000/manifest.enc", new Uint8Array([1]));
+    rig.gateway.objects.delete(`${ROOT1}/manifest.json`);
+    rig.gateway.objects.set(`${ROOT1}/keyslots.json`, new TextEncoder().encode("{}"));
+    rig.gateway.objects.set(`${ROOT1}/manifest.enc`, new Uint8Array([1]));
   };
 
-  it("sends a root with key slots to the decrypting pull instead of refusing it: unreadable slots stop it, nothing is written and the lock is released", async () => {
+  it("sends a root with key slots to the decrypting pull: unreadable slots stop it, nothing is written and the lock is released", async () => {
     const adapter = freshVault();
     const rig = pullRig({ adapter });
-    await seed(rig, FILES_V1);
+    plantPlaintextRoot(rig.gateway);
     encrypt(rig);
 
     const outcome = await rig.pull();
     expect(outcome.kind).toBe("stopped");
     expect(outcome.notice).toContain("pull stopped");
     expect(outcome.notice).toContain("Nothing was written to your vault");
-    expect(outcome.notice).not.toContain("does not read encrypted vaults");
     expect(adapter.files.has("notes/a.md")).toBe(false);
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
-    // The plaintext reader never ran, so it set no latch; the file lock was taken and released.
-    expect(adapter.files.has(".ipfs-sync/encrypted-seen.json")).toBe(false);
     expect(adapter.files.has(".ipfs-sync/publish.lock")).toBe(false);
     expect(rig.store.get().lastPull).toBeUndefined();
   });
 
-  it("refuses a plaintext root while the plaintext reader is off, and reads no manifest", async () => {
-    const rig = pullRig({ adapter: freshVault(), allowPlaintextV1: false });
-    await seed(rig, FILES_V1);
+  it("refuses a plaintext root with the no-longer-supported notice: nothing is written, the manifest is never read, the lock is released", async () => {
+    const adapter = freshVault();
+    const rig = pullRig({ adapter });
+    plantPlaintextRoot(rig.gateway);
+    adapter.calls.length = 0;
+
     const outcome = await rig.pull();
-    expect(outcome).toMatchObject({ kind: "refused", reason: "plaintext-v1-off" });
-    expect(outcome.notice).toContain("switched off");
+    expect(outcome).toMatchObject(PLAINTEXT_REFUSED);
+    expect(outcome.notice).toContain("plaintext publications are no longer supported");
+    expect(outcome.notice).toContain(PLAINTEXT_UNSUPPORTED_MESSAGE);
+    expect(outcome.notice).not.toMatch(/switched off|downgrade|--allow/);
     expect(rig.gateway.requests.some((request) => request.includes("manifest.json"))).toBe(false);
+    // Only the lock's own folder and file are touched: no vault file, no state, no marker.
+    expect(adapter.calls.filter((call) => WRITES.test(call) && !call.includes("publish.lock") && call !== "mkdir .ipfs-sync")).toEqual([]);
+    expect(adapter.files.has("notes/a.md")).toBe(false);
+    expect(adapter.files.has(".ipfs-sync/publish.lock")).toBe(false);
+    expect(rig.store.get().lastPull).toBeUndefined();
+    expect(rig.lock.holder()).toBeUndefined();
   });
 
-  it("names a downgrade when an encrypted vault was seen here before and the node now serves a plaintext root", async () => {
+  it("gives an unattended run (the catch-up pull) the same refusal, and a vault that recorded an encrypted pull before gets no downgrade wording", async () => {
     const adapter = freshVault();
-    // What an encrypted publish or pull leaves behind (the plaintext reader no longer sets it itself, once an encrypted root goes to the decrypting pull).
+    // The old latch file: nothing reads it any more.
     adapter.put(".ipfs-sync/encrypted-seen.json", JSON.stringify({ version: 1, encryptedSeen: true, sightings: [] }), 1000);
     const rig = pullRig({ adapter });
-    await seed(rig, FILES_V1);
-    const outcome = await rig.pull();
-    expect(outcome).toMatchObject({ kind: "refused", reason: "plaintext-v1-off" });
-    expect(outcome.notice).toContain("downgrade");
+    plantPlaintextRoot(rig.gateway);
+    const outcome = await rig.runner.run({ unattended: true });
+    expect(outcome).toMatchObject(PLAINTEXT_REFUSED);
+    expect(outcome.notice).not.toMatch(/downgrade|attack/);
   });
 });

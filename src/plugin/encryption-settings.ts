@@ -1,10 +1,11 @@
 import { Setting } from "obsidian";
 import { ENCRYPTION_COPY as COPY, ENCRYPTION_SECTION } from "./encryption-copy";
-import { describeEncryption, describePullRecord, type EncryptionStatusSource } from "./encryption-settings-model";
+import { describeEncryption, describeKeyActions, describePullRecord, describeSlotCost, type EncryptionStatusSource, type KeyActionId } from "./encryption-settings-model";
 import { addSection } from "./settings-tab-controls";
 
 const LOCK_DESC = "ipfs-sync-desc-encryption-lock";
 const ABANDON_DESC = "ipfs-sync-desc-encryption-abandon";
+const KEY_ACTION_DESC = (id: KeyActionId): string => `ipfs-sync-desc-encryption-${id}`;
 
 /**
  * The Encryption section: the vault's state as a word (not set up, locked or unlocked), what that means, and a
@@ -19,6 +20,9 @@ export class EncryptionSection {
   private lockDescEl: HTMLElement | undefined;
   private lockButton: HTMLButtonElement | undefined;
   private recordEl: HTMLElement | undefined;
+  private costRow: HTMLElement | undefined;
+  private costEl: HTMLElement | undefined;
+  private keyRows = new Map<KeyActionId, HTMLElement>();
 
   constructor(private readonly source: EncryptionStatusSource) {}
 
@@ -34,6 +38,7 @@ export class EncryptionSection {
       record.descEl.setAttr("aria-live", "polite");
       this.recordEl = record.descEl;
     }
+    this.renderCost(section);
     const lock = new Setting(section).setName(COPY.lockName);
     lock.descEl.id = LOCK_DESC;
     this.lockDescEl = lock.descEl;
@@ -43,10 +48,49 @@ export class EncryptionSection {
       button.onClick(() => this.lock());
       this.lockButton = button.buttonEl;
     });
+    this.renderKeyActions(section);
     this.renderAbandon(section);
     this.update();
     this.unsubscribe?.();
     this.unsubscribe = this.source.subscribe?.(() => this.update());
+  }
+
+  /** The cost of this device's key slot, as a sentence in a polite live region. Present only when the source can read it. */
+  private renderCost(section: HTMLElement): void {
+    this.costRow = undefined;
+    this.costEl = undefined;
+    if (this.source.slotCost === undefined) return;
+    const cost = new Setting(section).setName(COPY.slotCostName);
+    cost.descEl.setAttr("aria-live", "polite");
+    this.costRow = cost.settingEl;
+    this.costEl = cost.descEl;
+  }
+
+  /**
+   * Change passphrase, Increase cost and Accept key slots: one row each, with the sentence that says what it does (and what it does not undo)
+   * as the button's description. Rows exist for the actions the source can open and are hidden until a vault exists; the dialogs, not these
+   * buttons, ask for the passphrase.
+   */
+  private renderKeyActions(section: HTMLElement): void {
+    this.keyRows = new Map();
+    const open: Readonly<Record<KeyActionId, (() => void) | undefined>> = {
+      "change-passphrase": this.source.openChangePassphrase?.bind(this.source),
+      "increase-cost": this.source.openIncreaseCost?.bind(this.source),
+      "accept-slots": this.source.openAcceptSlots?.bind(this.source),
+      "prune-history": this.source.openPruneHistory?.bind(this.source),
+    };
+    for (const action of describeKeyActions("locked", this.source)) {
+      const opener = open[action.id];
+      if (opener === undefined) continue;
+      const row = new Setting(section).setName(action.name).setDesc(action.desc);
+      row.descEl.id = KEY_ACTION_DESC(action.id);
+      row.addButton((button) => {
+        button.setButtonText(action.button);
+        button.buttonEl.setAttr("aria-describedby", KEY_ACTION_DESC(action.id));
+        button.onClick(() => opener());
+      });
+      this.keyRows.set(action.id, row.settingEl);
+    }
   }
 
   /** The Abandon row, present only when the source can open the confirmation. The dialog, not this button, asks for the typed word. */
@@ -85,7 +129,23 @@ export class EncryptionSection {
     this.drawAction(view.action);
     this.lockDescEl?.setText(view.lockDescription);
     if (this.lockButton !== undefined) this.lockButton.disabled = !view.canLock;
+    const visible = new Set(describeKeyActions(view.state, this.source).map((action) => action.id));
+    for (const [id, row] of this.keyRows) row.setCssProps({ display: visible.has(id) ? "" : "none" });
+    this.costRow?.setCssProps({ display: view.state === "not-set-up" ? "none" : "" });
     void this.refreshRecord();
+    void this.refreshCost(view.state !== "not-set-up");
+  }
+
+  /** Read the slot cost and show it as a sentence. Not read at all before a vault exists. An unreadable record is said in words. */
+  private async refreshCost(vaultExists: boolean): Promise<void> {
+    const read = this.source.slotCost?.bind(this.source);
+    const target = this.costEl;
+    if (read === undefined || target === undefined || !vaultExists) return;
+    try {
+      target.setText(describeSlotCost(await read()));
+    } catch {
+      target.setText(COPY.slotCostRecordUnreadable);
+    }
   }
 
   /** Read the pull record and show it as sentences. An unreadable state file is said in words, not hidden. */

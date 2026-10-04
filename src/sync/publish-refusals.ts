@@ -33,6 +33,7 @@ export type PublishRefusalCode =
   | "plaintext-root"
   | "unexpected-root-entry"
   | "large-reupload"
+  | "mass-removal"
   | "remote-object-too-large"
   | "remote-object-invalid"
   | "root-cid-unsupported"
@@ -41,7 +42,11 @@ export type PublishRefusalCode =
   | "history-full"
   | "history-junk"
   | "floor-not-recorded"
-  | "path-limit";
+  | "path-limit"
+  | "maintenance-pending"
+  | "maintenance-lost-race"
+  | "publish-journal-pending"
+  | "publication-key-missing";
 
 export class PublishRefusedError extends Error {
   readonly code: PublishRefusalCode;
@@ -327,6 +332,26 @@ export function largeReupload(bytes: number): PublishRefusedError {
   );
 }
 
+/** What the mass-removal refusal and the confirm port say: counts only, no paths. */
+export interface MassRemovalCounts {
+  /** Removals that count toward the threshold. */
+  readonly removing: number;
+  /** Entries the manifest keeps counting against, before the publish and without the exclusion-driven group. */
+  readonly remaining: number;
+  /** Removals caused by the exclusion list: reported, not counted. */
+  readonly exclusionDriven: number;
+}
+
+export function massRemoval(counts: MassRemovalCounts): PublishRefusedError {
+  const apart = counts.exclusionDriven === 0 ? "" : ` ${counts.exclusionDriven} more are removed because the exclusion list now matches them; those are not counted.`;
+  return new PublishRefusedError(
+    "mass-removal",
+    `this publish would remove ${counts.removing} of ${counts.remaining} entries from the vault manifest.${apart} ` +
+      "An unmounted or emptied vault directory looks exactly like this. Check the vault folder first. " +
+      "If the removal is intended, confirm it (--allow-mass-removal, or a yes at the prompt or dialog). A timer publish never asks. Nothing was written.",
+  );
+}
+
 export function remoteObjectTooLarge(what: string, limit: number): PublishRefusedError {
   return new PublishRefusedError(
     "remote-object-too-large",
@@ -363,7 +388,7 @@ export function historyFull(count: number | undefined): PublishRefusedError {
   return new PublishRefusedError(
     "history-full",
     `manifests/ on the node already holds ${held} history files and this tool reads it back before every publish, so it stops at 1,999. Nothing was written. ` +
-      "Archive old history with `ipfs-sync prune-history` (not available in this build), or publish to a new MFS root.",
+      "Remove old history with `ipfs-sync prune-history <vault> --keep <n>` or with Prune history in the Encryption section of the plugin settings (either keeps at least the newest 20 and asks first), or publish to a new MFS root.",
   );
 }
 
@@ -381,5 +406,64 @@ export function prefixFolderTooLarge(folder: string): PublishRefusedError {
   return new PublishRefusedError(
     "remote-object-too-large",
     `the folder current/${folder}/ on the node holds more than 2,000 entries, which this tool refuses to list. A vault spreads over 1,024 such folders, so something else put them there; remove the extra entries on the node. Nothing was written.`,
+  );
+}
+
+/** What a maintenance operation is called in a refusal. `damaged` is a journal file that cannot be read. */
+export type MaintenanceKind = "rewrap" | "prune" | "damaged";
+
+/** The two ways out of a maintenance journal that cannot finish, named in every refusal it causes. */
+export const MAINTENANCE_WAYS_OUT =
+  'Run the same keys or prune-history command again to finish it; if it cannot finish, run "ipfs-sync keys discard" to drop it, or "ipfs-sync keys accept-slots" if another device changed the key slots. These are command-line commands. The plugin has no discard action and does not finish an interrupted operation; its Encryption section can change the passphrase, increase the cost, prune history and accept changed key slots, and Accept changed key slots also clears a pending operation.';
+
+const MAINTENANCE_NAMES: Readonly<Record<MaintenanceKind, string>> = {
+  rewrap: "a key-slot rewrap (a passphrase or cost change)",
+  prune: "a history prune",
+  damaged: "a key-management journal that cannot be read",
+};
+
+/**
+ * A key-management operation is in flight on this device (`maintenance.<h>.json`), so publish and pull are paused: the shared
+ * MFS tree may hold its half-finished write, and a publish would put that into a root. Nothing was written by the refused run.
+ */
+export function maintenancePending(kind: MaintenanceKind): PublishRefusedError {
+  return new PublishRefusedError(
+    "maintenance-pending",
+    `${MAINTENANCE_NAMES[kind]} did not finish on this device, so publish and pull are paused until it is resolved. ${MAINTENANCE_WAYS_OUT} Nothing was written.`,
+  );
+}
+
+/** An unfinished publish (`journal.<h>.json`) is on this device: a rewrap or a prune must not start over the top of it. */
+export function publishJournalPending(): PublishRefusedError {
+  return new PublishRefusedError(
+    "publish-journal-pending",
+    "an unfinished publish is pending on this device; run publish to finish it before changing key slots or pruning history. Nothing was written.",
+  );
+}
+
+/**
+ * A rewrap or prune lost a race: the node's file or the publication name no longer matches what this operation wrote or started
+ * from. `withdrawn` says whether the shared tree's `keyslots.json` was put back (rewrap only). A prune re-adds nothing: the
+ * history files it removed stay in the earlier pinned roots, and the next publish from any device will publish without them.
+ */
+export function maintenanceLostRace(kind: Exclude<MaintenanceKind, "damaged">, options: { readonly withdrawn?: boolean; readonly cause?: unknown } = {}): PublishRefusedError {
+  const what =
+    kind === "rewrap"
+      ? options.withdrawn === true
+        ? "this device's key-slot file was taken back out of the shared tree"
+        : "the shared tree may still hold this device's key-slot file"
+      : "the history files this prune removed from the shared tree stay removed there (earlier pinned roots still hold them) and are not added back";
+  return new PublishRefusedError(
+    "maintenance-lost-race",
+    `another device changed this vault while ${kind === "rewrap" ? "the key-slot rewrap" : "the history prune"} ran, so it was not published; ${what}. ${MAINTENANCE_WAYS_OUT}`,
+    options.cause === undefined ? undefined : { cause: options.cause },
+  );
+}
+
+/** This device has no publication key for the vault: it never published, so there is nothing to rewrap or prune, and the key must not be created here. */
+export function publicationKeyMissing(name: string): PublishRefusedError {
+  return new PublishRefusedError(
+    "publication-key-missing",
+    `the publication key "${name}" does not exist on the node, so this device has not published this vault; there is nothing to change, and no key was created. Nothing was written.`,
   );
 }

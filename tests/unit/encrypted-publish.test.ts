@@ -107,7 +107,7 @@ describe("encrypted publish: first publish", () => {
     const manifest = await rig.manifest();
     expect(rig.node.files.get(`${ROOT}/manifests/${historyFileName(manifest.sequence, manifest.rootCID)}`)).toEqual(rig.node.files.get(`${ROOT}/manifest.enc`));
     const state = await readRootState(rig.host.kv, ROOT);
-    expect(state).toMatchObject({ sequence: 1, encryptedSeen: true, rootCid: rig.node.cidOf(ROOT) });
+    expect(state).toMatchObject({ sequence: 1, rootCid: rig.node.cidOf(ROOT) });
     expect(state?.manifest).toEqual(manifest);
     expect(await readJournal(rig.host.kv, ROOT)).toEqual({ kind: "none" });
     expect(rig.node.published.get(rig.node.keys[0]?.id ?? "")).toBe(`/ipfs/${rig.node.cidOf(ROOT)}`);
@@ -259,7 +259,8 @@ describe("encrypted publish: delta behaviour", () => {
   it("publishes the vault when every file was deleted, as an empty manifest", async () => {
     const rig = await published();
     for (const path of PATHS) rig.host.drop(path);
-    const result = await rig.publish();
+    // Removing every entry needs the explicit go-ahead (mvp-07b 1.7); this test is about the empty manifest that follows it.
+    const result = await rig.publish({ allowMassRemoval: true });
     expect(result).toMatchObject({ published: true, written: 0, removed: 3, sequence: 2 });
     expect(Object.keys((await rig.manifest()).files)).toEqual([]);
   });

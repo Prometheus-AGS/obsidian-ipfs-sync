@@ -39,8 +39,10 @@ import { discardTemp } from "./temp-files";
 /** Where blob bytes come from. The ranged plugin source (`createRangedBlobSources`) fits this; the CLI wraps `gatewayBlobSource`. */
 export interface BlobSources {
   source(location: GatewayBlobLocation): BlobSource;
-  /** Plugin only: send the header request of the smallest blob alone, once, before any other ranged request (design decision 14). */
+  /** Plugin only: send the header request of a blob alone, before any other ranged request (design decision 14). */
   probe?(location: GatewayBlobLocation): Promise<unknown>;
+  /** Plugin only: what the probes showed. With it the pull probes every size class and stops at the first Range-ignoring answer. */
+  state?(): "unprobed" | "honoured" | "ignored";
 }
 
 export type FetchTreeClient = Pick<KuboClient, "ipfsLs">;

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FIXTURE_MARKER } from "../../src/core/config";
+import { FIXTURE_MARKER } from "../../src/sync/fixture-constants";
 import { createExclusionMatcher } from "../../src/sync/exclusions";
 import { sha256Hex } from "../../src/sync/hash";
 import { FixtureTargetError, fixtureFiles, writeFixtureVault } from "../../fixtures/generate-fixture-vault";

@@ -46,7 +46,7 @@
 import type { SyncEventBus } from "../core/events";
 import type { HostBridge } from "../core/host-bridge";
 import { BLOB_READER_MAX_EXPONENT, BLOB_WRITER_EXPONENT } from "../crypto";
-import type { GatewayBlobLocation } from "./blob-source";
+import { probeSizeClasses, type GatewayBlobLocation } from "./blob-source";
 import type { DeviceStore } from "./device-store";
 import { encryptedPull, type AllowedVerdict, type EncryptedPullDeps, type EncryptedPullOptions, type EncryptedPullOutcome, type VerifiedPull } from "./encrypted-pull";
 import {
@@ -213,8 +213,12 @@ async function fetchAll(
     const location = blobLocation(rootCid, decision.entry.blob, lengths);
     return location === undefined ? [] : [location];
   });
-  const smallest = smallestBlob(located);
-  if (smallest !== undefined && stage.sources.probe !== undefined) await stage.sources.probe(smallest);
+  const { probe, state } = stage.sources;
+  if (probe !== undefined && state !== undefined) await probeSizeClasses({ probe: (blob) => probe.call(stage.sources, blob), state: () => state.call(stage.sources) }, located);
+  else {
+    const smallest = smallestBlob(located);
+    if (smallest !== undefined && probe !== undefined) await probe.call(stage.sources, smallest);
+  }
 
   const baseFiles = base?.files;
   const context = {

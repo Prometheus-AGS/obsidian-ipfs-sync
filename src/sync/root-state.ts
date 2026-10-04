@@ -8,8 +8,9 @@ import { stableStringify } from "./stable-json";
 /**
  * Per-root local state of an encrypted publish or pull (format 3), kept as `.ipfs-sync/state.<h>.json`. It records
  * what the last completed publish or pull to one MFS root left behind. It is plaintext at rest (it holds vault
- * paths), so the `.ipfs-sync/` folder must stay out of third-party sync and backups. Deleting the folder resets it,
- * including the `encryptedSeen` latch. Format 1 (`state.json`, the pull record) is a different file and is ignored here.
+ * paths), so the `.ipfs-sync/` folder must stay out of third-party sync and backups. Format 1 (`state.json`, the pull
+ * record) is a different file and is ignored here. Files written by earlier builds carry an `encryptedSeen` field; it is
+ * neither required nor read, and the next write leaves it out (the sequence floor is the downgrade evidence now).
  *
  * Format 3 is read strictly: every field below the baseline is required and nothing is defaulted, so a build that
  * wrote half a state, or an edit by hand, is refused instead of being trusted with a guess. Only format 2 (no
@@ -59,16 +60,14 @@ export interface RootState {
   readonly restoredFrom?: number;
   /** Modification time of every published file, for the size/mtime pre-filter. */
   readonly mtimes: Readonly<Record<string, number>>;
-  /** Latch: this root held encrypted content. Set by every write of this state and never cleared by code. */
-  readonly encryptedSeen: true;
 }
 
 export { RootStateError };
 
-export type RootStateInput = Omit<RootState, "version" | "encryptedSeen">;
+export type RootStateInput = Omit<RootState, "version">;
 
 export function buildRootState(input: RootStateInput): RootState {
-  return { version: ROOT_STATE_VERSION, encryptedSeen: true, ...input };
+  return { version: ROOT_STATE_VERSION, ...input };
 }
 
 /**
@@ -157,7 +156,6 @@ function baseInput(record: JsonRecord, shared: Shared): Pick<RootStateInput, "mf
  * one named in the manifest.
  */
 function upgradeV2(record: JsonRecord): RootState {
-  if (record["encryptedSeen"] !== true) refuse("state does not carry the encryptedSeen latch");
   const shared = parseShared(record);
   const identity = manifestIdentity(shared.manifest);
   return buildRootState({

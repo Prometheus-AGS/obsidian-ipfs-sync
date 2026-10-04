@@ -38,4 +38,21 @@ describe("the pre-publish look at manifests/", () => {
     expect(() => assessHistoryCount(folder(1999, (index) => (index % 2 === 0 ? legacy(index) : prefixed(index))))).toThrow();
     expect(() => assessHistoryCount({ entries: [], overflow: true })).toThrow();
   });
+
+  it("names both ways to prune once the plugin can: the command and the Encryption section of the plugin settings (task 2.5)", () => {
+    const folder = Array.from({ length: 1500 }, (_, index) => prefixed(index));
+    const warning = assessHistoryCount(view(folder)) ?? "";
+    expect(warning).toContain("ipfs-sync prune-history");
+    expect(warning).toContain("Prune history in the Encryption section");
+    const refusal = (() => {
+      try {
+        assessHistoryCount(view(Array.from({ length: 1999 }, (_, index) => prefixed(index))));
+      } catch (error) {
+        return (error as Error).message;
+      }
+      return "";
+    })();
+    expect(refusal).toContain("ipfs-sync prune-history");
+    expect(refusal).toContain("Prune history in the Encryption section");
+  });
 });

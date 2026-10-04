@@ -1,15 +1,14 @@
 import { ConfigError, type SyncConfig } from "../core/config";
 import type { SyncEventBus } from "../core/events";
 import type { HostBridge } from "../core/host-bridge";
-import { CryptoError, type CanonicalPassphrase } from "../crypto";
+import { CryptoError, type CanonicalPassphrase, type KdfParams } from "../crypto";
 import { createKuboClient, type KuboClient, type Transport } from "../kubo";
 import { createRangedBlobSources } from "../sync/blob-source";
 import type { EncryptedPullOutcome, PullStop, PullTarget } from "../sync/encrypted-pull";
 import { pullEncryptedVault, type PullStageResult } from "../sync/encrypted-pull-stage";
-import { PlaintextV1RefusedError, PullGuardError, type PullStopReason } from "../sync/pull-errors";
-import { assertVaultPullDestination } from "../sync/pull-guard";
+import { PullGuardError, type PullStopReason } from "../sync/pull-errors";
+import { assertVaultPullDestination, FIXTURE_ONLY_PULL_NOTICE } from "../sync/pull-guard";
 import type { PullFlags } from "../sync/pull-sequence";
-import { pullVault, type PullPhase, type PullResult } from "../sync/pull";
 import { readFloor } from "../sync/sequence-floor";
 import { readRootState } from "../sync/root-state";
 import { resolveRootCid } from "../sync/target-resolution";
@@ -27,17 +26,13 @@ import { escapeForDisplay } from "../sync/path-policy";
 import type { PullDialogs } from "./pull-dialogs";
 import {
   encryptedPullNotice,
-  FIXTURE_ONLY_PULL_NOTICE,
   FORK_CANCELLED_NOTICE,
   invalidSettingsPullNotice,
   LOCKED_PULL_NOTICE,
   noTargetNotice,
-  PLAINTEXT_DOWNGRADE_NOTICE,
-  PLAINTEXT_V1_OFF_NOTICE,
-  phaseText,
+  PLAINTEXT_UNSUPPORTED_NOTICE,
   PULL_PASSPHRASE_CANCELLED_NOTICE,
   pullFailedNotice,
-  pullResultNotice,
   RESTORE_CANCELLED_NOTICE,
   RESTORE_NEEDS_NAME_NOTICE,
   RESTORE_NO_ENTRIES_NOTICE,
@@ -54,9 +49,9 @@ import { reportOf, summaryOfReport, warningsOf } from "./pull-report";
 import { describeHistory, listHistoryFiles, loadChosenEntry, unlockForRestore, type RestoreReader } from "./pull-restore";
 import { sweepTempFiles, type SweepOutcome } from "./pull-sweep";
 import { resolvePullTarget } from "./pull-target";
-import { requestUrlTransport } from "./request-url-transport";
+import { pullTransport } from "./request-url-transport";
 import type { SessionKeys } from "./session-keys";
-import type { PluginSettings, PullSummary } from "./settings-model";
+import type { PluginSettings } from "./settings-model";
 import type { SettingsStore } from "./settings-store";
 import { exclusionsWithConfigDir, settingsToConfig } from "./settings-to-config";
 import { saveSummary } from "./summary-store";
@@ -68,7 +63,8 @@ export type PullRefusalReason =
   | "unsafe-destination"
   | "invalid-settings"
   | "no-target"
-  | "plaintext-v1-off"
+  /** The name serves a root with no key slots (an old plaintext publication): no code path of this version reads one. */
+  | "plaintext-unsupported"
   /** The vault is locked and this run could not ask for the passphrase (the catch-up pull). */
   | "locked"
   /** The user closed a dialog: nothing was fetched or written. */
@@ -81,13 +77,12 @@ export type PullRefusalReason =
 /**
  * What a run did, with the text to show. `refused` and `stopped` mean nothing was written to the vault; `completed` means
  * every file is current; `unfinished` means some file is not (the report names them and the next publish keeps them as the
- * node has them); `pulled` and `incomplete` are the same two outcomes of the plaintext (version 1) reader; `failed` means
- * the run stopped early with a reason. A `stopped` run with `action` set is followed by a button that starts that action.
+ * node has them); `failed` means the run stopped early with a reason. A `stopped` run with `action` set is followed by a
+ * button that starts that action.
  */
 export type PullOutcome =
   | { readonly kind: "completed" | "unfinished"; readonly notice: string; readonly report: PullReport }
   | { readonly kind: "stopped"; readonly reason: PullStopReason; readonly notice: string; readonly action: "resolve-fork" | undefined }
-  | { readonly kind: "pulled" | "incomplete"; readonly notice: string; readonly result: PullResult }
   | { readonly kind: "refused"; readonly reason: PullRefusalReason; readonly notice: string }
   | { readonly kind: "failed"; readonly notice: string };
 
@@ -122,18 +117,18 @@ export interface PullRunnerDeps {
   readonly now?: () => Date;
   /** Unique temp file names; defaults to a random UUID. */
   readonly newId?: () => string;
-  /**
-   * Whether the plaintext (version 1) reader may run. Off unless this says so: nothing in the settings switches it on
-   * (encrypted pull replaces the plaintext reader in the next change), and it is refused anyway for a destination
-   * that has seen an encrypted vault.
-   */
-  readonly allowPlaintextV1?: () => boolean;
   /** The key session: an already unlocked vault saves the passphrase prompt. The pull never unlocks it. */
   readonly session?: Pick<SessionKeys, "provider">;
   /** Where a passphrase comes from when no vault is held. Absent: such a run refuses as locked. */
   readonly passphrase?: PassphrasePort;
   /** The confirmations. Absent: a first pull, a large pull, Restore and Resolve fork cannot be confirmed and do not run. */
   readonly dialogs?: PullDialogs;
+  /**
+   * The cost-confirm dialog (task 2.4): shows the cost of a key slot above the default and resolves `true` only after an explicit confirm. Handed to the
+   * engine on a manual pull, Resolve fork and Restore. A run with `unattended: true` is never handed it, so the catch-up pull cannot ask and keeps
+   * refusing such a slot. Absent: a slot above the default cost is refused (`kdf-cost-refused`).
+   */
+  readonly confirmCost?: (costs: readonly KdfParams[]) => Promise<boolean>;
 }
 
 export interface PullRunner {
@@ -184,35 +179,19 @@ function outcomeFor(error: unknown): PullOutcome {
       ? refused("fixture-only", FIXTURE_ONLY_PULL_NOTICE)
       : refused("unsafe-destination", unsafeDestinationNotice(error.message));
   }
-  if (error instanceof PlaintextV1RefusedError) {
-    return error.reason === "downgrade" ? refused("plaintext-v1-off", PLAINTEXT_DOWNGRADE_NOTICE) : refused("plaintext-v1-off", PLAINTEXT_V1_OFF_NOTICE);
-  }
   if (error instanceof ConfigError) return refused("invalid-settings", invalidSettingsPullNotice(error.message));
   return { kind: "failed", notice: pullFailedNotice(error) };
-}
-
-function summaryOf(result: PullResult, at: Date): PullSummary {
-  return {
-    at: at.toISOString(),
-    rootCid: result.rootCid,
-    manifestCid: result.manifestCid,
-    fetched: result.fetched,
-    unchanged: result.unchanged,
-    conflicts: result.conflicted,
-    failed: result.failed,
-    remoteDeleted: result.remoteDeleted,
-  };
 }
 
 /** Whether the pull stopped at a check for this reason. A plain test: another reason is a stop too. */
 const isStop = (outcome: EncryptedPullOutcome<PullStageResult>, reason: PullStopReason): boolean => outcome.kind === "stopped" && outcome.stop.reason === reason;
 
 /**
- * How the unlock dialog is answered when the pull ends while it is still open: a finished pull (or the plaintext fall-back, which
- * asked nothing) is a success; every other end is a refusal that says why. The notice is already escaped fixed text.
+ * How the unlock dialog is answered when the pull ends while it is still open: a finished pull is a success; every other end is a
+ * refusal that says why. The notice is already escaped fixed text.
  */
-function verdictFor(outcome: PullOutcome | undefined): PassphraseVerdict {
-  if (outcome === undefined || outcome.kind === "completed" || outcome.kind === "unfinished") return { ok: true };
+function verdictFor(outcome: PullOutcome): PassphraseVerdict {
+  if (outcome.kind === "completed" || outcome.kind === "unfinished") return { ok: true };
   return { ok: false, reason: outcome.notice };
 }
 
@@ -222,8 +201,8 @@ const isWrongPassphraseError = (error: unknown): boolean => error instanceof Cry
  * Pulls the vault through the shared engines. Order: destination guard (no request without it), settings to validated
  * config, editor flush, target (the pull name, else the owned publication key: `key/list` only when needed), then the
  * decrypting pull (`pullEncryptedVault`: both locks, unlock, authentication, verdict, confirmations, verified writes,
- * state), notice text, `lastPull`. A root without key slots falls back to the plaintext reader, which stays refused
- * unless it is switched on. Read-only against the node. One sync operation at a time (the lock is shared with
+ * state), notice text, `lastPull`. A root that lists a `manifest.json` and holds no key slots is refused as a plaintext publication
+ * (`plaintext-unsupported`); nothing reads one. A root with neither is the ordinary `no-key-slots` stop. Read-only against the node. One sync operation at a time (the lock is shared with
  * publish); it is released in `finally`, and so is the file lock, by the engine.
  *
  * Keys: an unlocked session vault is used as it is; otherwise the engine is asked first without a passphrase, and only a
@@ -232,7 +211,7 @@ const isWrongPassphraseError = (error: unknown): boolean => error instanceof Cry
  */
 export function createPullRunner(deps: PullRunnerDeps): PullRunner {
   const now = deps.now ?? ((): Date => new Date());
-  const transport = deps.transport ?? requestUrlTransport;
+  const transport = deps.transport ?? pullTransport();
   const lock = deps.lock ?? createSyncLock();
   const lockFile = deps.lockFile ?? createAdapterLockFile(deps.adapter);
   const lockContext = deps.lockContext ?? createPluginLockContext(() => now().getTime());
@@ -306,6 +285,8 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
               return dialogs.confirmFirstPull(details);
             }
           : undefined,
+        // Never on an unattended run: the catch-up pull has nobody to ask.
+        confirmCost: unattended ? undefined : deps.confirmCost,
         onProgress: progress.onKdf,
         sources: createRangedBlobSources(client),
         confirmLargePull: interactive
@@ -353,10 +334,10 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
   }
 
   /**
-   * One decrypting pull. `held` replaces the session's vault when the caller already unlocked one (Restore). Resolves
-   * `undefined` for a plain pull of a name whose root holds no key slots: the plaintext reader decides that case.
+   * One decrypting pull. `held` replaces the session's vault when the caller already unlocked one (Restore). A plain pull of a
+   * root that lists a `manifest.json` and holds no key slots is refused as a plaintext publication, which no code path of this version reads.
    */
-  async function decrypting(prepared: Prepared, mode: Mode, options: PullRunOptions, held?: UnlockedVault): Promise<PullOutcome | undefined> {
+  async function decrypting(prepared: Prepared, mode: Mode, options: PullRunOptions, held?: UnlockedVault): Promise<PullOutcome> {
     const unattended = options.unattended === true;
     const port = deps.passphrase;
     let prompting = false;
@@ -397,11 +378,11 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
     held: UnlockedVault | undefined,
     progress: PullProgress,
     dialog: { readonly settle: () => void; readonly prompt: () => void; readonly cancelled: () => void },
-  ): Promise<PullOutcome | undefined> {
+  ): Promise<PullOutcome> {
     const port = deps.passphrase;
     const unlocked = held ?? deps.session?.provider();
     const first = await runEngine(prepared, mode, { unlocked }, progress, unattended, dialog.settle);
-    if (isStop(first, "no-key-slots") && mode.kind === "pull" && prepared.where.kind === "name") return undefined;
+    if (isStop(first, "plaintext-root") && mode.kind === "pull") return refused("plaintext-unsupported", PLAINTEXT_UNSUPPORTED_NOTICE);
     if (!isStop(first, "locked")) return outcomeOf(first);
     if (unattended || port === undefined) return refused("locked", LOCKED_PULL_NOTICE);
     dialog.prompt();
@@ -418,61 +399,11 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
     return outcomeOf(prompted.value);
   }
 
-  // ---- the plaintext (version 1) reader --------------------------------------------------------------------------
-
-  async function plaintext(prepared: Prepared & { readonly where: { readonly kind: "name"; readonly name: string } }, options: PullRunOptions): Promise<PullOutcome> {
-    const { settings, host, config, client, where } = prepared;
-    const warnings: string[] = [];
-    let fetched = 0;
-    let latest: PullPhase | undefined;
-    const report = (): void => {
-      if (latest !== undefined) options.onProgress?.(phaseText(latest, fetched));
-    };
-    const stop = deps.bus.on("file.changed", () => {
-      fetched += 1;
-      report();
-    });
-    try {
-      const result = await pullVault(
-        {
-          client,
-          host,
-          bus: deps.bus,
-          warn: (message) => void warnings.push(message),
-          newId: deps.newId,
-          assertDestination: assertVaultPullDestination,
-          onPhase: (phase) => {
-            latest = phase;
-            report();
-          },
-        },
-        {
-          mfsRoot: config.mfsRoot,
-          keyName: config.publicationKey,
-          ownedKeys: config.ownedKeys,
-          name: where.name,
-          selector: { kind: "latest" },
-          extraExclusions: exclusionsWithConfigDir(settings.userExclusions, deps.configDir),
-          configDir: deps.configDir,
-          allowPlaintextV1: deps.allowPlaintextV1?.() === true,
-        },
-      );
-      const problem = await saveSummary(deps.store, (current) => ({ ...current, lastPull: summaryOf(result, now()) }));
-      const notice = [pullResultNotice(result, warnings), problem].filter((line) => line !== undefined).join("\n");
-      return { kind: result.failed === 0 ? "pulled" : "incomplete", notice, result };
-    } finally {
-      stop();
-    }
-  }
-
   async function pullFlow(options: PullRunOptions): Promise<PullOutcome> {
     const prepared = await prepare();
     if ("kind" in prepared) return prepared;
     options.onProgress?.(STARTING_PULL_TEXT);
-    const decrypted = await decrypting(prepared, { kind: "pull" }, options);
-    if (decrypted !== undefined) return decrypted;
-    if (prepared.where.kind !== "name") return { kind: "failed", notice: pullFailedNotice(new Error("the explicit root holds no key slots")) };
-    return plaintext({ ...prepared, where: prepared.where }, options);
+    return decrypting(prepared, { kind: "pull" }, options);
   }
 
   // ---- Resolve fork -----------------------------------------------------------------------------------------------
@@ -482,7 +413,7 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
     if ("kind" in prepared) return prepared;
     if (prepared.where.kind !== "name") return refused("needs-name", RESTORE_NEEDS_NAME_NOTICE);
     options.onProgress?.(STARTING_PULL_TEXT);
-    return (await decrypting(prepared, { kind: "fork" }, options)) ?? { kind: "failed", notice: pullFailedNotice(new Error("the root holds no key slots")) };
+    return decrypting(prepared, { kind: "fork" }, options);
   }
 
   // ---- Restore ----------------------------------------------------------------------------------------------------
@@ -491,7 +422,8 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
   async function vaultForRestore(prepared: Prepared, rootCid: string): Promise<UnlockedVault | PullOutcome> {
     const { host, config, client } = prepared;
     const port = deps.passphrase;
-    const base = { client, fs: host.fs, kv: host.kv, deviceStore, mfsRoot: config.mfsRoot, rootCid, unlocked: deps.session?.provider() };
+    // Restore is a manual action only, so the confirmation is always offered.
+    const base = { client, fs: host.fs, kv: host.kv, deviceStore, mfsRoot: config.mfsRoot, rootCid, unlocked: deps.session?.provider(), confirmCost: deps.confirmCost };
     try {
       return await unlockForRestore(base);
     } catch (error) {
@@ -555,8 +487,7 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
     if (!confirmed) return refused("cancelled", RESTORE_CANCELLED_NOTICE);
 
     options.onProgress?.(STARTING_PULL_TEXT);
-    const outcome = await decrypting(prepared, { kind: "restore", historyCid: file.parsed.cid }, options, vault);
-    return outcome ?? { kind: "failed", notice: pullFailedNotice(new Error("the root holds no key slots")) };
+    return decrypting(prepared, { kind: "restore", historyCid: file.parsed.cid }, options, vault);
   }
 
   // ---- the runner ---------------------------------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 import type { HostFs } from "../core/host-bridge";
 import { ConfigError, assertMfsMutationPath, validateMfsRoot, type SyncConfig } from "../core/config";
-import type { KdfParams } from "../crypto";
+import type { CostPolicy, KdfParams } from "../crypto";
 import { createKuboClient, type Transport } from "../kubo";
-import { assertPublishMarker } from "../sync/fixture-marker";
+import { assertPublishMarker } from "../sync/publish-guard";
 import { createRootInspector, type RootInspector } from "../sync/node-reader";
 import type { PublishClient } from "../sync/publish";
 import { readRootState } from "../sync/root-state";
@@ -35,6 +35,11 @@ export interface VaultOpenerDeps {
   readonly createClient?: (config: SyncConfig) => PublishClient;
   /** Tests create vaults at the floor cost. Production uses the default cost. */
   readonly createParams?: KdfParams;
+  /**
+   * The cost-confirm policy (task 2.4): lets the unlock dialog's derivation run on a key slot above the default cost after an explicit yes. Only the
+   * dialogs reach this port (an unattended run never derives: it reads whether the session is unlocked), so the timer cannot ask. Absent: refused.
+   */
+  readonly costPolicy?: CostPolicy;
 }
 
 /** The vault cannot be created or opened here for a reason the user can act on. The message is fixed text. */
@@ -90,6 +95,7 @@ export function createVaultOpener(deps: VaultOpenerDeps): OpenVault {
       passphrase: request.passphrase,
       create: request.create,
       createParams: deps.createParams,
+      costPolicy: deps.costPolicy,
       local: { hasState: state !== undefined, vaultId: state?.vaultId, keyslotsSha256: state?.keyslotsSha256 },
       node: {
         fetchKeySlots: () => inspector.readKeySlots(),

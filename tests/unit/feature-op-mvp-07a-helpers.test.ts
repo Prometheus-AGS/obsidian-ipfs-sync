@@ -576,10 +576,14 @@ describe("post-run IPNS pointer and the restore instruction (M-02)", () => {
 
   it("recorded pointer: prints the kubo CLI form with the runbook's words (on the node, keystore, TTL, unverified)", () => {
     const text = h.restoreInstruction({ keyId: "k51abc", previousPointer: `/ipfs/${CID}` });
-    expect(text).toContain(`ipfs name publish --key=obsidian-vault-sync /ipfs/${CID}`);
+    expect(text).toContain(`ipfs name publish --key=obsidian-vault-sync --ttl 5m /ipfs/${CID}`);
     expect(text).toMatch(/run on the node with access to its keystore/);
     expect(text).toMatch(/default lifetime and TTL differ from the product's 5m TTL/);
-    expect(text).toMatch(/unverified: test this form on a throwaway key before relying on it/);
+    expect(text).toMatch(/lifetime stays at kubo's 24h default/);
+    expect(text).toContain(`kubectl --context know-me -n ipfs exec ipfs-0 -c ipfs -- ipfs name publish --key=obsidian-vault-sync --ttl 5m /ipfs/${CID}`);
+    expect(text).toContain("verified on kubo v0.42.0: default lifetime and TTL, and explicit --ttl 5m --lifetime 24h on a throwaway key (accepted; the pointer resolved); the TTL a remote resolver sees was not checked");
+    expect(text).not.toMatch(/options untested/);
+    expect(text).not.toMatch(/unverified: test this form/);
     expect(text).toMatch(/must not publish with this key during the run/);
     expect(text).not.toMatch(/is not available yet/);
   });

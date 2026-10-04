@@ -3,6 +3,8 @@ export const RESTRICTED_SYMBOLS: Readonly<Record<string, readonly string[]>>;
 export const INJECTION_NAMES: Readonly<Record<string, readonly string[]>>;
 export const BOUNDARY_EXCEPTIONS: readonly string[];
 export const SOURCE_FILE: RegExp;
+export const TOOL_TESTING_IMPORT_ALLOWLIST: readonly string[];
+export function isToolTestingImportAllowed(path: string): boolean;
 
 export interface SentinelEntry {
   readonly file: string;

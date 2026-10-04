@@ -135,6 +135,24 @@ const TEMPLATE_IMPORT = /\b(?:import|require)\s*\(\s*`([^`]*)`/g;
 const NON_LITERAL_IMPORT = /\b(?:import|require)\s*\(\s*(?!["'`])[^)\s]/g;
 
 /**
+ * The only tools/ files that may import src/crypto/testing/ (mvp-07b 4.2, R5-11). Operator-run feature-op scripts
+ * (tools/feature-op-<name>.mjs) need the raw hooks to build tampered inputs for the hostile phases. Why this is safe:
+ * these files are never bundled (no esbuild entry point reaches tools/; checkHookIsolation builds the real graphs and
+ * would list any testing input), never packed into a release, and run only by the operator against throwaway vaults.
+ * The entry is a flat file name pattern on purpose: no subfolder, no other tool (the checker, the release tools, this
+ * file) and nothing under src/, cli/ or tests/ matches. Helper modules in a feature-op subfolder keep the older
+ * workaround (building the folder name at run time) and are not listed. Adding an entry here widens the lint: it needs a
+ * stated reason in this comment and a test in tests/unit/crypto-hook-isolation-tools.test.ts that an unlisted tool fails.
+ */
+export const TOOL_TESTING_IMPORT_ALLOWLIST = Object.freeze(["tools/feature-op-*.mjs"]);
+const FEATURE_OP_TOOL = /^tools\/feature-op-[a-z0-9][a-z0-9-]*\.mjs$/;
+
+/** True when `path` (relative to the repository root) is covered by TOOL_TESTING_IMPORT_ALLOWLIST. */
+export function isToolTestingImportAllowed(path) {
+  return FEATURE_OP_TOOL.test(path.replaceAll("\\", "/"));
+}
+
+/**
  * Import lint: no source file outside src/crypto/testing/ imports that folder. Relative specifiers are resolved; any
  * specifier (bare or path-mapped) that names `crypto/testing` is refused; template-literal dynamic imports that name
  * it are refused; `unresolvable` dynamic imports (computed specifiers) are refused in shipped code (`shipped`).
@@ -145,7 +163,7 @@ export function findTestingImports(files, root = process.cwd(), { shipped = true
   const offences = [];
   for (const { path, text } of files) {
     const absolute = resolve(root, path);
-    if (absolute.startsWith(`${testingRoot}/`)) continue;
+    if (absolute.startsWith(`${testingRoot}/`) || isToolTestingImportAllowed(path)) continue;
     for (const match of text.matchAll(IMPORT_SPECIFIER)) {
       const specifier = match[1];
       const target = specifier.startsWith(".") ? resolve(dirname(absolute), specifier) : undefined;

@@ -18,7 +18,8 @@ import { EmptyVaultError } from "./publish-errors";
 import { commitPublish } from "./publish-commit";
 import { finalManifest, provisionalManifest, sanitizeDevice, type ManifestFrame } from "./publish-manifest";
 import { buildPublishPlan, type PublishPlan } from "./publish-plan";
-import { largeReupload, overlappingPublish, pathOverLimit, remoteObjectInvalid, rootCidNotV1 } from "./publish-refusals";
+import { largeReupload, massRemoval, overlappingPublish, pathOverLimit, remoteObjectInvalid, rootCidNotV1 } from "./publish-refusals";
+import { assessRemovals } from "./removal-guard";
 import { checkTarget, openSession, type PublishSession } from "./publish-session";
 import { decideSequence, type SequenceDecision, type SequenceInput } from "./publish-sequence";
 import type { PublishDeps, PublishOptions, PublishResult } from "./publish-types";
@@ -122,6 +123,22 @@ function hasWork(plan: PublishPlan, session: PublishSession, decision: SequenceD
   const changed = plan.writes.length + plan.repairs.length + plan.blobRemovals.length + plan.removedPaths.length + plan.dropped.length > 0;
   const unpublished = session.state === undefined || session.state.rootCid === null || session.state.rootCid !== view.rootCid;
   return changed || decision.repaired || session.key.absent || unpublished;
+}
+
+/**
+ * Stops a publish that removes every remaining entry, or more than half of them, unless the caller confirmed (the flag, or the
+ * confirm port). With neither, as on a timer publish, it refuses. Runs after the diff and before any write; the first publish
+ * of a vault has no baseline and nothing to remove.
+ */
+async function guardMassRemoval(options: PublishOptions, assessed: NodeAssessment, plan: PublishPlan): Promise<void> {
+  const baseline = assessed.decision.baseline;
+  if (baseline === undefined) return;
+  const excluded = createExclusionMatcher(options.extraExclusions);
+  const assessment = assessRemovals({ before: Object.keys(baseline.manifest.files), removed: plan.removedPaths, dropped: plan.dropped, excluded: (path) => excluded(path) });
+  if (!assessment.stop || options.allowMassRemoval === true) return;
+  const counts = { removing: assessment.others.length, remaining: assessment.remaining, exclusionDriven: assessment.exclusionDriven.length };
+  if (options.confirmMassRemoval !== undefined && (await options.confirmMassRemoval(counts))) return;
+  throw massRemoval(counts);
 }
 
 async function guardReupload(options: PublishOptions, plan: PublishPlan): Promise<void> {
@@ -229,9 +246,10 @@ function summary(
   plan: PublishPlan,
   written: number,
   warnings: readonly string[],
-): Pick<PublishResult, "written" | "removed" | "skipped" | "carried" | "dropped" | "keyId" | "keyCreated" | "anomalies" | "warnings"> {
+): Pick<PublishResult, "written" | "removed" | "skipped" | "carried" | "dropped" | "exclusionRemoved" | "keyId" | "keyCreated" | "anomalies" | "warnings"> {
   return {
     warnings,
+    exclusionRemoved: plan.exclusionRemoved,
     written,
     removed: plan.removedPaths.length,
     skipped: plan.skipped,
@@ -332,6 +350,7 @@ async function runEncryptedPublish(deps: PublishDeps, options: PublishOptions): 
   if (nothingAtAll && (session.state === undefined || assessed.decision.repaired)) throw new EmptyVaultError();
   if (!hasWork(plan, session, assessed.decision, assessed.view)) return finishUnchanged(deps, session, plan, warnings);
 
+  await guardMassRemoval(options, assessed, plan);
   await guardReupload(options, plan);
   const frame = await manifestFrame(deps, options, session, assessed.decision.nextSequence);
   await checkWriterCaps(session, plan, frame);

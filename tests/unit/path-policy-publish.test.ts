@@ -40,7 +40,6 @@ describe("the decoder's rule is unchanged", () => {
       "src/sync/local-manifest.ts",
       "src/sync/manifest-paths.ts",
       "src/sync/publish-plan.ts",
-      "src/sync/pull-plan.ts",
     ]);
   });
 });

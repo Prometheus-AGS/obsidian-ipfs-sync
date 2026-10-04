@@ -33,6 +33,8 @@ export type CryptoErrorCode =
   | "kdf-unaffordable"
   /** A key slot costs more than the default and the host did not approve it. */
   | "kdf-cost-refused"
+  /** A rewrap asked for a lower memory or iteration count than the current slot, without the explicit downgrade flag. */
+  | "kdf-downgrade-refused"
   /** A programming error: wrong key length, wrong nonce length, bad range. Never caused by remote data alone. */
   | "invalid-argument";
 
@@ -43,6 +45,22 @@ export class CryptoError extends Error {
     super(message);
     this.name = "CryptoError";
     this.code = code;
+  }
+}
+
+/**
+ * A rewrap would lower the memory or the iterations of the current slot and the caller did not pass the downgrade
+ * flag. Carries both costs (public parameters) so an interface can show them next to the confirmation.
+ */
+export class KdfCostDowngradeError extends CryptoError {
+  readonly current: { readonly m: number; readonly t: number; readonly p: number };
+  readonly requested: { readonly m: number; readonly t: number; readonly p: number };
+
+  constructor(current: { readonly m: number; readonly t: number; readonly p: number }, requested: { readonly m: number; readonly t: number; readonly p: number }, message: string) {
+    super("kdf-downgrade-refused", message);
+    this.name = "KdfCostDowngradeError";
+    this.current = { m: current.m, t: current.t, p: current.p };
+    this.requested = { m: requested.m, t: requested.t, p: requested.p };
   }
 }
 

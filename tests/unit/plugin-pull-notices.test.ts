@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { FIRST_PULL_GATEWAY_STATEMENT } from "../../src/sync/encrypted-pull";
 import { describePullRecord, type EncryptionStatusSource } from "../../src/plugin/encryption-settings-model";
-import { ENCRYPTED_PULL_NOTICE, encryptedPullNotice, encryptedPullStatusText, FIXTURE_ONLY_PULL_NOTICE, isEventfulReport, stoppedPullNotice, unfinishedCount, type PullReport } from "../../src/plugin/pull-notices";
+import { FIXTURE_ONLY_PULL_NOTICE } from "../../src/sync/pull-guard";
+import { encryptedPullNotice, encryptedPullStatusText, isEventfulReport, PLAINTEXT_UNSUPPORTED_NOTICE, stoppedPullNotice, unfinishedCount, type PullReport } from "../../src/plugin/pull-notices";
 import { PULL_NAME_MESSAGE } from "../../src/plugin/pull-target";
 import { publishedNotice, unchangedNotice } from "../../src/plugin/publish-notices";
 import { describePullTarget } from "../../src/plugin/settings-activity";
@@ -129,7 +130,8 @@ describe("stopped pull notice", () => {
 
 describe("pull copy that replaced the placeholders", () => {
   it("no longer says that encrypted pull arrives later, and keeps the fixture-only wording", () => {
-    expect(ENCRYPTED_PULL_NOTICE).not.toMatch(/next change|later release|arrives/);
+    expect(PLAINTEXT_UNSUPPORTED_NOTICE).not.toMatch(/next change|later release|arrives|--allow|switched off|downgrade/);
+    expect(PLAINTEXT_UNSUPPORTED_NOTICE).toContain("plaintext publications are no longer supported");
     expect(FIXTURE_ONLY_PULL_NOTICE).not.toMatch(/next change|later release|arrives/);
     expect(FIXTURE_ONLY_PULL_NOTICE).toContain("stays disabled in this build");
     expect(FIXTURE_ONLY_PULL_NOTICE).toContain("Only fixture vaults");

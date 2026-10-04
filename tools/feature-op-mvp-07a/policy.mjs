@@ -336,8 +336,10 @@ export function formatPostRunLine(keyId, pointer) {
 
 const RESTORABLE_POINTER = /^\/ipfs\/[A-Za-z0-9]{10,}$/;
 const NO_PUBLISH_DURING_RUN = "The real vault must not publish with this key during the run, and should not publish before the pointer is restored: that publish would repoint the key as well.";
-/** The words of the operator runbook's restore section (docs/operator/encrypted-vault.md): the kubo CLI form, on the node, saved pointer only, unverified. */
-const RESTORE_CAVEATS = "Run on the node with access to its keystore, with the saved pointer only. The default lifetime and TTL differ from the product's 5m TTL; unverified: test this form on a throwaway key before relying on it.";
+/** The shared node's exec wrapper, as the operator runbook names it (docs/operator/encrypted-vault.md; gotchas 2026-10-03). */
+const NODE_EXEC = "kubectl --context know-me -n ipfs exec ipfs-0 -c ipfs --";
+/** The words of the operator runbook's restore section (docs/operator/encrypted-vault.md): the kubo CLI form, on the node, saved pointer only, --ttl 5m, verified with default options and explicit --ttl 5m --lifetime 24h on a throwaway key. */
+const RESTORE_CAVEATS = "Run on the node with access to its keystore, with the saved pointer only. The default lifetime and TTL differ from the product's 5m TTL, so the form passes --ttl 5m (lifetime stays at kubo's 24h default); verified on kubo v0.42.0: default lifetime and TTL, and explicit --ttl 5m --lifetime 24h on a throwaway key (accepted; the pointer resolved); the TTL a remote resolver sees was not checked.";
 
 /**
  * The exact text printed and stored after the run: how to put the recorded pointer back. The script never does it (name/publish is
@@ -346,7 +348,7 @@ const RESTORE_CAVEATS = "Run on the node with access to its keystore, with the s
  */
 export function restoreInstruction(preRun) {
   const pointer = preRun.previousPointer;
-  if (typeof pointer === "string" && RESTORABLE_POINTER.test(pointer)) return `restore: the run leaves ${KEY} pointing at the demo vault. To put the recorded pointer back, run on the node with access to its keystore: ipfs name publish --key=${KEY} ${pointer}  ${RESTORE_CAVEATS} ${NO_PUBLISH_DURING_RUN}`;
+  if (typeof pointer === "string" && RESTORABLE_POINTER.test(pointer)) return `restore: the run leaves ${KEY} pointing at the demo vault. To put the recorded pointer back, run on the node with access to its keystore: ipfs name publish --key=${KEY} --ttl 5m ${pointer} ; on the shared node: ${NODE_EXEC} ipfs name publish --key=${KEY} --ttl 5m ${pointer}  ${RESTORE_CAVEATS} ${NO_PUBLISH_DURING_RUN}`;
   if (typeof pointer === "string" && pointer !== "unresolved") return `restore: the recorded pointer is not a plain /ipfs/<cid> path; see the previous-pointer line above and restore it by hand. ${NO_PUBLISH_DURING_RUN}`;
   if (preRun.pointerUnknown === true) return `restore: the previous pointer is UNKNOWN and could not be recorded, so it cannot be restored from this run (the pre-run name/resolve failed and --accept-unresolved-pointer was passed). Look for an earlier saved \`previous IPNS pointer\` line from a former run. ${NO_PUBLISH_DURING_RUN}`;
   const why = preRun.keyId === null || preRun.keyId === undefined ? "no key on the node" : "the name had never been published";

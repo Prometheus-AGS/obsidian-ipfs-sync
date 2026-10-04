@@ -1,6 +1,6 @@
 import { createSyncEventBus, type FileChangedEvent, type PublishCompleteEvent } from "../../src/core/events";
 import type { HostBridge, HostKv } from "../../src/core/host-bridge";
-import type { CanonicalPassphrase, VaultKeys } from "../../src/crypto";
+import type { CanonicalPassphrase, KdfParams, VaultKeys } from "../../src/crypto";
 import { decodeManifestFile, type EncryptedManifest } from "../../src/sync/encrypted-manifest";
 import { POOL_DEFAULT_CONCURRENCY } from "../../src/sync/pool";
 import { publishVault, type PublishOptions, type PublishResult } from "../../src/sync/publish";
@@ -28,7 +28,7 @@ export interface Rig {
   /** IDs of publication keys recorded so far; passed to every publish as the owned keys. */
   readonly owned: string[];
   /** Create the vault the way `ipfs-sync init` will: the local copy and `keyslots.json` on the node, no manifest. */
-  init(): Promise<void>;
+  init(params?: KdfParams): Promise<void>;
   publish(overrides?: Partial<PublishOptions>): Promise<PublishResult>;
   /** The vault keys, opened from the local key-slot copy (one derivation, cached). */
   keys(): Promise<VaultKeys>;
@@ -102,7 +102,7 @@ export function createRig(options: RigOptions = {}): Rig {
     passphrase,
     owned,
     killableHost,
-    init: () => initVault(host.fs, node, ROOT),
+    init: (params) => initVault(host.fs, node, ROOT, params),
     keys,
     manifest: async () => decodeManifestFile(await keys(), node.files.get(`${ROOT}/manifest.enc`) ?? new Uint8Array()),
     publish: (overrides = {}) =>

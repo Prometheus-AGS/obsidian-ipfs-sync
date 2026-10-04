@@ -1,3 +1,6 @@
+import { PUBLISH_SCOPE_HELP } from "../src/sync/publish-guard";
+import { PULL_SCOPE_HELP } from "../src/sync/pull-guard";
+
 export const HELP_TEXT = `ipfs-sync - vault sync over your own kubo node
 
 Usage:
@@ -6,6 +9,11 @@ Usage:
   ipfs-sync publish <vault> [options]
   ipfs-sync pull <vault> [options]
   ipfs-sync abandon <vault> [--yes-abandon] [options]
+  ipfs-sync keys change-passphrase <vault> [--cost standard|high] [--passphrase-file <path>] [--accept-no-revocation] [--allow-downgrade] [options]
+  ipfs-sync keys increase-cost <vault> --cost standard|high [--accept-no-revocation] [options]
+  ipfs-sync keys accept-slots <vault> [--name <id> | --root-cid <cid> [--allow-rollback]] [--allow-downgrade] [options]
+  ipfs-sync keys discard <vault> [--yes-discard] [options]
+  ipfs-sync prune-history <vault> --keep <n> [--dry-run | --yes-prune] [options]
 
 Commands:
   status                  Show node identity, MFS listing, gateway fetch, write probe and key state.
@@ -23,10 +31,7 @@ Commands:
                           check cannot be made there (init says so before writing).
   publish <vault>         Encrypt and send only the changed files of <vault> to the node, then publish the
                           snapshot to the IPNS key. Every publish is encrypted and needs the vault passphrase;
-                          a vault is created by "ipfs-sync init", never by publish. Only fixture vaults (marker
-                          file .ipfs-sync-fixture containing the text "fixture") are accepted until encryption
-                          has been independently reviewed; a marker written by pull ("pulled-fixture"), an empty
-                          marker or none is refused before any request. Creates the key when it does not exist
+                          a vault is created by "ipfs-sync init", never by publish. ${PUBLISH_SCOPE_HELP} Creates the key when it does not exist
                           yet and records its ID in the config file (ownedKeys).
   pull <vault>            Bring <vault> to the published state of an encrypted vault by fetching only missing or
                           changed files. It needs the vault passphrase (see "Unlocking a vault") and takes the same
@@ -37,11 +42,9 @@ Commands:
                           it on purpose (--allow-rollback with --root-cid or --manifest). Reads only (name resolve,
                           gateway); writes nothing to the node. The first pull of a vault on this device shows the
                           sequence, date and device the vault key holder chose and asks (or needs --accept-first-pull).
-                          Output lists integrity-failed files, files not fetched and skipped paths apart. The
-                          destination must be absent, empty or hold the .ipfs-sync-fixture marker ("fixture" or
-                          "pulled-fixture") until encryption has been independently reviewed (a pulled fresh directory
-                          gets "pulled-fixture", which pull accepts and publish refuses). A root that holds a plaintext
-                          (version 1) manifest is read only with --allow-plaintext-v1, as before.
+                          Output lists integrity-failed files, files not fetched and skipped paths apart. ${PULL_SCOPE_HELP} A root that holds a plaintext
+                          manifest.json and no key slots is refused (exit 2): plaintext publications are no longer
+                          supported, and nothing is written.
   abandon <vault>         Abandon this device's vault for the MFS root: move the local key-slot copy, sync state and
                           journal (.ipfs-sync/keyslots.<h>.json, state.<h>.json, journal.<h>.json) into
                           .ipfs-sync/abandoned-<h>-<time>/, keeping them as a backup. Use it when a refusal says to
@@ -49,6 +52,66 @@ Commands:
                           contacts the node and deletes nothing; afterwards create a new vault with init in an empty
                           MFS root (a new --mfs-root). On a terminal it shows what will move and asks you to type the
                           word "abandon"; without a terminal it does nothing unless --yes-abandon is given.
+  keys change-passphrase <vault>
+                          Replace the vault's key slot by one under a NEW generated passphrase (never one you choose),
+                          wrapping the same vault key. Nothing is re-encrypted; manifest.enc and the sequence do not change.
+                          It does not revoke anything: the old passphrase and every old copy of the key-slot file, including
+                          the copies in earlier pinned roots and in backups, still open the vault. The command prints this
+                          and asks (or needs --accept-no-revocation) before it changes anything. The new passphrase is shown
+                          once on the terminal and you must type it again, or with --passphrase-file <path> it is written to
+                          a new file (0600) and never printed. It needs the current passphrase (see "Unlocking a vault"), holds
+                          the publish lock for the whole operation, and needs this device to be up to date with the node. It
+                          derives keys four times (about the cost of the slot each time), then tests the new passphrase against
+                          the published file; the local copy and record change only after that test. If it is interrupted,
+                          publish and pull stay paused until you run the same command again, which finishes it without making
+                          another slot. Other devices refuse to pull or publish until they accept the changed key slots.
+                          Without --cost the cost stays; a lower cost needs a yes that shows both costs (or --allow-downgrade).
+  keys increase-cost <vault>
+                          Like change-passphrase, but under the SAME passphrase and with a higher cost: --cost standard
+                          (64 MiB, 3 iterations) or --cost high (128 MiB, 4 iterations). The old cheaper slot in earlier
+                          roots is unaffected, so this does not protect against an attacker who already holds it. A cost
+                          above the default makes every run that cannot ask you to approve it refuse to unlock the vault
+                          (a CLI run without a terminal; the plugin's auto-publish timer and catch-up pull, which never ask).
+                          The plugin's manual actions (pull, Resolve fork, Restore, a manual publish, the key actions) show an
+                          approval dialog. A phone may be unable to unlock a cost this high.
+  keys accept-slots <vault>
+                          After another device changed the key slots (change-passphrase, increase-cost), replace THIS device's
+                          key-slot copy by the node's file. Resolves the name once (--name <IPNS key ID>, or the owned key given
+                          by --key) or reads the root you name with --root-cid, reads keyslots.json and manifest.enc from that one
+                          root, unlocks the slot with the passphrase you give, and requires manifest.enc of the same root to
+                          authenticate under the key it unlocks, to name the same vault and to pass the sequence checks of a
+                          pull. A cheaper slot than this device's copy is shown with both costs and needs a yes (or
+                          --allow-downgrade). It replaces only the copy and its recorded hash (and a pending publish journal's);
+                          it pulls no file and does not raise the sequence floor, so run pull afterwards. What it does not
+                          prove: a node that also knows the passphrase you type can serve key slots and a manifest under its
+                          own key with this vault's id, and a command-line run holds no key to compare them with. An unfinished
+                          key-management operation on this device is dropped, and a key-slot file this device wrote into the
+                          shared tree on the node is taken back out. To restore across a rewrap, name the older root:
+                          --root-cid <cid> --allow-rollback with the passphrase of that older root; afterwards publish and a
+                          pull by name stay refused until you accept the current key slots again. A history entry under the
+                          current root (pull --manifest) needs no accept on a device that holds the current copy.
+  keys discard <vault>    Drop the key-management operation (a rewrap or a prune) that did not finish on this device, when running
+                          the same keys command again cannot finish it. It prints what dropping that costs, then asks (or needs
+                          --yes-discard). The only thing it can do to the node is take this device's own key-slot file back out
+                          of the shared tree when the rewrap never reached the published phase and the file is still there;
+                          otherwise it touches nothing. A rewrap that already published keeps the new key slots on the node:
+                          discarding it forgets that here, and this device then needs keys accept-slots with the NEW passphrase.
+  prune-history <vault>   Remove the oldest history files (manifests/) from the node's working tree so that --keep <n> remain, then
+                          publish the result under the same sequence (no new manifest). Every publish adds one history file and the
+                          publisher stops at 1,999 of them. Order comes from the file names (sequence-prefixed names by sequence; older
+                          names without a prefix count as the oldest and have no order among themselves), so no old file is decrypted. At
+                          least the newest 20 are always kept, whatever --keep says. Before it asks, it checks that the newest history
+                          file carries the sequence of the node's manifest and that each of the newest 20 decrypts under this vault's key
+                          and agrees with its name (a node that withholds or plants files is refused), that this device is up to date
+                          with the node, that no publish or key-management operation is pending, and that manifests/ holds only history
+                          files and no more than 2,000 of them. It needs the vault passphrase (see "Unlocking a vault") and the publish
+                          lock. It prints how many files go, how many stay, how many carry the older name format and how many share a
+                          sequence (a fork leaves such files), then asks (or needs --yes-prune). It removes one file at a time under
+                          manifests/ and nothing else: manifest.enc, keyslots.json, current/ and the sequence do not change. Earlier
+                          published roots stay pinned and fetchable with their history as it was, but a removed version can no longer
+                          be restored through the current root with pull --manifest. If it is interrupted, publish and pull stay paused
+                          until you run the same command again, which finishes it. --dry-run prints the files it would remove and stops:
+                          it takes no lock and writes nothing.
 
 Options:
   --config <path>         Config file (default ./ipfs-sync.config.json if present). Endpoints and
@@ -63,30 +126,38 @@ Options:
                           (default obsidian-vault-sync).
   --owned-key <id>        IPNS key ID this installation owns (repeatable). For this run only; never written
                           to the config file.
-  --passphrase-file <p>   init: write the generated passphrase to this new file (0600). There is no --passphrase
+  --passphrase-file <p>   init, keys change-passphrase: write the generated passphrase to this new file (0600). There is no --passphrase
                           option: a passphrase on the command line would show in the process list and shell history.
+  --cost <preset>         keys: the cost of the new key slot: standard (64 MiB, 3 iterations) or high (128 MiB, 4 iterations).
+                          Required for increase-cost; change-passphrase keeps the current cost without it.
+  --accept-no-revocation  keys: the non-interactive yes to "the old passphrase and every old copy of the key-slot file still
+                          open this vault". Without a terminal the command does nothing unless this is given.
+  --allow-downgrade       keys change-passphrase: the non-interactive yes to a new cost below the current one. keys accept-slots:
+                          the non-interactive yes to an incoming key slot cheaper than this device's copy.
+  --yes-discard           keys discard: the non-interactive yes. Without a terminal the command does nothing unless this is given.
+  --keep <n>              prune-history: how many history files to keep (a whole number; at least 20 are kept whatever it says). Required.
+  --dry-run               prune-history: print the files that would be removed and stop; no lock, nothing written.
+  --yes-prune             prune-history: the non-interactive yes to the removal. Without a terminal the command does nothing unless this or
+                          --dry-run is given.
   --auth <scheme>         none | basic | bearer | header.
   --auth-user <user>      basic: user.
   --auth-password <pw>    basic: password.
   --auth-token <token>    bearer: static token or JWT.
   --auth-header-name <n>  header: header name.
   --auth-header-value <v> header: header value.
-  --name <id>             pull: IPNS key ID to pull from (default: the ID of the owned key given by --key).
-  --root-cid <cid>        pull: pull this immutable root instead of the name. The client does not verify the bytes the
-                          gateway returns against the CID; authenticity rests on the vault key.
+  --name <id>             pull, keys accept-slots: IPNS key ID to read from (default: the ID of the owned key given by --key).
+  --root-cid <cid>        pull, keys accept-slots: use this immutable root instead of the name. The client does not verify the
+                          bytes the gateway returns against the CID; authenticity rests on the vault key.
   --manifest <cid>        pull: read the history entry whose manifest names this tree CID (manifests/<sequence>-<cid>.enc or
-                          <cid>.enc) under the root the name serves. For a plaintext root: the snapshot published when
-                          current/ had this CID (manifests/<cid>.json).
-  --manifest-file <path>  pull: plaintext reader only: read the manifest from a local file. --manifest, --manifest-file
-                          and --root-cid exclude each other.
-  --allow-rollback        pull: accept an older sequence as a restore. Needs --root-cid or --manifest; never accepted for
+                          <cid>.enc) under the root the name serves. --manifest and --root-cid exclude each other.
+  --allow-rollback        pull, keys accept-slots (--root-cid only): accept an older sequence as a restore. Needs --root-cid or --manifest; never accepted for
                           the name. A restore adds and replaces files and never deletes; the recorded highest sequence
                           stays, and the next publish makes the result a new version.
   --resolve-fork          pull: another device published the same sequence with other content. Asks first on a terminal
                           (it needs one). Where both devices changed a file, this device's text is kept as a dated conflict
                           copy; files only this device changed stay and are published next. Name target only.
-  --expect-min-sequence <n>  pull: refuse a manifest whose sequence is below n.
-  --expect-vault-id <id>  pull: refuse unless the vault id (32 lowercase hex characters) matches; checked before any key
+  --expect-min-sequence <n>  pull, keys accept-slots: refuse a manifest whose sequence is below n.
+  --expect-vault-id <id>  pull, keys accept-slots: refuse unless the vault id (32 lowercase hex characters) matches; checked before any key
                           derivation.
   --accept-first-pull     pull: the non-interactive yes to the first-pull question. Without a terminal a first pull is
                           refused without it.
@@ -96,13 +167,6 @@ Options:
   --list-versions         pull: print the newest 20 history entries by name (the sequence comes from the name; names
                           written before the sequence prefix come last), with date and device for each file of at most
                           8 MiB after unlocking. Reads only; writes nothing.
-  --allow-plaintext-v1    pull: allow reading a plaintext (version 1) manifest, which anyone who can write to the node can
-                          forge. Never honoured for a destination that has seen an encrypted vault. The same path
-                          policy as the encrypted reader applies: .obsidian/, .git/ and .ipfs-sync/ in any spelling
-                          (case, look-alike or invisible characters, trailing dot or space, 8.3 short names),
-                          Windows device names, colons, control characters and case collisions are refused, counted
-                          as failed (exit 1), and never fetched. The CLI knows only the default configuration folder
-                          name; a renamed Obsidian configuration folder is not protected by the CLI.
   --break-lock            publish: remove the publish lock in the vault's .ipfs-sync folder after a confirmation, then
                           continue. A lock is taken over automatically when its process is gone from this host, or when
                           it has had no heartbeat for 15 minutes. The lock is a best-effort guard, not atomic across machines.
@@ -112,6 +176,8 @@ Options:
   --recover-slots         publish: unlock key slots this device knows nothing about (slots present, no manifest). Shows
                           their cost and asks before deriving.
   --allow-full-reupload   publish: allow uploading again more than 256 MiB of files the node no longer holds as recorded.
+  --allow-mass-removal    publish: allow a publish that removes every remaining entry or more than half of them. Without it
+                          a terminal run asks, and a run with no terminal stops. An unmounted vault folder looks the same.
   --yes-abandon          abandon: confirm without typing the word (for scripts). Does not skip the backup and does
                           not touch the node.
   --show-request          Print each request (method, URL, headers) with credentials redacted.
@@ -141,5 +207,11 @@ Exit codes: 0 ok, 1 a check, publish or pull failed, 2 usage, unsafe configurati
 (no request is sent). For pull, 1 also means: a file failed verification or was not fetched, a path was skipped as unsafe
 (a name another platform can write, or a path no honest publisher produces), or the pull stopped at a check (wrong
 passphrase, rollback, fork, a held lock, a first pull that was not confirmed); 0 also covers paths skipped as expected
-(a configuration folder or an excluded path from an older build's manifest).
+(a configuration folder or an excluded path from an older build's manifest). For keys, 1 also means: the device is not up
+to date, a lock is held, a rewrap is pending or lost a race, the new passphrase could not be verified, a confirmation was
+not given, or (accept-slots) the slot file did not unlock, did not authenticate its manifest or was refused by the sequence checks;
+nothing was changed unless the message says a rewrap was left pending. keys discard and keys accept-slots exit 0 when there was
+nothing to do. For prune-history, 0 also means nothing to remove or a dry run, and 1 also means: the device is not up to date, a lock
+is held, a journal is pending, the node's history could not be trusted (withheld, planted or damaged files), or the removal was not
+confirmed; nothing was removed unless the message says a prune was left pending.
 `;

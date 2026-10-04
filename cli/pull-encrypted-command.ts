@@ -6,6 +6,7 @@ import type { EncryptedPullOutcome, FirstPullDetails, PullTarget } from "../src/
 import type { FreeBytes } from "../src/sync/encrypted-pull-fetch";
 import { pullEncryptedVault, type LargePullDetails, type PullStageResult, type PullVaultDeps, type PullVaultOptions } from "../src/sync/encrypted-pull-stage";
 import { escapeForDisplay } from "../src/sync/path-policy";
+import { PlaintextUnsupportedError } from "../src/sync/pull-errors";
 import type { PullFlags as EnginePullFlags } from "../src/sync/pull-sequence";
 import type { PullFlags } from "./args";
 import { createLazyDeviceStore } from "./device-store-node";
@@ -129,8 +130,13 @@ export function summaryLine(result: PullStageResult): string {
   ].join(", ");
 }
 
-/** Exit 1 for a stop (nothing was written), 1 when any path is integrity-failed, unfetched or an unsafe skip, else 0. */
+/**
+ * Exit 1 for a stop (nothing was written), 1 when any path is integrity-failed, unfetched or an unsafe skip, else 0. A root that
+ * lists a `manifest.json` and holds no key slots is refused with `PlaintextUnsupportedError` (exit 2 in `runPull`): it is a
+ * plaintext publication, and no code path of this version reads one.
+ */
 function report(io: CliIo, outcome: EncryptedPullOutcome<PullStageResult>): number {
+  if (outcome.kind === "stopped" && outcome.stop.reason === "plaintext-root") throw new PlaintextUnsupportedError();
   if (outcome.kind === "stopped") {
     io.err(`ipfs-sync: pull stopped: ${outcome.stop.message}`);
     return EXIT_CHECK_FAILED;

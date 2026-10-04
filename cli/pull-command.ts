@@ -1,28 +1,22 @@
-import { readFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describeAuth } from "../src/core/config";
-import { createSyncEventBus } from "../src/core/events";
 import { CryptoError } from "../src/crypto";
 import { KuboError } from "../src/kubo";
 import { DeviceStoreError } from "../src/sync/device-store";
 import { HostNotImplementedError } from "../src/sync/host-errors";
-import { ManifestError } from "../src/sync/manifest";
-import { pullVault, type PullOptions, type PullResult } from "../src/sync/pull";
-import { EncryptedVaultError, PlaintextV1RefusedError, PullGuardError, PullSourceError, PullTargetError } from "../src/sync/pull-errors";
+import { PlaintextUnsupportedError, PullGuardError, PullSourceError, PullTargetError } from "../src/sync/pull-errors";
 import { assertPullDestination } from "../src/sync/pull-guard";
 import { escapeForDisplay } from "../src/sync/path-policy";
-import { rootIsEncrypted } from "../src/sync/pull-screen";
 import { checkPullFlags } from "../src/sync/pull-sequence";
-import type { ManifestSelector } from "../src/sync/pull-target";
 import { PullUnlockError } from "../src/sync/pull-unlock";
 import { PublishRefusedError } from "../src/sync/publish-refusals";
 import { RootStateError } from "../src/sync/root-state";
 import { SequenceFloorError } from "../src/sync/sequence-floor";
-import { chooseIpnsName, isCid, isIpnsName, resolveRootCid } from "../src/sync/target-resolution";
-import { StateError } from "../src/sync/state";
+import { chooseIpnsName, isCid, isIpnsName } from "../src/sync/target-resolution";
 import { VaultKeysError } from "../src/sync/vault-keys";
 import { UsageError, type PullFlags } from "./args";
-import { EXIT_CHECK_FAILED, EXIT_OK, EXIT_USAGE, type CliIo } from "./io";
+import { EXIT_CHECK_FAILED, EXIT_USAGE } from "./io";
 import { HostPathError, createNodeHostBridge } from "./node-host-bridge";
 import { PassphraseInputError } from "./passphrase-errors";
 import type { PullContext } from "./pull-context";
@@ -38,8 +32,6 @@ export type { PullContext } from "./pull-context";
  */
 const RUNTIME_FAILURES = [
   PullSourceError,
-  ManifestError,
-  StateError,
   HostPathError,
   HostNotImplementedError,
   KuboError,
@@ -54,7 +46,7 @@ const RUNTIME_FAILURES = [
 ] as const;
 
 /** Failures reported with exit code 2: the invocation or configuration cannot be honoured, and nothing was written. */
-const REFUSALS = [PullGuardError, PullTargetError, EncryptedVaultError, PlaintextV1RefusedError] as const;
+const REFUSALS = [PullGuardError, PullTargetError, PlaintextUnsupportedError] as const;
 
 async function assertDirectoryOrAbsent(path: string): Promise<void> {
   const info = await stat(path).catch((error: NodeJS.ErrnoException) => {
@@ -64,30 +56,18 @@ async function assertDirectoryOrAbsent(path: string): Promise<void> {
   if (info !== undefined && !info.isDirectory()) throw new UsageError(`vault "${path}" exists and is not a directory`);
 }
 
-async function chooseSelector(flags: PullFlags): Promise<ManifestSelector> {
-  if (flags.manifest !== undefined && flags.manifestFile !== undefined) {
-    throw new UsageError("--manifest and --manifest-file are mutually exclusive");
+/** One target at most, and a CID where a CID is needed: refused before any request. */
+function assertTargetFlags(flags: PullFlags): void {
+  if (flags.rootCid !== undefined && flags.manifest !== undefined) {
+    throw new UsageError("--root-cid and --manifest are mutually exclusive: name one target");
   }
-  if (flags.rootCid !== undefined && (flags.manifest !== undefined || flags.manifestFile !== undefined)) {
-    throw new UsageError("--root-cid and --manifest or --manifest-file are mutually exclusive: name one target");
+  if (flags.manifest !== undefined && !isCid(flags.manifest)) {
+    throw new UsageError(`--manifest needs the tree CID of a history entry, got "${flags.manifest}"`);
   }
-  if (flags.manifest !== undefined) {
-    if (!isCid(flags.manifest)) throw new UsageError(`--manifest needs the currentCID of a published snapshot, got "${flags.manifest}"`);
-    return { kind: "historical", currentCid: flags.manifest };
-  }
-  if (flags.manifestFile !== undefined) {
-    const text = await readFile(flags.manifestFile, "utf8").catch((error: NodeJS.ErrnoException) => {
-      throw new UsageError(`cannot read --manifest-file ${flags.manifestFile}: ${error.message}`);
-    });
-    return { kind: "text", text };
-  }
-  return { kind: "latest" };
 }
 
 function describeSelector(flags: PullFlags): string {
-  if (flags.manifest !== undefined) return `snapshot ${flags.manifest}`;
-  if (flags.manifestFile !== undefined) return `file ${flags.manifestFile}`;
-  return "latest";
+  return flags.manifest === undefined ? "latest" : `snapshot ${flags.manifest}`;
 }
 
 function printHeader(ctx: PullContext, vault: string): void {
@@ -100,50 +80,8 @@ function printHeader(ctx: PullContext, vault: string): void {
   io.out(`  manifest  ${describeSelector(flags)}`);
 }
 
-export function summaryLine(result: PullResult): string {
-  return [
-    `${result.fetched} fetched`,
-    `${result.unchanged} unchanged`,
-    `${result.conflicted} conflicts`,
-    `${result.failed} failed`,
-    `${result.remoteDeleted} remote-deleted`,
-    `${result.locallyModified} locally modified`,
-  ].join(", ");
-}
-
 /** Paths and reasons come from the node's manifest or from errors that quote it: control characters are shown escaped. */
 const shown = escapeForDisplay;
-
-function printResult(io: CliIo, result: PullResult): void {
-  for (const failure of result.failures) io.err(`  failed   ${shown(failure.path)}: ${shown(failure.reason)}`);
-  for (const path of result.remoteDeletedPaths) io.out(`  remote-deleted ${shown(path)} (kept locally)`);
-  for (const path of result.locallyModifiedPaths) io.out(`  locally modified ${shown(path)} (left as is)`);
-  io.out(`root CID   ${result.rootCid}  (IPNS value)`);
-  io.out(`snapshot  ${result.manifestCid}  (manifest rootCID)`);
-  io.out(summaryLine(result));
-}
-
-function buildOptions(ctx: PullContext, selector: ManifestSelector): PullOptions {
-  const { config, flags } = ctx;
-  return {
-    mfsRoot: config.mfsRoot,
-    keyName: config.publicationKey,
-    ownedKeys: config.ownedKeys,
-    name: flags.name,
-    selector,
-    allowPlaintextV1: flags.allowPlaintextV1,
-  };
-}
-
-async function pullWithHost(ctx: PullContext, vault: string, selector: ManifestSelector): Promise<PullResult> {
-  const now = (): number => ctx.now().getTime();
-  const host = createNodeHostBridge({ root: vault, env: ctx.env, now });
-  const bus = createSyncEventBus();
-  bus.on("file.changed", (event) => ctx.io.out(`  ${event.kind.padEnd(8)} ${shown(event.path)}`));
-  bus.on("conflict", (event) => ctx.io.out(`  conflict ${shown(event.path)} -> ${shown(event.conflictPath)}`));
-  bus.onListenerFailure((failure) => ctx.io.err(`warning: ${failure.event} listener failed`));
-  return pullVault({ client: ctx.client, host, bus, warn: (message) => ctx.io.err(`warning: ${shown(message)}`) }, buildOptions(ctx, selector));
-}
 
 /** Flag combinations the sequence rule never accepts are refused here, before any request and before the passphrase is asked. */
 function assertFlagsAllowed(flags: PullFlags): void {
@@ -162,42 +100,28 @@ async function confirmFork(ctx: PullContext): Promise<boolean> {
   return ctx.io.confirm(FORK_QUESTION);
 }
 
-type Route = "encrypted" | "plaintext";
-
 /**
- * Which reader runs. `--manifest-file` is a plaintext-reader flag. `--root-cid` and `--list-versions` exist only for encrypted
- * vaults. Otherwise the root the name serves decides: key slots or an encrypted manifest there mean the decrypting reader.
+ * A pull by name needs a name: `--name`, or the ID of the owned publication key. A key that is not owned is reported here, as a
+ * refusal, before the passphrase is asked for. `--root-cid` names its own target.
  */
-async function chooseRoute(ctx: PullContext): Promise<Route> {
+async function assertNameKnown(ctx: PullContext): Promise<void> {
   const { flags, client, config } = ctx;
-  if (flags.manifestFile !== undefined) return "plaintext";
-  if (flags.rootCid !== undefined) return "encrypted";
-  const ipnsName = await chooseIpnsName(client, { name: flags.name, keyName: config.publicationKey, ownedKeys: config.ownedKeys });
-  return (await rootIsEncrypted(client, await resolveRootCid(client, ipnsName))) ? "encrypted" : "plaintext";
-}
-
-/** A sequence expectation, a rollback or a fork on a plaintext root would be ignored in silence by a reader that has no sequence. */
-function assertNoEncryptedOnlyFlags(flags: PullFlags): void {
-  const given = Object.entries({
-    "--allow-rollback": flags.allowRollback ? true : undefined,
-    "--resolve-fork": flags.resolveFork ? true : undefined,
-    "--expect-min-sequence": flags.expectMinSequence,
-    "--expect-vault-id": flags.expectVaultId,
-  }).find(([, value]) => value !== undefined);
-  if (given !== undefined) throw new UsageError(`${given[0]} applies to encrypted vaults only, and this root holds a plaintext (version 1) manifest; nothing was written`);
+  if (flags.rootCid !== undefined) return;
+  await chooseIpnsName(client, { name: flags.name, keyName: config.publicationKey, ownedKeys: config.ownedKeys });
 }
 
 /**
  * `ipfs-sync pull <vault>`. Configuration is already validated when this runs. Exit 0 when every file
  * that had to be written was written and verified, or was skipped as expected; 1 when any file failed
  * verification or was not fetched, a path was skipped as unsafe, or the source could not be read or
- * stopped the pull; 2 when the invocation or destination is refused before anything is written.
+ * stopped the pull; 2 when the invocation or destination is refused before anything is written, or the
+ * root is a plaintext publication (which this version does not read).
  */
 export async function runPull(ctx: PullContext): Promise<number> {
   const { flags } = ctx;
   if (flags.name !== undefined && !isIpnsName(flags.name)) throw new UsageError(`--name needs an IPNS key ID, got "${flags.name}"`);
   if (flags.rootCid !== undefined && !isCid(flags.rootCid)) throw new UsageError(`--root-cid needs a CID, got "${flags.rootCid}"`);
-  const selector = await chooseSelector(flags);
+  assertTargetFlags(flags);
   assertFlagsAllowed(flags);
   if (!(await confirmFork(ctx))) {
     ctx.io.err("ipfs-sync: pull stopped: the fork resolution was declined; nothing was changed");
@@ -209,11 +133,8 @@ export async function runPull(ctx: PullContext): Promise<number> {
   try {
     if (flags.listVersions) return await runListVersions(ctx, vault);
     await assertPullDestination(createNodeHostBridge({ root: vault, env: ctx.env, now: () => ctx.now().getTime() }).fs);
-    if ((await chooseRoute(ctx)) === "encrypted") return await runEncryptedPull(ctx, vault);
-    assertNoEncryptedOnlyFlags(flags);
-    const result = await pullWithHost(ctx, vault, selector);
-    printResult(ctx.io, result);
-    return result.failed === 0 ? EXIT_OK : EXIT_CHECK_FAILED;
+    await assertNameKnown(ctx);
+    return await runEncryptedPull(ctx, vault);
   } catch (error) {
     if (REFUSALS.some((refusal) => error instanceof refusal)) {
       ctx.io.err(`ipfs-sync: pull refused: ${shown((error as Error).message)}`);

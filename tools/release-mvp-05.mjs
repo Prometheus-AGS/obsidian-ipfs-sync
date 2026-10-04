@@ -6,7 +6,7 @@
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_OUT, FEATURE_OP_FILE } from "./release/constants.mjs";
+import { RELEASE_1 } from "./release/descriptors.mjs";
 import { gatherFacts } from "./release/facts.mjs";
 import { renderPlan } from "./release/plan.mjs";
 import { Refusal, runRecord } from "./release/record.mjs";
@@ -25,8 +25,8 @@ modes
 
 options
   --root <dir>          project root (default: the repository containing this tool)
-  --out <dir>           record output directory, relative to root (default: ${DEFAULT_OUT})
-  --feature-op <file>   feature-operation result (default: <root>/${FEATURE_OP_FILE})
+  --out <dir>           record output directory, relative to root (default: ${RELEASE_1.outDir})
+  --feature-op <file>   feature-operation result (default: <root>/${RELEASE_1.featureOpFile})
   --evidence <path[=observed result]>
                         record only, repeatable: screenshot, recording or notes file and what it shows
   --no-build            record only: skip "pnpm build"; dist/plugin/manifest.json must already match
@@ -77,11 +77,11 @@ async function main() {
   const featureOpPath = opts.featureOp ? resolve(root, opts.featureOp) : undefined;
   try {
     if (opts.mode === "plan") {
-      const { text, blockerCount } = renderPlan(gatherFacts(root, { featureOpPath }), { outDir: opts.out ?? DEFAULT_OUT });
+      const { text, blockerCount } = renderPlan(gatherFacts(root, { featureOpPath, descriptor: RELEASE_1 }), { descriptor: RELEASE_1, outDir: opts.out ?? RELEASE_1.outDir });
       out(text);
       return opts.check && blockerCount > 0 ? 1 : 0;
     }
-    return runRecord({ root, outRel: opts.out, featureOpPath, evidenceSpecs: opts.evidence, noBuild: opts.noBuild, out });
+    return runRecord({ descriptor: RELEASE_1, root, outRel: opts.out, featureOpPath, evidenceSpecs: opts.evidence, noBuild: opts.noBuild, out });
   } catch (error) {
     if (error instanceof Refusal) {
       err(`refused: record preconditions not met\n${error.message}`);

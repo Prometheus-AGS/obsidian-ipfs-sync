@@ -3,13 +3,14 @@
  * (`.ipfs-sync/state.json`), so they share one lock: the second request is refused, not queued.
  */
 
-export type SyncOperation = "publish" | "pull" | "abandon" | "clear-stale-lock";
+export type SyncOperation = "publish" | "pull" | "abandon" | "clear-stale-lock" | "key-management";
 
 const OPERATION_LABEL: Readonly<Record<SyncOperation, string>> = {
   publish: "a publish",
   pull: "a pull",
   abandon: "an abandon",
   "clear-stale-lock": "a stale-lock clearing",
+  "key-management": "a key-management action",
 };
 
 export interface SyncLock {

@@ -1,15 +1,16 @@
 import { ConfigError, type SyncConfig } from "../core/config";
 import type { SyncEventBus } from "../core/events";
 import type { HostBridge } from "../core/host-bridge";
+import type { CostPolicy } from "../crypto";
 import { createKuboClient, type Transport } from "../kubo";
 import { ManifestFormatError } from "../sync/encrypted-manifest";
 import { createDeviceIdProvider } from "../sync/device-store";
-import { assertPublishMarker } from "../sync/fixture-marker";
+import { assertPublishMarker, FIXTURE_ONLY_NOTICE } from "../sync/publish-guard";
 import { publishVault, type PublishClient, type PublishResult } from "../sync/publish";
 import { OwnedKeyNotRecordedError } from "../sync/publish-errors";
 import { withTokenCheck } from "../sync/lock-token-check";
 import { acquirePublishLock, type LockContext, type LockFile, type PublishLock } from "../sync/publish-lock";
-import { lockHeld, PublishRefusedError } from "../sync/publish-refusals";
+import { lockHeld, PublishRefusedError, type MassRemovalCounts } from "../sync/publish-refusals";
 import { VaultKeysError } from "../sync/vault-keys";
 import { createAdapterLockFile, createPluginLockContext } from "./adapter-lock-file";
 import { createPluginDeviceStore } from "./device-store-plugin";
@@ -18,13 +19,14 @@ import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
 import {
   failedNotice,
-  FIXTURE_ONLY_NOTICE,
   foreignKeyNotice,
   INCOMPATIBLE_MANIFEST_NOTICE,
   invalidSettingsNotice,
   keyNotRecordedNotice,
   LOCKED_TIMER_NOTICE,
   lockHeldNotice,
+  massRemovalDeclinedNotice,
+  massRemovalTimerRefusal,
   NOT_SET_UP_TIMER_NOTICE,
   PASSPHRASE_REQUIRED_NOTICE,
   publishedNotice,
@@ -54,7 +56,9 @@ export type RefusalReason =
   /** The user closed the unlock or setup dialog. */
   | "cancelled"
   /** The node holds an authentic manifest this build cannot read (written by a newer or incompatible version). */
-  | "incompatible-manifest";
+  | "incompatible-manifest"
+  /** The guard stopped a publish that would remove every remaining entry or more than half of them, and it was not confirmed (the timer never asks). */
+  | "mass-removal";
 
 /** What a run did, with the text to show. `refused` means no `name/publish` was sent and nothing changed on the node's pointer. */
 export type PublishOutcome =
@@ -102,6 +106,17 @@ export interface PublishRunnerDeps {
   /** The cross-process lock file. Defaults to `<vault>/.ipfs-sync/publish.lock` through the vault adapter. */
   readonly lockFile?: LockFile;
   readonly lockContext?: LockContext;
+  /**
+   * The engine's `confirmMassRemoval` port for a MANUAL run: it opens the mass-removal dialog and resolves `true` only after the explicit confirm. A run
+   * with `unattended: true` never reaches it. Without this port a manual run that the guard stops is refused, as the timer is.
+   */
+  readonly askMassRemoval?: (counts: MassRemovalCounts) => Promise<boolean>;
+  /**
+   * The cost-confirm policy (task 2.4, `obsidianCostConfirmation(app).policy`): handed to the engine on a MANUAL run only. A run with `unattended: true`
+   * is never handed it, so the timer cannot ask and keeps refusing a key slot above the default cost. The session's unlock (the dialog path) has its own
+   * copy in `createVaultOpener`. Absent: such a slot is refused (`kdf-cost-refused`).
+   */
+  readonly costPolicy?: CostPolicy;
 }
 
 export interface PublishRunner {
@@ -119,8 +134,21 @@ function publishSummary(result: PublishResult, at: Date): PublishSummary {
   return result.rootCid === undefined ? base : { ...base, rootCid: result.rootCid };
 }
 
+/** What one run learned that the thrown error does not carry: the counts the mass-removal guard reported (the refusal itself holds text only). */
+interface RunFacts {
+  counts: MassRemovalCounts | undefined;
+}
+
+/** The notice for a publish the mass-removal guard stopped: the timer's words for an unattended run, otherwise the "not confirmed" words. */
+function massRemovalOutcome(error: PublishRefusedError, facts: RunFacts, unattended: boolean): PublishOutcome {
+  const { counts } = facts;
+  if (counts === undefined) return refused("mass-removal", failedNotice(error));
+  return refused("mass-removal", unattended ? massRemovalTimerRefusal(counts) : massRemovalDeclinedNotice(counts));
+}
+
 /** Map a thrown error to the outcome the user should see. */
-function outcomeFor(error: unknown, keyName: string): PublishOutcome {
+function outcomeFor(error: unknown, keyName: string, facts: RunFacts, unattended: boolean): PublishOutcome {
+  if (error instanceof PublishRefusedError && error.code === "mass-removal") return massRemovalOutcome(error, facts, unattended);
   if (error instanceof OwnedKeyNotRecordedError) return refused("key-not-recorded", keyNotRecordedNotice(error));
   if (error instanceof ManifestFormatError) return refused("incompatible-manifest", INCOMPATIBLE_MANIFEST_NOTICE);
   if (error instanceof PublishRefusedError && error.code === "passphrase-required") return refused("locked", PASSPHRASE_REQUIRED_NOTICE);
@@ -208,6 +236,7 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
     client: PublishClient,
     fileLock: PublishLock,
     verifyHeld: () => Promise<boolean>,
+    confirmMassRemoval: (counts: MassRemovalCounts) => Promise<boolean>,
   ): Promise<PublishResult> {
     let changed = 0;
     const stop = deps.bus.on("file.changed", () => {
@@ -235,6 +264,8 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
           extraExclusions: exclusionsWithConfigDir(deps.store.get().userExclusions, deps.configDir),
           unlocked: deps.session.provider,
           assertHeld: () => fileLock.assertHeld(),
+          confirmMassRemoval,
+          ...(options.unattended === true || deps.costPolicy === undefined ? {} : { costPolicy: deps.costPolicy }),
         },
       );
       options.onProgress?.({ changed, done: true });
@@ -253,7 +284,19 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
     return gate ?? { host, config };
   }
 
-  async function execute(options: RunOptions, host: HostBridge, config: SyncConfig): Promise<PublishOutcome> {
+  /**
+   * The engine's `confirmMassRemoval` port. It records the counts for the notice (the engine's refusal carries text only). A manual run asks the dialog;
+   * an unattended run has nobody to ask and answers no, so a timer publish can never confirm a mass removal.
+   */
+  function massRemovalPort(options: RunOptions, facts: RunFacts): (counts: MassRemovalCounts) => Promise<boolean> {
+    return async (counts) => {
+      facts.counts = counts;
+      if (options.unattended === true || deps.askMassRemoval === undefined) return false;
+      return deps.askMassRemoval(counts);
+    };
+  }
+
+  async function execute(options: RunOptions, host: HostBridge, config: SyncConfig, facts: RunFacts): Promise<PublishOutcome> {
     const client = deps.createClient?.(config) ?? createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport });
 
     const checked = withTokenCheck(lockFile);
@@ -263,7 +306,7 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
       // The adapter may not refuse a rename onto an existing lock file: look at the file itself before the first request
       // that can write to the node. (`assertHeld` is synchronous and only knows the last heartbeat.)
       if (!(await checked.verifyHeld())) throw lockHeld("the lock file changed hands right after it was taken");
-      result = await publishUnderLock(options, host, config, client, fileLock, checked.verifyHeld);
+      result = await publishUnderLock(options, host, config, client, fileLock, checked.verifyHeld, massRemovalPort(options, facts));
     } catch (error) {
       await releaseLockFile(fileLock);
       throw error;
@@ -282,14 +325,14 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
    * backgrounded phone) never holds the lock that pull, abandon and the timer wait on. The timer path never opens a
    * dialog and is unchanged. A busy lock is answered before a dialog can open.
    */
-  async function attempt(options: RunOptions): Promise<PublishOutcome> {
+  async function attempt(options: RunOptions, facts: RunFacts): Promise<PublishOutcome> {
     if (lock.holder() !== undefined) return refused("busy", busyNotice(lock.holder()));
     const prepared = await prepare(options);
     if ("kind" in prepared) return prepared;
     const release = lock.tryAcquire("publish");
     if (release === undefined) return refused("busy", busyNotice(lock.holder()));
     try {
-      return await execute(options, prepared.host, prepared.config);
+      return await execute(options, prepared.host, prepared.config, facts);
     } finally {
       release();
     }
@@ -298,19 +341,21 @@ export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
   return {
     isRunning: () => lock.holder() !== undefined,
     run: async (options = {}) => {
+      const facts: RunFacts = { counts: undefined };
+      const unattended = options.unattended === true;
       try {
-        return await attempt(options);
+        return await attempt(options, facts);
       } catch (error) {
         // A held vault whose key slots changed on disk answers "locked" on every run; drop it and ask once more.
-        if (isHeldVaultStale(error) && options.unattended !== true) {
+        if (isHeldVaultStale(error) && !unattended) {
           deps.session.lock();
           try {
-            return await attempt(options);
+            return await attempt(options, facts);
           } catch (again) {
-            return outcomeFor(again, deps.store.get().publicationKey);
+            return outcomeFor(again, deps.store.get().publicationKey, facts, unattended);
           }
         }
-        return outcomeFor(error, deps.store.get().publicationKey);
+        return outcomeFor(error, deps.store.get().publicationKey, facts, unattended);
       }
     },
   };

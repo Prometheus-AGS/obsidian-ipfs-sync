@@ -15,6 +15,8 @@ export interface RootFileNames {
   readonly journal: string;
   /** `keyslots.<h>.json`: byte-identical copy of the node's key-slot file for this root. */
   readonly keyslots: string;
+  /** `maintenance.<h>.json`: the key-management operation in flight (a rewrap or a history prune), never the publish journal. */
+  readonly maintenance: string;
 }
 
 /** The lock file is per vault directory, not per root: it stops two processes from publishing at once. */
@@ -27,5 +29,5 @@ export function rootDigest(mfsRoot: string): string {
 
 export function rootFileNames(mfsRoot: string): RootFileNames {
   const digest = rootDigest(mfsRoot);
-  return { state: `state.${digest}.json`, journal: `journal.${digest}.json`, keyslots: `keyslots.${digest}.json` };
+  return { state: `state.${digest}.json`, journal: `journal.${digest}.json`, keyslots: `keyslots.${digest}.json`, maintenance: `maintenance.${digest}.json` };
 }

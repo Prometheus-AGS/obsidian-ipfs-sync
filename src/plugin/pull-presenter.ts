@@ -1,5 +1,5 @@
 import type { PullOutcome } from "./pull-runner";
-import { encryptedPullStatusText, isEventful, isEventfulReport, pullStatusText, STARTING_PULL_TEXT } from "./pull-notices";
+import { encryptedPullStatusText, isEventfulReport, STARTING_PULL_TEXT } from "./pull-notices";
 
 /** What the presenter needs of an Obsidian `Notice`. */
 export interface NoticeHandle {
@@ -55,9 +55,6 @@ function isQuietWorthy(outcome: PullOutcome): boolean {
     case "completed":
     case "unfinished":
       return isEventfulReport(outcome.report);
-    case "pulled":
-    case "incomplete":
-      return isEventful(outcome.result);
   }
 }
 
@@ -66,9 +63,6 @@ function resultStatus(outcome: PullOutcome, at: Date): string {
     case "completed":
     case "unfinished":
       return encryptedPullStatusText(outcome.report, at);
-    case "pulled":
-    case "incomplete":
-      return pullStatusText(outcome.result, at);
     default:
       return "";
   }

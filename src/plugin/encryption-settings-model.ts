@@ -1,4 +1,5 @@
-import { ENCRYPTION_COPY } from "./encryption-copy";
+import { KDF_ITERATIONS_DEFAULT, KDF_MEMORY_DEFAULT_KIB, describeKdfCost, exceedsDefaultCost, type KdfParams } from "../crypto";
+import { ENCRYPTION_COPY, KEY_ACTIONS_COPY } from "./encryption-copy";
 
 /**
  * What the Encryption section of the settings tab shows. The plugin session (written elsewhere) is adapted to
@@ -21,6 +22,49 @@ export interface EncryptionStatusSource {
   openAbandon?(): void;
   /** Optional: what this device's state file records about pulls. When absent, no Pull record row is shown. */
   pullRecord?(): Promise<PullRecordInput | undefined>;
+  /** Optional: the key-derivation cost of the slot this device holds (the weakest slot an unlock tries). When absent, no cost row is shown. */
+  slotCost?(): Promise<KdfParams | undefined>;
+  /** Optional: open the change-passphrase dialog. When absent, no Change passphrase row is shown. */
+  openChangePassphrase?(): void;
+  /** Optional: open the increase-cost dialog. When absent, no Increase cost row is shown. */
+  openIncreaseCost?(): void;
+  /** Optional: open the accept-key-slots dialog. When absent, no Accept row is shown. */
+  openAcceptSlots?(): void;
+  /** Optional: open the prune-history dialog (task 2.5). When absent, no Prune history row is shown. */
+  openPruneHistory?(): void;
+}
+
+export type KeyActionId = "change-passphrase" | "increase-cost" | "accept-slots" | "prune-history";
+
+export interface KeyActionView {
+  readonly id: KeyActionId;
+  readonly name: string;
+  readonly desc: string;
+  readonly button: string;
+}
+
+type KeyActionOpeners = Pick<EncryptionStatusSource, "openChangePassphrase" | "openIncreaseCost" | "openAcceptSlots" | "openPruneHistory">;
+
+/**
+ * The key-management rows for a state, in reading order. None before a vault exists. Locked or unlocked makes no difference: each dialog
+ * asks for the passphrase itself, because a rewrap derives the key a second time and an accept checks another device's slots with it.
+ */
+export function describeKeyActions(state: EncryptionState, source: KeyActionOpeners): readonly KeyActionView[] {
+  if (state === "not-set-up") return [];
+  const rows: KeyActionView[] = [];
+  if (source.openChangePassphrase !== undefined) rows.push({ id: "change-passphrase", ...KEY_ACTIONS_COPY.changePassphrase });
+  if (source.openIncreaseCost !== undefined) rows.push({ id: "increase-cost", ...KEY_ACTIONS_COPY.increaseCost });
+  if (source.openAcceptSlots !== undefined) rows.push({ id: "accept-slots", ...KEY_ACTIONS_COPY.acceptSlots });
+  if (source.openPruneHistory !== undefined) rows.push({ id: "prune-history", ...KEY_ACTIONS_COPY.pruneHistory });
+  return rows;
+}
+
+/** The slot cost as a sentence: memory and iterations, and where it stands against the default. */
+export function describeSlotCost(cost: KdfParams | undefined): string {
+  if (cost === undefined) return ENCRYPTION_COPY.slotCostUnknown;
+  const below = cost.m < KDF_MEMORY_DEFAULT_KIB || cost.t < KDF_ITERATIONS_DEFAULT;
+  const standing = exceedsDefaultCost(cost) ? "above the default" : below ? "below the default" : "the default";
+  return `${describeKdfCost(cost)} (${standing}).`;
 }
 
 /**

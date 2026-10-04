@@ -1,7 +1,7 @@
 import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
-import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE } from "../src/core/config/defaults.ts";
+import { FIXTURE_MARKER, FIXTURE_MARKER_VALUE } from "../src/sync/fixture-constants.ts";
 
 /**
  * Synthetic vault generator (spec fixture-vault). Everything written here is

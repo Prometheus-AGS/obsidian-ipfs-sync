@@ -1,4 +1,4 @@
-import { Notice, Plugin } from "obsidian";
+import { Notice, Platform, Plugin } from "obsidian";
 import { createSyncEventBus, type SyncEventBus } from "../core/events";
 import { createKuboClient } from "../kubo";
 import { createAdapterLockFile } from "./adapter-lock-file";
@@ -7,8 +7,14 @@ import { AbandonVaultDialog, type AbandonOutcome } from "./abandon-vault-dialog"
 import { ClearStaleLockDialog } from "./clear-stale-lock-dialog";
 import { scheduleCatchUp } from "./catch-up";
 import { flushOpenEditors } from "./editor-flush";
-import { createPublishRunner, type PublishOutcome, type PublishProgress, type PublishRunner } from "./publish-runner";
+import { obsidianCostConfirmation } from "./cost-confirm-dialog";
+import { createKeyActions, type KeyActions, type KeyActionStart } from "./key-actions";
+import { obsidianKeyDialogs } from "./key-dialogs";
+import { askMassRemoval } from "./mass-removal-dialog";
+import { measureDerivation } from "./measure-derivation";
+import { MEASURE_START_NOTICE, measurementNoticeText, type MeasurementRecord } from "./measure-notice";
 import { readPluginSeams } from "./plugin-seams";
+import { createPublishRunner, type PublishOutcome, type PublishProgress, type PublishRunner } from "./publish-runner";
 import { obsidianPullDialogs } from "./pull-dialogs";
 import { createPullPresenter, type PullPresenter } from "./pull-presenter";
 import { createPullRunner, type PullOutcome, type PullRunner } from "./pull-runner";
@@ -23,13 +29,22 @@ import { openSettingsStore, type SettingsStore } from "./settings-store";
 import { settingsToConfig } from "./settings-to-config";
 import { createSettingsViewModel as buildSettingsViewModel, type SettingsViewModel } from "./settings-view-model";
 import { collectStatus, formatStatus } from "./sync-status";
-import { busyNotice, createSyncLock } from "./sync-lock";
+import { busyNotice, createSyncLock, type SyncLock } from "./sync-lock";
 import { createVaultOpener, createVaultProbe } from "./vault-opener";
 
 const NOTICE_MS = 10_000;
 const STATUS_NOTICE_MS = 20_000;
 const MS_PER_MINUTE = 60_000;
 const PUBLISHING = "IPFS Sync: publishing...";
+const ALREADY_MEASURING_NOTICE = "IPFS Sync: a key derivation measurement is already running. Keep the app open until it finishes.";
+const NO_VAULT_NOTICE = "IPFS Sync: this device holds no key-slot copy for the configured MFS root, so there is nothing to change here.";
+
+/** The device platform for the measurement record. */
+function platformLabel(): string {
+  if (Platform.isIosApp) return "ios";
+  if (Platform.isAndroidApp) return "android";
+  return Platform.isMobile ? "mobile" : "desktop";
+}
 
 /**
  * The Obsidian plugin: settings, commands, ribbons, status bar, the auto-publish timer and the on-load catch-up
@@ -45,7 +60,10 @@ export default class IpfsSyncPlugin extends Plugin {
   private declare dialogs: SessionDialogs;
   private declare abandonFlow: AbandonFlow;
   private declare staleLockFlow: StaleLockFlow;
+  private declare keyActions: KeyActions;
+  private declare syncLock: SyncLock;
   private declare statusEl: HTMLElement;
+  private measuring = false;
   private readonly bus: SyncEventBus = createSyncEventBus();
   private timer: number | undefined;
   /** The MFS root the session's keys belong to; a settings change to another root drops them. */
@@ -58,13 +76,17 @@ export default class IpfsSyncPlugin extends Plugin {
     for (const message of load.notices) new Notice(message, NOTICE_MS);
     const adapter = this.app.vault.adapter;
     const lock = createSyncLock();
+    this.syncLock = lock;
     const now = (): Date => new Date();
+    // One cost-confirm dialog for every manual path: unlock, publish, pull, Restore, and the key actions. The timer and the catch-up pull are handed
+    // none of it (publish-runner and pull-runner drop it on an unattended run), so a slot above the default cost keeps refusing there.
+    const costConfirmation = obsidianCostConfirmation(this.app);
     this.dialogs = createSessionDialogs(obsidianDialogFactories(this.app));
     const observer = observed(
       this.dialogs.settling(
         createSessionKeys({
           dialogs: this.dialogs.callbacks,
-          open: createVaultOpener({ store, adapter, transport: requestUrlTransport, now }),
+          open: createVaultOpener({ store, adapter, transport: requestUrlTransport, now, costPolicy: costConfirmation.policy }),
           vaultExists: createVaultProbe({ store, adapter, now }),
         }),
       ),
@@ -92,7 +114,32 @@ export default class IpfsSyncPlugin extends Plugin {
         return dialog;
       },
     });
-    this.runner = createPublishRunner({ store, adapter, configDir: this.app.vault.configDir, bus: this.bus, lock, session: this.session });
+    this.keyActions = createKeyActions({
+      store,
+      adapter,
+      lock,
+      transport: requestUrlTransport,
+      now,
+      dialogs: obsidianKeyDialogs(this.app),
+      // A slot above the default cost is unlocked or accepted only after an explicit yes in the cost-confirm dialog.
+      costConfirmation,
+      // The held keys were opened from the old key-slot file: drop them and look again, as a changed MFS root does.
+      afterChange: () => {
+        this.session.lock();
+        void this.refreshSession();
+      },
+    });
+    this.runner = createPublishRunner({
+      store,
+      adapter,
+      configDir: this.app.vault.configDir,
+      bus: this.bus,
+      lock,
+      session: this.session,
+      // A manual publish that the guard stops opens the mass-removal dialog; the timer never reaches this port.
+      askMassRemoval: (counts) => askMassRemoval(this.app, counts),
+      costPolicy: costConfirmation.policy,
+    });
     this.pullRunner = createPullRunner({
       store,
       adapter,
@@ -100,7 +147,6 @@ export default class IpfsSyncPlugin extends Plugin {
       bus: this.bus,
       lock,
       flushEditors: () => flushOpenEditors(this.app.workspace, adapter),
-      allowPlaintextV1: () => readPluginSeams(this).allowPlaintextV1 === true,
       session: this.session,
       // The pull asks for its passphrase through the same unlock dialog as publish, and ends the sequence with the final verdict.
       passphrase: {
@@ -109,6 +155,7 @@ export default class IpfsSyncPlugin extends Plugin {
         settle: (verdict) => this.dialogs.settleUnlock(verdict),
       },
       dialogs: obsidianPullDialogs(this.app),
+      confirmCost: costConfirmation.confirm,
     });
     this.statusEl = this.addStatusBarItem();
     this.presenter = createPullPresenter({
@@ -126,6 +173,7 @@ export default class IpfsSyncPlugin extends Plugin {
     this.addCommand({ id: "show-status", name: "Show status", callback: () => void this.showStatus() });
     this.addCommand({ id: "abandon-vault", name: "Abandon this vault", callback: () => void this.abandonVault() });
     this.addCommand({ id: "clear-stale-lock", name: "Clear stale publish lock", callback: () => void this.clearStaleLock() });
+    this.addCommand({ id: "measure-key-derivation", name: "Measure key derivation time", callback: () => void this.measureKeyDerivation() });
     this.addRibbonIcon("network", "IPFS Sync: publish vault", () => void this.publishVault());
     this.addRibbonIcon("download", "IPFS Sync: pull vault", () => void this.pullVault());
     const encryption = {
@@ -135,6 +183,12 @@ export default class IpfsSyncPlugin extends Plugin {
         openAbandon: () => void this.abandonVault(),
       }),
       pullRecord: () => this.pullRunner.record(),
+      slotCost: () => this.keyActions.slotCost(),
+      openChangePassphrase: () => void this.showKeyAction(() => this.keyActions.changePassphrase()),
+      openIncreaseCost: () => void this.showKeyAction(() => this.keyActions.increaseCost()),
+      openAcceptSlots: () => void this.showKeyAction(() => this.keyActions.acceptSlots()),
+      // Prune history is started by a person from this row only: the timer and the catch-up pull never reach it.
+      openPruneHistory: () => void this.showKeyAction(() => this.keyActions.pruneHistory()),
     };
     const staleLock = { inspect: () => this.staleLockFlow.inspect(), open: async () => void (await this.clearStaleLock()) };
     this.addSettingTab(new IpfsSyncSettingTab(this.app, this, this.createSettingsViewModel(), encryption, staleLock));
@@ -157,6 +211,7 @@ export default class IpfsSyncPlugin extends Plugin {
   onunload(): void {
     this.abandonFlow.dispose();
     this.staleLockFlow.dispose();
+    this.keyActions.dispose();
     this.session.dispose();
     this.dialogs.dispose();
   }
@@ -279,6 +334,48 @@ export default class IpfsSyncPlugin extends Plugin {
       const notice = `IPFS Sync: cannot check the publish lock: ${error instanceof Error ? error.message : "unknown error"}`;
       new Notice(notice, NOTICE_MS);
       return notice;
+    }
+  }
+
+  /**
+   * "Measure key derivation time": one Argon2id derivation at the default cost on random input, in the foreground. It reads no vault file, asks for no
+   * passphrase and sends nothing; the only file it reads is the installed `main.js`, for the build hash. The result stays on screen until dismissed.
+   */
+  async measureKeyDerivation(): Promise<MeasurementRecord | undefined> {
+    if (this.measuring) {
+      new Notice(ALREADY_MEASURING_NOTICE, NOTICE_MS);
+      return undefined;
+    }
+    this.measuring = true;
+    new Notice(MEASURE_START_NOTICE, NOTICE_MS);
+    try {
+      const derive = readPluginSeams(this).measureDerive;
+      const record = await measureDerivation({
+        readBuild: () => this.app.vault.adapter.readBinary(this.installedBuildPath()),
+        platform: platformLabel(),
+        ...(derive === undefined ? {} : { derive }),
+      });
+      new Notice(measurementNoticeText(record), 0);
+      return record;
+    } finally {
+      this.measuring = false;
+    }
+  }
+
+  /** The installed plugin file, where Obsidian put this plugin. */
+  private installedBuildPath(): string {
+    const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    return `${dir}/main.js`;
+  }
+
+  /** Open a key-management dialog. A dialog shows its own failures; this says why none opened, and reports an error thrown before one could. */
+  private async showKeyAction(open: () => Promise<KeyActionStart>): Promise<void> {
+    try {
+      const start = await open();
+      if (start === "busy") new Notice(busyNotice(this.syncLock.holder()), NOTICE_MS);
+      else if (start === "no-vault") new Notice(NO_VAULT_NOTICE, NOTICE_MS);
+    } catch (error) {
+      new Notice(`IPFS Sync: ${describeDialogError(error)}`, NOTICE_MS);
     }
   }
 
