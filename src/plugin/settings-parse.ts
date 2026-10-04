@@ -162,6 +162,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     ownedKeys,
     publishIntervalMinutes: interval,
     ...pull,
+    ...(stored["retiredDefaultNoticeShown"] === true ? { retiredDefaultNoticeShown: true } : {}),
     ...(lastPull === undefined ? {} : { lastPull }),
     ...(lastPublish === undefined ? {} : { lastPublish }),
     kv,

@@ -2,7 +2,7 @@ import type { App as ObsidianApp, PluginManifest, Plugin as ObsidianPlugin } fro
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
 import { ClearStaleLockDialog } from "../../src/plugin/clear-stale-lock-dialog";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore } from "../../src/plugin/settings-store";
 import { IpfsSyncSettingTab } from "../../src/plugin/settings-tab";
 import { createSettingsViewModel } from "../../src/plugin/settings-view-model";
@@ -268,7 +268,7 @@ describe("the plugin: command and settings section", () => {
   });
 
   function tabOver(adapter: MemoryAdapter) {
-    const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { settings: defaultSettings(), outcome: "current", notices: [], persist: false });
+    const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { settings: testNodeSettings(), outcome: "current", notices: [], persist: false });
     const vm = createSettingsViewModel({ store, now: () => new Date(NOW), listNodeKeys: async () => [] });
     const lockControl = control(adapter, createSyncLock(), NOW);
     const app = new App();

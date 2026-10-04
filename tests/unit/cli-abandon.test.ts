@@ -171,7 +171,8 @@ describe("ipfs-sync abandon", () => {
 
   describe("sequence floor", () => {
     const VAULT_ID = "e".repeat(32);
-    const env = stateEnv();
+    // No node is named: abandon is local-only and must work without one.
+    const { IPFS_SYNC_RPC_URL: _rpc, IPFS_SYNC_GATEWAY_URL: _gateway, ...env } = stateEnv();
     const floorPath = join(deviceStoreDirectory(env), SEQUENCE_FLOOR_FILE);
 
     async function seedFloor(sequence: number): Promise<void> {

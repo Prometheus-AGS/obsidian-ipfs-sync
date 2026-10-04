@@ -3,8 +3,10 @@ import {
   ConfigError,
   envLayer,
   parseConfigFile,
+  resolveLocalConfig,
   resolveSyncConfig,
   type EnvMap,
+  type LocalSyncConfig,
   type RawConfigLayer,
   type SyncConfig,
 } from "../src/core/config";
@@ -43,6 +45,12 @@ async function fileLayer(args: ParsedArgs, deps: ConfigDeps, mayBeMissing: boole
 export interface LoadOptions {
   /** `publish` creates the config file when it records a new key, so an explicit path may not exist yet. */
   readonly configMayBeMissing?: boolean;
+}
+
+/** The local fields only, for a command that sends no request (`abandon`): no RPC or gateway URL is required. Every other check and the precedence are the same. */
+export async function loadLocalConfig(args: ParsedArgs, deps: ConfigDeps): Promise<LocalSyncConfig> {
+  const file = await fileLayer(args, deps, false);
+  return resolveLocalConfig([file, envLayer(deps.env), args.flagsLayer]);
 }
 
 /**

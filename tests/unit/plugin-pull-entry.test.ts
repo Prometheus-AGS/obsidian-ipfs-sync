@@ -2,7 +2,8 @@ import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
 import { setPluginSeams } from "../../src/plugin/plugin-seams";
-import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
+import type { PluginSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createFakeGateway, type FakeGateway } from "../helpers/fake-gateway";
 import { plantPlaintextRoot } from "../helpers/plugin-pull-rig";
 import { IPNS_NAME } from "../helpers/pull-fixtures";
@@ -16,7 +17,7 @@ const MFS = "/obsidian-vault-sync/mvp05-entry";
 const KEYS = [{ name: "obsidian-vault-sync", id: IPNS_NAME }];
 
 function settings(patch: Partial<PluginSettings> = {}): PluginSettings {
-  return { ...defaultSettings(), mfsRoot: MFS, ownedKeys: [IPNS_NAME], ...patch };
+  return { ...testNodeSettings(), mfsRoot: MFS, ownedKeys: [IPNS_NAME], ...patch };
 }
 
 interface Loaded {

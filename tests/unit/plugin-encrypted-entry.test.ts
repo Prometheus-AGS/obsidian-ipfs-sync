@@ -2,7 +2,7 @@ import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { REFERENCE_TEXT } from "../helpers/plugin-session";
@@ -58,7 +58,7 @@ async function load(options: { readonly vault: boolean; readonly marker?: boolea
   vi.stubGlobal("window", { setInterval: setIntervalStub, clearInterval: vi.fn() });
   const plugin = new IpfsSyncPlugin(new StubApp(adapter) as unknown as App, MANIFEST);
   const stub = plugin as unknown as StubPlugin;
-  stub.data = { ...defaultSettings(), mfsRoot: ROOT, publishIntervalMinutes: 5 };
+  stub.data = { ...testNodeSettings(), mfsRoot: ROOT, publishIntervalMinutes: 5 };
   await plugin.onload();
   const tick = (setIntervalStub.mock.calls[0] as unknown as [() => void])[0];
   return { plugin, stub, adapter, node, tick };

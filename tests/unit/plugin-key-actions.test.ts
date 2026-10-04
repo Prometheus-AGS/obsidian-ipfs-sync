@@ -24,7 +24,7 @@ import type { KeyDialogOpeners } from "../../src/plugin/key-dialogs";
 import type { KeyDialogOutcome } from "../../src/plugin/key-dialog-shared";
 import type { KeyPorts } from "../../src/plugin/key-ports";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
 import { busyNotice, createSyncLock } from "../../src/plugin/sync-lock";
 import type { AcceptDeps, KeyManagementDeps, PreparedAcceptance, PreparedRewrap } from "../../src/sync/key-management";
@@ -35,7 +35,7 @@ import { REFERENCE_TEXT } from "../helpers/plugin-session";
 import { MemoryAdapter } from "../support/memory-adapter";
 
 const MFS_ROOT = "/obsidian-vault-sync/mvp07b-keys";
-const KEY_NAME = defaultSettings().publicationKey;
+const KEY_NAME = testNodeSettings().publicationKey;
 const ROOT_CID = "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi";
 const STANDARD: KdfParams = { m: KDF_MEMORY_DEFAULT_KIB, t: KDF_ITERATIONS_DEFAULT, p: KDF_PARALLELISM };
 const HIGH: KdfParams = { m: KDF_MEMORY_CEILING_KIB, t: KDF_ITERATIONS_CEILING, p: KDF_PARALLELISM };
@@ -47,7 +47,7 @@ const spy = <T extends (...args: never[]) => unknown>(implementation: T) => vi.f
 
 function store(): SettingsStore {
   const port: PluginDataPort = { loadData: async () => null, saveData: async () => undefined };
-  return createSettingsStore(port, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: MFS_ROOT } });
+  return createSettingsStore(port, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT } });
 }
 
 interface Captured<R> {

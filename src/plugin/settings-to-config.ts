@@ -4,13 +4,16 @@ import {
   ConfigError,
   assertValidKeyName,
   composeEndpointUrl,
+  resolveLocalConfig,
   resolveSyncConfig,
   validateMfsRoot,
   type EndpointName,
+  type LocalSyncConfig,
   type RawAuthInput,
   type RawConfigLayer,
   type SyncConfig,
 } from "../core/config";
+import { isSet, NODE_NOT_SET_NOTICE } from "./node-status";
 import { parsePullName, PULL_NAME_MESSAGE } from "./pull-target";
 import { isValidReadCapMb, READ_CAP_RANGE_MESSAGE } from "./read-cap";
 import { isValidPullConfirmAboveMb, PULL_CONFIRM_RANGE_MESSAGE, type AuthSettings, type EndpointSettings, type PluginSettings } from "./settings-model";
@@ -46,7 +49,19 @@ export function settingsToLayer(settings: PluginSettings): RawConfigLayer {
 
 /** Validated configuration for the sync engine. Throws ConfigError (never carrying a secret) before any request is possible. */
 export function settingsToConfig(settings: PluginSettings, now: Date): SyncConfig {
-  return resolveSyncConfig([settingsToLayer(settings)], now);
+  try {
+    return resolveSyncConfig([settingsToLayer(settings)], now);
+  } catch (error) {
+    // The core message names CLI flags; the plugin has settings instead. Same stable code, plugin words.
+    if (error instanceof ConfigError && error.code === "no-rpc-url") throw new ConfigError(error.code, `${NODE_NOT_SET_NOTICE} (the RPC URL is empty)`);
+    if (error instanceof ConfigError && error.code === "no-gateway-url") throw new ConfigError(error.code, `${NODE_NOT_SET_NOTICE} (the gateway URL is empty)`);
+    throw error;
+  }
+}
+
+/** The validated local fields without the endpoints, for an action that sends no request (Abandon): it works with no node set. */
+export function settingsToLocalConfig(settings: PluginSettings): LocalSyncConfig {
+  return resolveLocalConfig([settingsToLayer(settings)]);
 }
 
 /**
@@ -93,6 +108,8 @@ function messageOf(error: unknown): string {
 }
 
 function endpointError(name: EndpointName, endpoint: EndpointSettings): FieldError | undefined {
+  // An empty URL is "not configured", not a typing mistake: the tab says so in its Node line and every action refuses with a notice.
+  if (!isSet(endpoint.url) && endpoint.port === undefined) return undefined;
   try {
     composeEndpointUrl(name, endpoint.url, endpoint.port);
     return undefined;

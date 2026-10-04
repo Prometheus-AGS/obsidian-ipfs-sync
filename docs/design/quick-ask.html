@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quick ask · popup and bottom sheet — IPFS Sync concept</title>
+<link rel="stylesheet" href="assets/obsidian-shell.css" />
+<style>
+  body { background: var(--background-secondary); }
+  .stage { min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--size-4-8); align-items: start; padding: var(--size-4-8) var(--size-4-8) var(--size-4-16); }
+  .stage h2 { margin: 0 0 var(--size-4-3); font-size: var(--font-ui-medium); font-weight: var(--font-semibold); }
+  .stage .sub { margin: 0 0 var(--size-4-4); color: var(--text-muted); font-size: var(--font-ui-small); max-width: 60ch; }
+  .desk { position: relative; height: 640px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-l); overflow: hidden; background: var(--background-primary); display: grid; grid-template-columns: var(--ribbon-width) 1fr; }
+  .desk .ob-ribbon { height: 100%; }
+  .desk .ob-main { height: 100%; }
+  .desk .modal-bg, .desk .modal { position: absolute; }
+  .desk .modal { padding: var(--size-4-12) var(--size-4-6); align-items: start; }
+  .desk .modal-bg[data-open="true"] { display: block; }
+  .ipfs-sync-askrow { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius-m); color: var(--text-normal); width: 100%; text-align: left; margin-top: 4px; border: 1px dashed var(--background-modifier-border-hover); }
+  .ipfs-sync-askrow:hover, .ipfs-sync-askrow[aria-selected="true"] { background: var(--background-modifier-hover); }
+  .ipfs-sync-askrow .d { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-left: auto; white-space: nowrap; }
+  .prompt .answer .q { font-size: var(--font-ui-medium); font-weight: var(--font-medium); }
+  .prompt .answer .foot { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--background-modifier-border); padding-top: var(--size-4-3); }
+  .prompt .answer .foot .grow { flex: 1; }
+  .phone .fab-hint { position: absolute; left: 0; right: 0; bottom: 72px; text-align: center; font-size: var(--font-ui-smaller); color: var(--text-muted); pointer-events: none; }
+  @media (max-width: 1100px) { .stage { grid-template-columns: 1fr; } .phone { margin: 0 auto; } }
+</style>
+</head>
+<body class="theme-light">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+</svg>
+
+<div class="stage">
+  <section data-od-id="desktop-quick-ask">
+    <h2>Desktop · Quick ask as a prompt</h2>
+    <p class="sub">Same silhouette as the Quick switcher. Typing searches the index; <kbd>⌘↵</kbd> turns the same popup into a one-shot answer, then hands off to the sidebar. Try typing, then press ⌘↵ or click the "Ask the agent" row.</p>
+    <div class="desk">
+      <nav class="ob-ribbon" aria-label="Ribbon">
+        <button aria-label="Open quick switcher"><svg class="ob-icon"><use href="#i-layers"/></svg></button>
+        <button aria-label="Open graph view"><svg class="ob-icon"><use href="#i-hash"/></svg></button>
+        <button aria-label="Vault agent"><svg class="ob-icon"><use href="#i-chat"/></svg></button>
+        <span class="spacer"></span>
+        <button aria-label="Settings"><svg class="ob-icon"><use href="#i-sliders"/></svg></button>
+      </nav>
+      <main class="ob-main">
+        <div class="ob-tabs"><span class="ob-tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-file"/></svg>Argon2id cost presets</span></div>
+        <article class="ob-editor">
+          <h1>Argon2id cost presets</h1>
+          <p>Default is 64 MiB with 3 iterations. The High preset is 128 MiB with 4. A key slot above the default makes the plugin ask through a cost dialog before unlocking; Cancel is the default answer.</p>
+          <p>A phone may not be able to unlock High. That was not measured, which is why the <a class="internal" href="#">[[Measure key derivation time]]</a> command exists.</p>
+        </article>
+      </main>
+      <div class="modal-bg" data-open="true"></div>
+      <div class="modal" data-open="true" role="dialog" aria-modal="true" aria-label="Quick ask">
+        <div class="prompt" id="prompt" data-od-id="quick-ask-prompt">
+          <div class="prompt-input">
+            <svg class="ob-icon"><use href="#i-search"/></svg>
+            <input id="q" type="text" placeholder="Search by meaning, or ask a question…" aria-label="Search or ask" autocomplete="off" />
+            <span class="ipfs-sync-chip" data-lane="local"><span class="dot"></span>Local</span>
+          </div>
+          <div class="prompt-results" id="q-results" role="listbox" aria-label="Results"></div>
+          <div class="answer" id="q-answer" hidden></div>
+          <div class="prompt-instructions" id="q-help">
+            <span><kbd>↑↓</kbd>navigate</span><span><kbd>↵</kbd>open note</span><span><kbd>⌘ ↵</kbd>ask the agent</span><span><kbd>esc</kbd>close</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section data-od-id="mobile-quick-ask">
+    <h2>Mobile · bottom sheet</h2>
+    <p class="sub">Half height by default, input at the top so the keyboard never covers it. Tap the toolbar's agent button to open; tap the grabber to expand.</p>
+    <div class="phone is-mobile" id="phone" data-sheet="closed" data-od-id="phone-frame">
+      <div class="m-top"><button class="ob-icon-btn" aria-label="Back"><svg class="ob-icon"><use href="#i-back"/></svg></button>Argon2id cost presets<button class="ob-icon-btn r" aria-label="More"><svg class="ob-icon"><use href="#i-more"/></svg></button></div>
+      <div class="m-body">
+        <h1>Argon2id cost presets</h1>
+        <p>Default is 64 MiB with 3 iterations. The High preset is 128 MiB with 4. A key slot above the default makes the plugin ask through a cost dialog before unlocking.</p>
+        <p>A phone may not be able to unlock High. That was not measured.</p>
+      </div>
+      <div class="m-bar">
+        <button class="ob-icon-btn" aria-label="Navigation"><svg class="ob-icon"><use href="#i-menu"/></svg></button>
+        <button class="ob-icon-btn" aria-label="Quick switcher"><svg class="ob-icon"><use href="#i-layers"/></svg></button>
+        <button class="ob-icon-btn" id="open-sheet" aria-label="Quick ask"><svg class="ob-icon"><use href="#i-chat"/></svg></button>
+        <button class="ob-icon-btn" aria-label="Edit"><svg class="ob-icon"><use href="#i-pen"/></svg></button>
+      </div>
+      <div class="fab-hint" id="hint">Tap the agent button below to open quick ask</div>
+      <div class="scrim" id="scrim"></div>
+      <div class="ipfs-sync-sheet" role="dialog" aria-label="Quick ask" data-od-id="bottom-sheet">
+        <button class="grab" id="grab" aria-label="Expand or collapse"></button>
+        <div class="sheet-in">
+          <input id="mq" type="text" placeholder="Search or ask…" aria-label="Search or ask" autocomplete="off" />
+          <button class="ipfs-sync-send" id="m-ask" aria-label="Ask the agent"><svg class="ob-icon"><use href="#i-up"/></svg></button>
+        </div>
+        <div class="sheet-body" id="m-results"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="concept-bar" aria-label="Concept controls">
+  <span class="label">Concept</span>
+  <a href="index.html">Overview</a>
+  <a href="agent-panel.html">Agent chat</a>
+  <a href="rag-chat.html">Notes chat</a>
+  <a href="control-center.html">Control center</a>
+  <button id="theme" aria-pressed="false"><svg class="ob-icon sm"><use href="#i-sun"/></svg>Dark</button>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const icon = (id) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'ob-icon sm'); const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#' + id); s.appendChild(u); return s; };
+  $('#theme').addEventListener('click', (e) => { const dark = !document.body.classList.contains('theme-dark'); document.body.classList.toggle('theme-dark', dark); document.body.classList.toggle('theme-light', !dark); e.currentTarget.setAttribute('aria-pressed', String(dark)); e.currentTarget.lastChild.textContent = dark ? 'Light' : 'Dark'; });
+
+  const notes = [
+    { t: 'Argon2id cost presets', p: 'Security', x: 'Default 64 MiB, 3 iterations. High is 128 MiB, 4. A slot above the default makes the plugin ask through a cost dialog.', k: ['argon2id','cost','memory','phone','preset','unlock','high'] },
+    { t: 'Measure key derivation time', p: 'Security', x: 'Runs one Argon2id derivation at the default cost on random input and shows the seconds, the platform and the longest event-loop gap.', k: ['measure','derivation','seconds','phone','argon2id','cost'] },
+    { t: 'Kubo RPC auth options', p: 'Security', x: 'Bearer token through a reverse proxy, client certificates, or an IP allowlist over Tailscale.', k: ['kubo','auth','bearer','proxy','tailscale','node'] },
+    { t: 'Threat model — open-write node', p: 'Projects/IPFS Sync', x: 'The key-slot file is public and the node is open-write. The passphrase is the only thing between an attacker and every note ever published.', k: ['threat','passphrase','attacker','node','open-write','public'] },
+    { t: 'History pruning policy', p: 'Projects/IPFS Sync', x: 'Keep the newest 200 history entries. Only the CLI prunes.', k: ['history','prune','pruning','cli'] },
+    { t: '2026-09-28 Weekly review', p: 'Journal', x: 'Encrypted pull has not been run inside Obsidian yet. Keep fixture-only until the independent crypto review is done.', k: ['review','pull','fixture','crypto'] },
+  ];
+  const score = (q) => { const terms = q.toLowerCase().split(/\s+/).filter(Boolean); if (!terms.length) return []; return notes.map(n => { let s = 0; terms.forEach(t => { if (n.k.some(k => k.startsWith(t))) s += 0.28; if (n.t.toLowerCase().includes(t)) s += 0.22; if (n.x.toLowerCase().includes(t)) s += 0.1; }); return { n, s: Math.min(0.97, 0.38 + s) }; }).filter(r => r.s > 0.45).sort((a, b) => b.s - a.s); };
+  const highlight = (text, terms) => { const frag = document.createDocumentFragment(); if (!terms.length) { frag.appendChild(document.createTextNode(text)); return frag; } const re = new RegExp('(' + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'ig'); text.split(re).forEach((part, i) => { if (i % 2) frag.appendChild(el('mark', null, part)); else frag.appendChild(document.createTextNode(part)); }); return frag; };
+  const resultRow = (n, s, terms, compact) => { const row = el('div', 'ipfs-sync-result'); row.setAttribute('role', 'option'); row.tabIndex = -1; const t = el('div', 'title'); t.appendChild(el('span', null, n.t)); t.appendChild(el('span', 'pct', Math.round(s * 100) + '%')); row.appendChild(t); row.appendChild(el('div', 'path', n.p)); if (!compact) { const sim = el('div', 'sim'); const b = el('span'); b.style.width = Math.round(s * 100) + '%'; sim.appendChild(b); row.appendChild(sim); } const ex = el('div', 'excerpt'); ex.appendChild(highlight(n.x, terms)); row.appendChild(ex); return row; };
+
+  // desktop prompt
+  const q = $('#q'), res = $('#q-results'), ans = $('#q-answer'), help = $('#q-help'); let sel = 0; let rows = [];
+  const askRow = (text) => { const b = el('button', 'ipfs-sync-askrow'); b.setAttribute('role', 'option'); b.appendChild(icon('i-chat')); b.appendChild(el('span', null, 'Ask the agent: “' + text + '”')); b.appendChild(el('span', 'd', '⌘↵')); b.addEventListener('click', () => answer(text)); return b; };
+  const render = () => { const terms = q.value.toLowerCase().split(/\s+/).filter(Boolean); res.replaceChildren(); rows = []; if (!terms.length) { res.appendChild(el('p', 'ipfs-sync-empty', 'Recent: Argon2id cost presets · History pruning policy · 2026-09-28 Weekly review')).style.cssText = 'padding:16px;color:var(--text-muted);font-size:13px;'; return; } score(q.value).slice(0, 5).forEach(({ n, s }) => { const r = resultRow(n, s, terms, true); r.addEventListener('click', () => open(n)); res.appendChild(r); rows.push(r); }); const a = askRow(q.value); res.appendChild(a); rows.push(a); sel = Math.min(sel, rows.length - 1); paint(); };
+  const paint = () => rows.forEach((r, i) => r.setAttribute('aria-selected', String(i === sel)));
+  const open = (n) => { q.value = ''; render(); const p = el('p', 'ipfs-sync-empty', 'Opened “' + n.t + '” in the editor (prototype).'); p.style.cssText = 'padding:16px;color:var(--text-muted);font-size:13px;'; res.replaceChildren(p); };
+  q.addEventListener('input', () => { sel = 0; render(); });
+  q.addEventListener('keydown', (e) => { if (ans.hidden === false) { if (e.key === 'Escape') { reset(); } return; } if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(sel + 1, rows.length - 1); paint(); } else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(sel - 1, 0); paint(); } else if (e.key === 'Enter') { e.preventDefault(); if ((e.metaKey || e.ctrlKey) && q.value.trim()) answer(q.value.trim()); else if (rows[sel]) rows[sel].click(); } });
+  const reset = () => { ans.hidden = true; ans.replaceChildren(); res.hidden = false; help.hidden = false; q.value = ''; q.disabled = false; render(); q.focus(); };
+  let timers = [];
+  const answer = (text) => {
+    res.hidden = true; help.hidden = true; ans.hidden = false; q.disabled = true; ans.replaceChildren();
+    ans.appendChild(el('div', 'q', text));
+    const lane = el('div', 'ipfs-sync-row'); const chip = el('span', 'ipfs-sync-chip'); chip.dataset.lane = 'local'; chip.appendChild(el('span', 'dot')); chip.appendChild(document.createTextNode('Local · vault-librarian')); lane.appendChild(chip); lane.appendChild(el('span', 'ipfs-sync-note', 'scope: whole vault')); ans.appendChild(lane);
+    const md = el('div', 'ipfs-sync-md'); const p = el('p'); md.appendChild(p); ans.appendChild(md); const caret = el('span', 'ipfs-sync-caret'); p.appendChild(caret);
+    const words = 'The default is 64 MiB with 3 iterations; the High preset is 128 MiB with 4. Anything above the default makes the plugin ask before unlocking, and whether a phone can unlock High has not been measured, which is what the Measure key derivation time command is for.'.split(' ');
+    let i = 0; const tick = () => { if (i < words.length) { caret.before(document.createTextNode((i ? ' ' : '') + words[i++])); timers.push(setTimeout(tick, 30 + Math.random() * 40)); } else { caret.remove(); ['1', '2'].forEach(n => { const s = el('sup'); const a = el('a', null, n); a.href = '#'; a.addEventListener('click', (e) => e.preventDefault()); s.appendChild(a); p.appendChild(s); }); const src = el('div', 'ipfs-sync-sources'); [['1', 'Argon2id cost presets', 'Security'], ['2', 'Measure key derivation time', 'Security']].forEach(([n, t, pth]) => { const a = el('a', 'ipfs-sync-source'); a.href = '#'; a.draggable = true; a.appendChild(el('span', 'n', n)); a.appendChild(el('span', null, t)); a.appendChild(el('span', 'p', pth)); a.addEventListener('click', (e) => e.preventDefault()); src.appendChild(a); }); ans.appendChild(src); const foot = el('div', 'foot'); foot.appendChild(el('span', 'ipfs-sync-note', 'One question per popup. Follow-ups continue in the sidebar.')); foot.appendChild(el('span', 'grow')); const back = el('button', 'ob-btn', 'New search'); back.addEventListener('click', reset); const cont = el('a', 'ob-btn cta', 'Continue in panel'); cont.href = 'agent-panel.html'; foot.appendChild(back); foot.appendChild(cont); ans.appendChild(foot); } }; tick();
+  };
+  q.value = 'argon2id phone'; render(); q.focus();
+
+  // mobile sheet
+  const phone = $('#phone'), mq = $('#mq'), mres = $('#m-results');
+  const setSheet = (s) => { phone.dataset.sheet = s; $('#hint').style.display = s === 'closed' ? '' : 'none'; if (s !== 'closed') mq.focus(); };
+  $('#open-sheet').addEventListener('click', () => setSheet('half'));
+  $('#scrim').addEventListener('click', () => setSheet('closed'));
+  $('#grab').addEventListener('click', () => setSheet(phone.dataset.sheet === 'full' ? 'half' : 'full'));
+  const mrender = () => { const terms = mq.value.toLowerCase().split(/\s+/).filter(Boolean); mres.replaceChildren(); if (!terms.length) { const p = el('p', null, 'Search by meaning across 1,204 embedded notes, or ask a question and tap the arrow.'); p.style.cssText = 'padding:8px 12px;color:var(--text-muted);font-size:13px;'; mres.appendChild(p); return; } score(mq.value).slice(0, 4).forEach(({ n, s }) => { const r = resultRow(n, s, terms, false); mres.appendChild(r); }); };
+  mq.addEventListener('input', mrender); mrender();
+  $('#m-ask').addEventListener('click', () => { if (!mq.value.trim()) return; setSheet('full'); mres.replaceChildren(); const md = el('div', 'ipfs-sync-md'); md.style.padding = '8px 12px'; const qq = el('p'); qq.style.fontWeight = '500'; qq.textContent = mq.value; md.appendChild(qq); const chip = el('span', 'ipfs-sync-chip'); chip.dataset.lane = 'offline'; chip.appendChild(el('span', 'dot')); chip.appendChild(document.createTextNode('Offline · local only')); md.appendChild(chip); const p = el('p'); p.style.marginTop = '10px'; md.appendChild(p); const caret = el('span', 'ipfs-sync-caret'); p.appendChild(caret); const words = 'Default is 64 MiB with 3 iterations and High is 128 MiB with 4. Whether this phone can unlock High has not been measured; run Measure key derivation time first.'.split(' '); let i = 0; const tick = () => { if (i < words.length) { caret.before(document.createTextNode((i ? ' ' : '') + words[i++])); setTimeout(tick, 35); } else { caret.remove(); const a = el('a', 'ob-btn cta', 'Continue in panel'); a.href = 'agent-panel.html'; a.style.cssText = 'display:inline-flex;margin-top:12px;'; md.appendChild(a); } }; tick(); mres.appendChild(md); });
+})();
+</script>
+</body>
+</html>

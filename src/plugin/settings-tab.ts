@@ -27,6 +27,10 @@ import { StaleLockSection, type StaleLockSource } from "./settings-tab-lock";
 import { PullSections } from "./settings-tab-pull";
 import { errorKeyOf, type EditableFieldId, type SettingsViewModel, type SettingsViewState } from "./settings-view-model";
 
+const NODE_STATUS_ID = "ipfs-sync-node-status";
+const NODE_WARNING_ID = "ipfs-sync-node-warning";
+const NODE_LABEL = "Node";
+const WARNING_PREFIX = "Warning";
 const SECRETS_NOTE_ID = "ipfs-sync-secrets-warning";
 const FIXTURE_NOTE_ID = "ipfs-sync-fixture-notice";
 
@@ -49,6 +53,8 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
   private readonly staleLock: StaleLockSection | undefined;
   private authFieldsEl: HTMLElement | undefined;
   private authStatusEl: HTMLElement | undefined;
+  private nodeStatusEl: HTMLElement | undefined;
+  private nodeWarningEl: HTMLElement | undefined;
   private schemeSelect: HTMLSelectElement | undefined;
   private readonly ctx: FieldContext;
 
@@ -99,6 +105,8 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
 
   private renderEndpoints(root: HTMLElement): void {
     const section = addSection(root, "ipfs-sync-section-endpoints", SECTIONS.endpoints);
+    this.nodeStatusEl = liveRegion(section, NODE_STATUS_ID);
+    this.nodeWarningEl = liveRegion(section, NODE_WARNING_ID);
     for (const field of ["rpcUrl", "rpcPort", "gatewayUrl", "gatewayPort"] as const) addTextField(section, field, this.ctx);
   }
 
@@ -143,6 +151,8 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
   private applyState(state: SettingsViewState): void {
     this.slots.showAll(state.errors);
     this.pull.update(state);
+    this.nodeStatusEl?.setText(`${NODE_LABEL}: ${state.node.summary}${state.node.explanation === "" ? "" : `. ${state.node.explanation}`}`);
+    this.nodeWarningEl?.setText(state.node.retiredWarning === undefined ? "" : `${WARNING_PREFIX}: ${state.node.retiredWarning}`);
     const status = this.authStatusEl;
     if (status === undefined) return;
     const lines = state.warnings.map((warning) => `Warning: ${warning}`);

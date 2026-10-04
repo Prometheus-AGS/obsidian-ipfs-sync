@@ -21,7 +21,7 @@ export interface FieldCopy {
 export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   rpcUrl: {
     name: "RPC URL",
-    desc: "The kubo RPC endpoint the plugin publishes through.",
+    desc: "The kubo RPC endpoint the plugin publishes through. There is no default node: set your own.",
     placeholder: "https://ipfs.example.org",
     wide: true,
   },
@@ -33,7 +33,7 @@ export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   },
   gatewayUrl: {
     name: "Gateway URL",
-    desc: "The kubo gateway endpoint. It can differ from the RPC endpoint in host, port and scheme.",
+    desc: "The kubo gateway endpoint. It can differ from the RPC endpoint in host, port and scheme, and it is never derived from the RPC URL.",
     placeholder: "https://gateway.example.org",
     wide: true,
   },

@@ -10,7 +10,7 @@ import type { KeyDialogOutcome } from "../../src/plugin/key-dialog-shared";
 import type { HeldLock, KeyPorts } from "../../src/plugin/key-ports";
 import type { PruneHistoryDialogRequest } from "../../src/plugin/prune-history-dialog";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
 import { busyNotice, createSyncLock } from "../../src/plugin/sync-lock";
 import { sha256Hex } from "../../src/sync/hash";
@@ -62,7 +62,7 @@ const spy = <T extends (...args: never[]) => unknown>(implementation: T) => vi.f
 
 function store(): SettingsStore {
   const port: PluginDataPort = { loadData: async () => null, saveData: async () => undefined };
-  return createSettingsStore(port, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: ROOT, publicationKey: KEY } });
+  return createSettingsStore(port, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: ROOT, publicationKey: KEY } });
 }
 
 interface Opened {

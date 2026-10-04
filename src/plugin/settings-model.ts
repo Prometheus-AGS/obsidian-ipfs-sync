@@ -1,4 +1,4 @@
-import { DEFAULT_GATEWAY_URL, DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, DEFAULT_RPC_URL, type AuthScheme } from "../core/config";
+import { DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, type AuthScheme } from "../core/config";
 import { PULL_CONFIRM_ABOVE_DEFAULT } from "../sync/pull-budget";
 import { DEFAULT_MAX_READ_MB } from "./read-cap";
 
@@ -90,6 +90,8 @@ export interface PluginSettings {
   readonly maxReadMb: number;
   /** A pull that fetches more than this many megabytes asks first (64 to 8192, default 512). Older stored data loads with the default. */
   readonly pullConfirmAboveMb: number;
+  /** Set once the one-time "this node is the maintainer's own and is open to anyone" notice was shown. Absent means not shown yet. */
+  readonly retiredDefaultNoticeShown?: boolean;
   readonly lastPull?: PullSummary;
   readonly lastPublish?: PublishSummary;
   /** Values of the key-value capability, base64. Kept in the same file as the settings. */
@@ -104,8 +106,9 @@ export interface PluginSettings {
 export function defaultSettings(): PluginSettings {
   return {
     version: SETTINGS_VERSION,
-    rpc: { url: DEFAULT_RPC_URL },
-    gateway: { url: DEFAULT_GATEWAY_URL },
+    // No node is a default: an empty URL means "not configured", and every action refuses until the operator sets one.
+    rpc: { url: "" },
+    gateway: { url: "" },
     publicationKey: DEFAULT_PUBLICATION_KEY,
     mfsRoot: DEFAULT_MFS_ROOT,
     auth: { scheme: "none" },

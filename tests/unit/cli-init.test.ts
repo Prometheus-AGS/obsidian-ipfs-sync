@@ -8,7 +8,7 @@ import { runCli, type CliDeps } from "../../cli/run";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { canonicalizePassphraseText } from "../../src/crypto";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
-import { stateEnv } from "../helpers/cli-state-env";
+import { NODE_ENV, stateEnv } from "../helpers/cli-state-env";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { createFakeTerminal, type FakeTerminal } from "../helpers/fake-terminal";
 import { OTHER_PASSPHRASE } from "../vectors/slot-helpers";
@@ -68,10 +68,10 @@ describe("ipfs-sync init", () => {
   });
 
   const deps = (overrides: Partial<CliDeps> = {}): CliDeps => ({
-    env: {},
     now: () => new Date("2026-09-30T12:00:00Z"),
     readText: readTextIfPresent,
     ...overrides,
+    env: { ...NODE_ENV, ...overrides.env },
   });
   const init = async (extra: string[] = [], overrides: Partial<CliDeps> = {}) => {
     const s = sink();

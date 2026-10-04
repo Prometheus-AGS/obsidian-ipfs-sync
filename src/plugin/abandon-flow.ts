@@ -7,7 +7,7 @@ import type { VaultAdapter } from "./obsidian-fs";
 import type { SessionKeys } from "./session-keys";
 import { describeDialogError } from "./session-dialogs";
 import type { SettingsStore } from "./settings-store";
-import { settingsToConfig } from "./settings-to-config";
+import { settingsToLocalConfig } from "./settings-to-config";
 import { busyNotice, type SyncLock } from "./sync-lock";
 
 /**
@@ -55,7 +55,7 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
     const release = deps.lock.tryAcquire("abandon");
     if (release === undefined) return { ok: false, reason: busyNotice(deps.lock.holder()) };
     try {
-      const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToConfig(deps.store.get(), deps.now()).mfsRoot));
+      const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToLocalConfig(deps.store.get()).mfsRoot));
       const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
       const { backupDir, moved, floor } = await abandonVault({
         fs,

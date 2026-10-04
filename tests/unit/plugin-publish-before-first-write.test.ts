@@ -5,7 +5,7 @@ import { base64ToBytes } from "../../src/plugin/base64";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import { createPublishRunner } from "../../src/plugin/publish-runner";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type SettingsStore } from "../../src/plugin/settings-store";
 import { encodeLock } from "../../src/sync/publish-lock";
 import type { PublishClient } from "../../src/sync/publish";
@@ -41,7 +41,7 @@ async function rig(makeAdapter: (store: () => SettingsStore) => MemoryAdapter = 
   adapter.put(".ipfs-sync-fixture", "fixture\n");
   adapter.put("notes/hello.md", "hello", 1000);
   const node = createFakeNode();
-  store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: MFS_ROOT } });
+  store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT } });
   await initVault(createObsidianHostBridge({ adapter }).fs, node, MFS_ROOT);
   node.calls.length = 0;
   const keys = sessionRig({ store, adapter, createClient: () => node.client });

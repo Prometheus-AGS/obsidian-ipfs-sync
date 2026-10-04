@@ -3,6 +3,10 @@ import { PULL_SCOPE_HELP } from "../src/sync/pull-guard";
 
 export const HELP_TEXT = `ipfs-sync - vault sync over your own kubo node
 
+There is no default node. Every command needs the RPC URL and the gateway URL of a kubo node you run or trust:
+set them with --rpc-url and --gateway-url, with IPFS_SYNC_RPC_URL and IPFS_SYNC_GATEWAY_URL, or with the "rpc.url" and
+"gateway.url" keys of the config file. A command run without them exits with code 2 and sends no request.
+
 Usage:
   ipfs-sync status [options]
   ipfs-sync init <vault> [--passphrase-file <path>] [options]
@@ -116,9 +120,9 @@ Commands:
 Options:
   --config <path>         Config file (default ./ipfs-sync.config.json if present). Endpoints and
                           non-secret fields only; secrets are rejected.
-  --rpc-url <url>         RPC (write) endpoint.
+  --rpc-url <url>         RPC (write) endpoint. Required (no default node).
   --rpc-port <port>       RPC port, applied to --rpc-url.
-  --gateway-url <url>     Gateway (read) endpoint.
+  --gateway-url <url>     Gateway (read) endpoint. Required (no default node; it is not derived from the RPC URL).
   --gateway-port <port>   Gateway port, applied to --gateway-url.
   --mfs-root <path>       MFS root; must be /obsidian-vault-sync or below it (default /obsidian-vault-sync/default).
                           publish needs a root strictly below /obsidian-vault-sync.

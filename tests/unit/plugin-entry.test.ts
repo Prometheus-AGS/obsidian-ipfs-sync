@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import * as entry from "../../src/main";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { App as StubApp, Notice, requestUrlCalls, resetRequestUrl, type Plugin as StubPlugin } from "../support/obsidian-stub";
@@ -80,7 +80,7 @@ describe("plugin entry", () => {
   it("arms the timer from the stored interval and explains a refusal at most once per session", async () => {
     const setInterval = vi.fn(() => 7);
     vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });
-    const { stub } = await loadPlugin({ ...defaultSettings(), publishIntervalMinutes: 5 });
+    const { stub } = await loadPlugin({ ...testNodeSettings(), publishIntervalMinutes: 5 });
     expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 5 * 60_000);
     expect(stub.intervals).toEqual([7]);
 
@@ -103,7 +103,7 @@ describe("plugin entry", () => {
   });
 
   it("shows the status without contacting the node when the settings are invalid", async () => {
-    const { plugin } = await loadPlugin({ ...defaultSettings(), mfsRoot: "/obsidian-vault-staging" });
+    const { plugin } = await loadPlugin({ ...testNodeSettings(), mfsRoot: "/obsidian-vault-staging" });
     await plugin.showStatus();
     const message = Notice.shown.at(-1)?.message ?? "";
     expect(message).toContain("unknown");

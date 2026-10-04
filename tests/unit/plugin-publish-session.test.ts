@@ -6,7 +6,8 @@ import { createPublishRunner, type PublishOutcome, type PublishRunner } from "..
 import { createPluginLockContext } from "../../src/plugin/adapter-lock-file";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
+import type { PluginSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
 import { decodeManifestFile, serializeManifestV2 } from "../../src/sync/encrypted-manifest";
 import { readJournal } from "../../src/sync/journal";
@@ -84,7 +85,7 @@ async function rig(options: RigOptions = {}): Promise<Rig> {
   adapter.put("notes/world.md", "world", 1000);
   const node = createFakeNode();
   const data = port();
-  const store = createSettingsStore(data, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: MFS_ROOT, ...options.settings } });
+  const store = createSettingsStore(data, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT, ...options.settings } });
   if (options.vault === true) await initVault(createObsidianHostBridge({ adapter }).fs, node, MFS_ROOT);
   const hooks = { client: (client: PublishClient): PublishClient => client };
   const heartbeats: (() => void)[] = [];

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../../cli/io";
 import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
+import { NODE_ENV } from "../helpers/cli-state-env";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { ManifestFormatError } from "../../src/sync/encrypted-manifest";
 import { createFakeNode } from "../helpers/fake-kubo";
@@ -42,7 +43,7 @@ describe("ipfs-sync keys: an authentic manifest this build refuses to read (1.4 
   it("fails closed with its own words, not the publisher's 'newer or incompatible version', and says what it blocks", async () => {
     const err: string[] = [];
     const io: CliIo = { out: () => undefined, err: (t) => void err.push(t) };
-    const deps: CliDeps = { env: {}, now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource };
+    const deps: CliDeps = { env: { ...NODE_ENV }, now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource };
     const code = await runCli(["keys", "increase-cost", vault, "--config", configPath, "--mfs-root", "/obsidian-vault-sync/keys-format-test", "--cost", "standard", "--accept-no-revocation"], deps, io);
     expect(code).toBe(1);
     const text = err.join("\n");

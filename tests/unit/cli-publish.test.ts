@@ -9,7 +9,7 @@ import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { initDiskVault, referencePassphraseSource } from "../helpers/cli-vault";
-import { stateEnv } from "../helpers/cli-state-env";
+import { NODE_ENV, stateEnv } from "../helpers/cli-state-env";
 
 const MUTATING = ["files/write", "files/rm", "key/gen", "pin/add", "name/publish"];
 const MFS_ROOT = "/obsidian-vault-sync/cli-test";
@@ -90,7 +90,7 @@ describe("ipfs-sync publish", () => {
 
   it("mvp-07a 1.2: the manifest device is <label>-<12 hex of the stored device id>, stable across runs, in a 0700 per-user directory", async () => {
     const state = join(dir, "xdg");
-    const env = { XDG_STATE_HOME: state, IPFS_SYNC_DEVICE: "box" };
+    const env = { ...NODE_ENV, XDG_STATE_HOME: state, IPFS_SYNC_DEVICE: "box" };
     expect((await publish([], { env })).code).toBe(0);
     const id = (await readFile(join(state, "ipfs-sync", "device-id"), "utf8")).trim();
     expect(id).toMatch(/^[0-9a-f]{32}$/);
@@ -109,12 +109,12 @@ describe("ipfs-sync publish", () => {
   it("mvp-07a 1.2: a run that is refused before a manifest is built does not create the per-user directory", async () => {
     const state = join(dir, "xdg-refused");
     const s = sink();
-    expect(await runCli(["publish", vault, "--config", configPath, "--mfs-root", "/obsidian-vault-staging"], deps({ env: { XDG_STATE_HOME: state } }), s.io)).toBe(2);
+    expect(await runCli(["publish", vault, "--config", configPath, "--mfs-root", "/obsidian-vault-staging"], deps({ env: { ...NODE_ENV, XDG_STATE_HOME: state } }), s.io)).toBe(2);
     expect(await stat(state).catch(() => undefined)).toBeUndefined();
   });
 
   it("mvp-07a 1.2: an environment that names no per-user directory fails the publish with a message, writing nothing to the node", async () => {
-    const result = await publish([], { env: {} });
+    const result = await publish([], { env: { ...NODE_ENV } });
     expect(result.code).toBe(1);
     expect(result.err).toContain("per-user state directory");
     expect(mutating()).toEqual([]);

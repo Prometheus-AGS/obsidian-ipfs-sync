@@ -5,6 +5,7 @@ import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
 import { rootFileNames } from "../../src/sync/root-files";
 import { MFS_ROOT, NOW, type CliPullRig, type CliResult } from "./cli-pull-rig";
+import { NODE_ENV } from "./cli-state-env";
 import { referencePassphraseSource } from "./cli-vault";
 import { restoreNode, snapshotNode, type FakeNode } from "./fake-kubo";
 import { fakeNodeFetch } from "./fake-kubo-http";
@@ -20,7 +21,7 @@ function sink(): { io: CliIo; out: string[]; err: string[] } {
   return { io: { out: (text) => void out.push(text), err: (text) => void err.push(text) }, out, err };
 }
 
-const depsOf = (env: Record<string, string>): CliDeps => ({ env, now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource });
+const depsOf = (env: Record<string, string>): CliDeps => ({ env: { ...NODE_ENV, ...env }, now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource });
 
 /** Device B's configuration file: it owns the publication key (the documented onboarding step). */
 async function configOfB(rig: CliPullRig): Promise<string> {

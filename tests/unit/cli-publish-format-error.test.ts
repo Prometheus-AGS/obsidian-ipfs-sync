@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../../cli/io";
 import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
+import { NODE_ENV } from "../helpers/cli-state-env";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { ManifestFormatError } from "../../src/sync/encrypted-manifest";
 import { createFakeNode } from "../helpers/fake-kubo";
@@ -41,7 +42,7 @@ describe("ipfs-sync publish: an authentic manifest this build does not recognise
   it("exits 1 with a clear update message instead of a stack trace", async () => {
     const err: string[] = [];
     const io: CliIo = { out: () => undefined, err: (t) => void err.push(t) };
-    const deps: CliDeps = { env: {}, now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource };
+    const deps: CliDeps = { env: { ...NODE_ENV }, now: () => NOW, readText: readTextIfPresent, passphrase: referencePassphraseSource };
     const code = await runCli(["publish", vault, "--config", configPath, "--mfs-root", "/obsidian-vault-sync/format-test"], deps, io);
     expect(code).toBe(1);
     const text = err.join("\n");
