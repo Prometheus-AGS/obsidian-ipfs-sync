@@ -26,6 +26,7 @@ import { requestUrlTransport } from "./request-url-transport";
 import { createStaleLockControl } from "./stale-lock";
 import { createStaleLockFlow, type StaleLockFlow } from "./stale-lock-flow";
 import { openSettingsStore, type SettingsStore } from "./settings-store";
+import { retiredDefaultNotice } from "./node-status";
 import { settingsToConfig } from "./settings-to-config";
 import { createSettingsViewModel as buildSettingsViewModel, type SettingsViewModel } from "./settings-view-model";
 import { collectStatus, formatStatus } from "./sync-status";
@@ -74,6 +75,7 @@ export default class IpfsSyncPlugin extends Plugin {
     const { store, load } = await openSettingsStore(this);
     this.store = store;
     for (const message of load.notices) new Notice(message, NOTICE_MS);
+    await this.warnAboutRetiredDefault();
     const adapter = this.app.vault.adapter;
     const lock = createSyncLock();
     this.syncLock = lock;
@@ -205,6 +207,17 @@ export default class IpfsSyncPlugin extends Plugin {
         new Notice(`IPFS Sync: could not clean up temporary files: ${error instanceof Error ? error.message : "unknown error"}`, NOTICE_MS);
       });
     });
+  }
+
+  /**
+   * A saved 0.2.0 setting equal to the retired default host is an explicit value and stays. Once, tell the operator that node is the
+   * maintainer's own and open to anyone. If recording "shown" fails the notice simply comes back at the next load.
+   */
+  private async warnAboutRetiredDefault(): Promise<void> {
+    const text = retiredDefaultNotice(this.store.get());
+    if (text === undefined) return;
+    new Notice(text, NOTICE_MS);
+    await this.store.update((settings) => ({ ...settings, retiredDefaultNoticeShown: true })).catch(() => undefined);
   }
 
   /** Lock the session and close its dialogs when the plugin unloads: no key outlives the plugin. */

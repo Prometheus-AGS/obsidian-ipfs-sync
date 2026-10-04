@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { requestUrlTransport } from "../../src/plugin/request-url-transport";
 import { createSessionKeys, type DialogCallbacks, type UnlockingEvent } from "../../src/plugin/session-keys";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore } from "../../src/plugin/settings-store";
 import { createVaultOpener, createVaultProbe } from "../../src/plugin/vault-opener";
 import type { PublishClient } from "../../src/sync/publish";
@@ -20,7 +20,7 @@ function setupRig(onEvent?: (event: UnlockingEvent) => void) {
   const adapter = new MemoryAdapter();
   adapter.put(".ipfs-sync-fixture", "fixture\n");
   const node = createFakeNode();
-  const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: MFS_ROOT } });
+  const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT } });
   const now = (): Date => new Date(1_800_000_000_000);
   const dialogs: DialogCallbacks = {
     unlock: async () => undefined,

@@ -6,4 +6,5 @@ export * from "./errors";
 export * from "./jwt";
 export * from "./layers";
 export * from "./node-safety";
+export * from "./retired-default-hosts";
 export type * from "./types";

@@ -9,7 +9,7 @@ import { HELP_TEXT } from "./help-text";
 import { runInit } from "./init-command";
 import { EXIT_OK, EXIT_USAGE, type CliIo } from "./io";
 import { KEYS_SUBCOMMANDS, runKeys, type KeysSubcommand } from "./keys-command";
-import { DEFAULT_CONFIG_PATH, loadSyncConfig, type ConfigDeps } from "./load-config";
+import { DEFAULT_CONFIG_PATH, loadLocalConfig, loadSyncConfig, type ConfigDeps } from "./load-config";
 import { readVaultPassphrase, type FileHost, type PromptTerminal } from "./passphrase-input";
 import { runPrune } from "./prune-command";
 import { runPublish } from "./publish-command";
@@ -163,13 +163,14 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
   checkDiscardFlags(args);
   checkKeysFlags(args);
   checkPruneFlags(args);
+  if (args.command === "abandon" && vaultPath !== undefined) {
+    // Local only, and the escape hatch for a node that is gone: no RPC or gateway URL is needed, no client is created, no request can be sent.
+    const local = await loadLocalConfig(args, deps);
+    return await runAbandon({ config: local, io, vaultPath, env: deps.env, now: deps.now, yesAbandon: args.yesAbandon });
+  }
   // Configuration is validated in full before the first request can be sent.
   const config = await loadSyncConfig(args, deps, { configMayBeMissing: args.command === "publish" || args.command === "keys" || args.command === "prune-history" });
   for (const warning of config.warnings) io.err(`warning: ${warning}`);
-  if (args.command === "abandon" && vaultPath !== undefined) {
-    // Local only: no client is created, so no request can be sent to the node.
-    return await runAbandon({ config, io, vaultPath, env: deps.env, now: deps.now, yesAbandon: args.yesAbandon });
-  }
   const client = createKuboClient({ rpc: config.rpc, gateway: config.gateway });
   const restore = args.showRequest ? installRequestTrace(config, io) : undefined;
   try {

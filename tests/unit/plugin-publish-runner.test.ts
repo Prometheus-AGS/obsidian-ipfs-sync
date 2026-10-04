@@ -6,7 +6,8 @@ import { createNodeHostBridge } from "../../cli/node-host-bridge";
 import { createSyncEventBus } from "../../src/core/events";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
+import type { PluginSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
 import { createPublishRunner, type PublishOutcome, type PublishRunner } from "../../src/plugin/publish-runner";
 import { createSyncLock } from "../../src/plugin/sync-lock";
@@ -39,7 +40,7 @@ function storeWith(patch: Partial<PluginSettings> = {}, failSave = false): Setti
   const initial = loadSettings(null);
   return createSettingsStore(port(failSave), {
     ...initial,
-    settings: { ...defaultSettings(), mfsRoot: MFS_ROOT, auth: { scheme: "bearer", token: SECRET }, ...patch },
+    settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT, auth: { scheme: "bearer", token: SECRET }, ...patch },
   });
 }
 

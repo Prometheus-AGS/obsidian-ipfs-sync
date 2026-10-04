@@ -5,11 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../../cli/io";
 import { readTextIfPresent, type ConfigDeps } from "../../cli/load-config";
 import { runCli } from "../../cli/run";
+import { NODE_ENV } from "../helpers/cli-state-env";
 import { FIXTURE_MARKER } from "../../src/sync/fixture-constants";
 import { createSyncEventBus } from "../../src/core/events";
 import { createPublishRunner } from "../../src/plugin/publish-runner";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore } from "../../src/plugin/settings-store";
 import { assertPublishMarker, readMarkerState } from "../../src/sync/publish-guard";
 import { publishVault } from "../../src/sync/publish";
@@ -162,7 +163,7 @@ describe("publish marker: plugin runner", () => {
     const data = { value: null as unknown };
     const store = createSettingsStore(
       { loadData: async () => data.value, saveData: async (next) => void (data.value = structuredClone(next)) },
-      { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: MFS_ROOT } },
+      { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT } },
     );
     const runner = createPublishRunner({ store, adapter, bus: createSyncEventBus(), createClient: () => node.client, session: sessionRig({ store, adapter, createClient: () => node.client }).session, now: () => new Date(1_800_000_000_000) });
     return { node, runner, init: () => initVault(createObsidianHostBridge({ adapter }).fs, node, MFS_ROOT) };
@@ -209,7 +210,7 @@ describe("publish marker: CLI", () => {
     const out: string[] = [];
     const err: string[] = [];
     const io: CliIo = { out: (t) => void out.push(t), err: (t) => void err.push(t) };
-    const deps: ConfigDeps = { env, now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent };
+    const deps: ConfigDeps = { env: { ...NODE_ENV, ...env }, now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent };
     const code = await runCli(["publish", vault, "--config", join(dir, "cfg.json"), "--mfs-root", MFS_ROOT], deps, io);
     return { code, err: err.join("\n") };
   }

@@ -2,6 +2,7 @@ import type { AuthScheme } from "../core/config";
 import type { NodeKey } from "../kubo";
 import { DEFAULT_EXCLUSIONS, effectiveExclusions, excludesHash } from "../sync/exclusions";
 import { createKeyAdoption, type KeyAdoption } from "./key-adoption";
+import { describeNode, type NodeStatus } from "./node-status";
 import { previewPullTarget, type PullTargetPreview } from "./pull-target";
 import { describePublish, describePull, describePullTarget, type ActivityView } from "./settings-activity";
 import {
@@ -39,6 +40,8 @@ export interface SettingsViewState {
   readonly warnings: readonly string[];
   /** True while a scheme switch or auth edit is incomplete and has not been saved. */
   readonly authPending: boolean;
+  /** Whether a node is set ("Not configured" with an explanation when not) and the retired-default warning, from what is stored. */
+  readonly node: NodeStatus;
   /** The "name that will be pulled" line, from what is stored: the entered name, the owned key's ID, or a note that none is available. */
   readonly pullTarget: string;
   /** The same preview as data: the tab shows which of the two target kinds is in effect (an `explicit-root` gets the advanced-input note, copy in task 5.2). */
@@ -131,6 +134,7 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       errors,
       warnings: stored().warnings,
       authPending,
+      node: describeNode(settings),
       pullTarget: describePullTarget(previewPullTarget(settings)),
       pullTargetPreview: previewPullTarget(settings),
       pullCeilingMb: settings.pullConfirmAboveMb,

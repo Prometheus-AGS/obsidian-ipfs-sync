@@ -15,6 +15,9 @@ import {
 
 const NOW = new Date("2026-09-29T12:00:00Z");
 
+/** No node is a default, so a test that resolves a whole config names one. */
+const NODE = { rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } };
+
 function jwt(claims: Record<string, unknown>): string {
   const enc = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
   return `${enc({ alg: "HS256", typ: "JWT" })}.${enc(claims)}.sig`;
@@ -135,26 +138,27 @@ describe("JWT expiry warning", () => {
 describe("secret resolution and precedence", () => {
   it("reads auth secrets from IPFS_SYNC_AUTH_* env", () => {
     const layer = envLayer({ IPFS_SYNC_AUTH_SCHEME: "basic", IPFS_SYNC_AUTH_USER: "u", IPFS_SYNC_AUTH_PASSWORD: "p" });
-    const config = resolveSyncConfig([layer], NOW);
+    const config = resolveSyncConfig([NODE, layer], NOW);
     expect(config.rpc.auth).toEqual({ kind: "basic", user: "u", password: "p" });
     expect(config.gateway.auth).toBe(config.rpc.auth);
   });
 
   it("flags beat env, env beats file, file beats defaults", () => {
-    const file = parseConfigFile(JSON.stringify({ rpc: { url: "https://file.example" }, publicationKey: "obsidian-vault-file" }));
+    const file = parseConfigFile(JSON.stringify({ rpc: { url: "https://file.example" }, gateway: { url: "https://gw.example" }, publicationKey: "obsidian-vault-file" }));
     const env = envLayer({ IPFS_SYNC_RPC_URL: "https://env.example", IPFS_SYNC_KEY: "obsidian-vault-env" });
     const flags = { rpc: { url: "https://flag.example" } };
     const config = resolveSyncConfig([file, env, flags], NOW);
     expect(config.rpc.baseUrl).toBe("https://flag.example");
     expect(config.publicationKey).toBe("obsidian-vault-env");
-    expect(config.gateway.baseUrl).toBe("https://ipfs.prometheusags.ai");
+    // No node is a default: the gateway comes from a layer, never from the RPC URL or a built-in host.
+    expect(config.gateway.baseUrl).toBe("https://gw.example");
     expect(config.mfsRoot).toBe("/obsidian-vault-sync/default");
   });
 
   it("merges auth field by field across layers", () => {
     const file = parseConfigFile(JSON.stringify({ auth: { scheme: "basic", user: "u" } }));
     const env = envLayer({ IPFS_SYNC_AUTH_PASSWORD: "p" });
-    expect(resolveSyncConfig([file, env], NOW).rpc.auth).toEqual({ kind: "basic", user: "u", password: "p" });
+    expect(resolveSyncConfig([NODE, file, env], NOW).rpc.auth).toEqual({ kind: "basic", user: "u", password: "p" });
   });
 
   it("lets an endpoint override the global auth", () => {
@@ -163,7 +167,7 @@ describe("secret resolution and precedence", () => {
       IPFS_SYNC_AUTH_TOKEN: "t",
       IPFS_SYNC_GATEWAY_AUTH_SCHEME: "none",
     });
-    const config = resolveSyncConfig([env], NOW);
+    const config = resolveSyncConfig([NODE, env], NOW);
     expect(config.rpc.auth).toEqual({ kind: "bearer", token: "t" });
     expect(config.gateway.auth).toEqual({ kind: "none" });
   });
@@ -178,13 +182,13 @@ describe("secret resolution and precedence", () => {
   });
 
   it("does not inherit a lower layer's port when a higher layer sets only a URL", () => {
-    const config = resolveSyncConfig([{ rpc: { url: "https://a.example", port: 5001 } }, { rpc: { url: "https://b.example" } }], NOW);
+    const config = resolveSyncConfig([NODE, { rpc: { url: "https://a.example", port: 5001 } }, { rpc: { url: "https://b.example" } }], NOW);
     expect(config.rpc.baseUrl).toBe("https://b.example");
   });
 
   it("collects a single warning when both endpoints share an expired JWT", () => {
     const token = jwt({ exp: 1_700_000_000 });
-    const config = resolveSyncConfig([{ auth: { scheme: "bearer", token } }], NOW);
+    const config = resolveSyncConfig([NODE, { auth: { scheme: "bearer", token } }], NOW);
     expect(config.warnings).toEqual(["auth bearer token (JWT) expired at 2023-11-14T22:13:20.000Z"]);
   });
 

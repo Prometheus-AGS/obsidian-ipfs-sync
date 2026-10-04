@@ -13,7 +13,7 @@ import { openVault } from "../../src/sync/vault-keys";
 import { entryFor } from "../vectors/manifest-helpers";
 import { referencePassphrase } from "../vectors/slot-helpers";
 import { initDiskVault, referencePassphraseSource } from "./cli-vault";
-import { stateEnv } from "./cli-state-env";
+import { NODE_ENV, stateEnv } from "./cli-state-env";
 import { createFakeNode, type FakeNode } from "./fake-kubo";
 import { fakeNodeFetch } from "./fake-kubo-http";
 
@@ -90,11 +90,11 @@ export async function createCliPullRig(options: { readonly publish?: boolean } =
   vi.stubGlobal("fetch", fetchStub);
 
   const depsFor = (env: Record<string, string>, overrides: Partial<CliDeps> = {}): CliDeps => ({
-    env,
     now: () => NOW,
     readText: readTextIfPresent,
     passphrase: referencePassphraseSource,
     ...overrides,
+    env: { ...NODE_ENV, ...(overrides.env ?? env) },
   });
 
   const keyId = (): string => {

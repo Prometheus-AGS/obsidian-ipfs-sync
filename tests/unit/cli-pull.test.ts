@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../../cli/io";
 import { readTextIfPresent, type ConfigDeps } from "../../cli/load-config";
 import { runCli } from "../../cli/run";
+import { NODE_ENV } from "../helpers/cli-state-env";
 
 /**
  * `ipfs-sync pull` invocation rules that do not need a published vault: the help text, the operands, the flag checks, the
@@ -27,7 +28,7 @@ function sink(): Sink {
 }
 
 function deps(env: Record<string, string> = {}): ConfigDeps {
-  return { env, now: () => new Date(2026, 8, 29, 12, 0, 0), readText: readTextIfPresent };
+  return { env: { ...NODE_ENV, ...env }, now: () => new Date(2026, 8, 29, 12, 0, 0), readText: readTextIfPresent };
 }
 
 function json(body: unknown): Response {

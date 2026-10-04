@@ -4,7 +4,7 @@ import { massRemovalTimerNotice } from "../../src/plugin/mass-removal-dialog-mod
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import { createPublishRunner, type PublishRunner } from "../../src/plugin/publish-runner";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
 import type { MassRemovalCounts } from "../../src/sync/publish-refusals";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
@@ -18,7 +18,7 @@ const EMPTIED: MassRemovalCounts = { removing: 2, remaining: 2, exclusionDriven:
 
 function store(): SettingsStore {
   const port: PluginDataPort = { loadData: async () => null, saveData: async () => undefined };
-  return createSettingsStore(port, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: MFS_ROOT } });
+  return createSettingsStore(port, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT } });
 }
 
 interface Rig {

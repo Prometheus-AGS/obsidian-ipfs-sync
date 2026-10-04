@@ -12,7 +12,7 @@ import { assertDirectory } from "./publish-command";
 import { createNodeLockContext, createNodeLockFile } from "./publish-lock-file";
 
 export interface AbandonContext {
-  readonly config: SyncConfig;
+  readonly config: Pick<SyncConfig, "mfsRoot">;
   readonly io: CliIo;
   readonly vaultPath: string;
   readonly env: EnvMap;

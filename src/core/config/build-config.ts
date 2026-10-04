@@ -2,6 +2,7 @@ import { authWarnings } from "./jwt";
 import { buildAuth } from "./auth";
 import { defaultLayer } from "./defaults";
 import { composeEndpointUrl } from "./endpoint";
+import { ConfigError } from "./errors";
 import { assertValidKeyName, validateMfsRoot } from "./node-safety";
 import { mergeLayers } from "./layers";
 import type {
@@ -13,11 +14,35 @@ import type {
   SyncConfig,
 } from "./types";
 
+/**
+ * No node is a default. A missing URL fails here, before any client exists, and the message names the real
+ * ways to set it (flag, environment variable, config file key). The plugin re-words it for its settings tab.
+ * The gateway is a separate endpoint (different port, often a different host) and is never derived from the RPC URL.
+ */
+const MISSING_URL: Readonly<Record<EndpointName, { readonly code: "no-rpc-url" | "no-gateway-url"; readonly message: string }>> = {
+  rpc: {
+    code: "no-rpc-url",
+    message:
+      "no IPFS node is configured: there is no RPC URL and no default node. Set one with --rpc-url <url>, " +
+      "the IPFS_SYNC_RPC_URL environment variable, or \"rpc\": { \"url\": \"<url>\" } in the config file (--config <path>).",
+  },
+  gateway: {
+    code: "no-gateway-url",
+    message:
+      "no gateway is configured: there is no gateway URL and none is derived from the RPC URL. Set one with --gateway-url <url>, " +
+      "the IPFS_SYNC_GATEWAY_URL environment variable, or \"gateway\": { \"url\": \"<url>\" } in the config file (--config <path>).",
+  },
+};
+
 function resolveEndpoint(
   name: EndpointName,
   input: RawEndpointInput | undefined,
   globalAuth: AuthConfig,
 ): ResolvedEndpoint {
+  if ((input?.url ?? "").trim() === "") {
+    const missing = MISSING_URL[name];
+    throw new ConfigError(missing.code, missing.message);
+  }
   const auth = input?.auth === undefined ? globalAuth : buildAuth(input.auth, `${name} auth`);
   return { name, baseUrl: composeEndpointUrl(name, input?.url ?? "", input?.port), auth };
 }
@@ -41,6 +66,23 @@ export function buildSyncConfig(layer: RawConfigLayer, now: Date): SyncConfig {
     mfsRoot,
     ownedKeys: layer.ownedKeys ?? [],
     warnings: collectWarnings(rpc, gateway, now),
+  };
+}
+
+/** What a command that never contacts the node needs: the validated local fields, no endpoints. */
+export type LocalSyncConfig = Pick<SyncConfig, "publicationKey" | "mfsRoot" | "ownedKeys">;
+
+/**
+ * Like `resolveSyncConfig`, minus the endpoints: every other check still runs (MFS root, key name, auth), and no URL is
+ * required or invented. For commands that send no request, such as `abandon`.
+ */
+export function resolveLocalConfig(layers: readonly RawConfigLayer[]): LocalSyncConfig {
+  const layer = mergeLayers(defaultLayer(), ...layers);
+  buildAuth(layer.auth, "auth");
+  return {
+    publicationKey: assertValidKeyName(layer.publicationKey ?? ""),
+    mfsRoot: validateMfsRoot(layer.mfsRoot ?? ""),
+    ownedKeys: layer.ownedKeys ?? [],
   };
 }
 

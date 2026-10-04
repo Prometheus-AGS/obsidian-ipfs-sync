@@ -57,6 +57,7 @@ describe("plugin: Abandon this vault", () => {
   async function load(adapter: MemoryAdapter): Promise<{ plugin: IpfsSyncPlugin; stub: StubPlugin }> {
     const plugin = new IpfsSyncPlugin(new StubApp(adapter) as unknown as ObsidianApp, MANIFEST);
     const stub = plugin as unknown as StubPlugin;
+    // Fresh settings: no node is set, and abandon is local-only so it must still work.
     stub.data = null;
     await plugin.onload();
     return { plugin, stub };

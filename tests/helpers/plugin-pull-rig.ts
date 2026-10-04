@@ -1,7 +1,8 @@
 import { createSyncEventBus, type SyncEventBus } from "../../src/core/events";
 import { createPullRunner, type PullOutcome, type PullRunner } from "../../src/plugin/pull-runner";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
-import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
+import type { PluginSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "./test-node-settings";
 import { createSyncLock, type SyncLock } from "../../src/plugin/sync-lock";
 import type { FakeGateway } from "./fake-gateway";
 import { createFakeGateway, type FakeGatewayOptions } from "./fake-gateway";
@@ -33,7 +34,7 @@ export function memoryPort(): PluginDataPort & { data: unknown } {
 export function storeWith(patch: Partial<PluginSettings> = {}): SettingsStore & { readonly port: ReturnType<typeof memoryPort> } {
   const port = memoryPort();
   const settings: PluginSettings = {
-    ...defaultSettings(),
+    ...testNodeSettings(),
     mfsRoot: MFS,
     auth: { scheme: "bearer", token: SECRET },
     ownedKeys: [IPNS_NAME],

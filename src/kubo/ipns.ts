@@ -64,7 +64,7 @@ export async function resolveName(endpoint: ResolvedEndpoint, name: string, tran
 export const NAME_RESOLVE_DHT_TIMEOUT = "10s";
 
 /**
- * The error texts of `name/resolve`, taken from the operator's node (https://ipfs.prometheusags.ai) and from nowhere
+ * The error texts of `name/resolve`, taken from the maintainer's own kubo node and from nowhere
  * else; no entry is written from memory. Each entry is the node's own JSON `Message` of an HTTP 500 answer.
  *
  * - `notFound`: recorded 2026-10-01T12:25:16Z for a syntactically valid IPNS key id that was never published, request

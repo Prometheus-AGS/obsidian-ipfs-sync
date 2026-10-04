@@ -13,6 +13,7 @@ import {
   type PullSummary,
 } from "../../src/plugin/settings-model";
 import { settingsToConfig, validateSettings } from "../../src/plugin/settings-to-config";
+import { testNodeSettings } from "../helpers/test-node-settings";
 
 const KEY_ID = "k51qzi5uqu5dhjghbrp9iqsoa6b3ob3i3jnljq09d3a4j9j4a5c7t";
 const OTHER_ID = "k51qzi5uqu5dlfgjhskdfhj2389sdfhjk23489sdhfjkshdf28sd";
@@ -157,7 +158,7 @@ describe("pull name: explicit root", () => {
   it("maps to the pull target as an explicit root and asks the node for no key", () => {
     const input = { pullName: `/ipfs/${ROOT}`, publicationKey: "obsidian-vault-sync", ownedKeys: [KEY_ID] };
     expect(resolvePullTarget(input, [])).toEqual({ kind: "resolved", name: `/ipfs/${ROOT}`, source: "explicit-root", rootCid: ROOT });
-    expect(() => settingsToConfig({ ...defaultSettings(), pullName: `/ipfs/${ROOT}` }, new Date("2026-10-01T00:00:00Z"))).not.toThrow();
+    expect(() => settingsToConfig({ ...testNodeSettings(), pullName: `/ipfs/${ROOT}` }, new Date("2026-10-01T00:00:00Z"))).not.toThrow();
   });
 });
 
