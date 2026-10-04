@@ -239,3 +239,13 @@ The `ipfs-sync` team (`.agent-team/project-routing.json` → `.agent-team/ipfs-s
 - **One writer per shared build directory and per shared file** (package.json, lockfile, esbuild and tsconfig included). Parallel roles must have disjoint `owns` paths.
 - **Fallback.** If delegation is unavailable or blocked, run the selected role's instructions sequentially in the lead session, and say so in the dispatch record and the completion summary. A sequential fallback is not independent review.
 - **Record it.** Every dispatch names the role and the reason for any deviation in `execution.md`. Say which role actually did the work; never describe lead-session work as team work.
+
+## Project: UI/UX design authority (operator decision, 2026-10-04)
+
+Project prose outside the managed regions.
+
+- `docs/design/` is the design authority for everything the user sees in the agentic layer: the Vault agent sidebar view (Search, Chat in **Notes** and **Agent** modes, Index), the quick-ask popup, the control center and the status chip. Read `docs/design/README.md` first, then `docs/design/vault-agent-ui-concept.md`, then the screens. Spec `docs/012-vault-agent-ui.md` is the pointer in the numbered series.
+- The screens encode operator-reviewed decisions, not inspiration: native Obsidian DOM (no React in the plugin), Obsidian CSS variables only through `ipfs-sync-` classes in one `styles.css`, Notes mode as the default chat that never answers from model knowledge, a lane chip (Local / Remote / Offline) on every agent surface, skill activations never hidden, consequence dialogs with Cancel focused, no default hotkeys, sentence case.
+- `uiux-lead` owns `src/ui/`, `styles.css` and `docs/design/`. A conflict between the concept and a numbered spec is a spec delta raised through `product-manager`, never a silent deviation. Roles that feed the UI (`data-engineer` for retrieval and index state, `uar-engineer` for the AG-UI stream and lanes) read the concept before shaping their interfaces.
+- Iterations are drafted in the Open Design project named in `docs/operator/open-design-mcp.md` and copied into `docs/design/` in the same commit as the change they justify. Do not hand-edit the copies alone.
+

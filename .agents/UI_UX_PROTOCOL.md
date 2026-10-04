@@ -2,6 +2,8 @@
 Version 1. Project copies at `.agents/UI_UX_PROTOCOL.md` override the bundled default. Load only for tasks changing rendered UI, interaction, tokens, motion or on-screen copy. Backend-only code still uses its selected project team without loading UI guidance.
 
 ## Authority and context
+**Project surface brief (ipfs-sync):** the design authority for the plugin's agentic UI is `docs/design/` — read `docs/design/README.md`, then `docs/design/vault-agent-ui-concept.md`, then the screens — plus spec `docs/012-vault-agent-ui.md`. Treat its decisions (native Obsidian DOM, Obsidian variables only, Notes mode default, lane chip, visible skills, consequence dialogs) as incumbent design authority, and route conflicts with numbered specs through product-manager as spec deltas. Surface mode for every plugin surface is **Operate** (variance 3–4, motion 2–3, density 6–8).
+
 User instructions and project rules govern scope. Read PRODUCT.md, DESIGN.md, .impeccable.md, the nearest application's surface brief, existing components and token sources before proposing direction. Preserve existing design authority. Impeccable supplies workflow context; mini uses the explicitly bounded `prometheus-impeccable-core` adaptation. Recommendations do not overwrite DESIGN.md. Pro Max design output stays in its design-system directory; Stitch output uses DESIGN.stitch.md.
 
 ## Selective routing

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vault agent · UI/UX concept for IPFS Sync</title>
+  <style>
+    :root {
+      --bg:      #fafafa;   /* Obsidian --color-base-10 */
+      --surface: #ffffff;   /* Obsidian --color-base-00 */
+      --fg:      #222222;   /* Obsidian --color-base-100 */
+      --muted:   #5c5c5c;   /* Obsidian --color-base-70 */
+      --border:  #e4e4e4;   /* Obsidian --color-base-30 */
+      --accent:  #6a44f1;   /* Obsidian accent hue 258 at 58% lightness */
+      --accent-soft: color-mix(in oklch, var(--accent) 14%, transparent);
+      --fg-soft:     color-mix(in oklch, var(--fg) 6%, transparent);
+      --font-display: 'Iowan Old Style', 'Charter', Georgia, 'Times New Roman', serif;
+      --font-body:    -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --font-mono:    ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+      --fs-h1: clamp(40px, 5.2vw, 64px); --fs-h2: clamp(28px, 3.4vw, 40px); --fs-h3: 20px; --fs-lead: 18px; --fs-body: 16px; --fs-meta: 13px;
+      --gap-xs: 8px; --gap-sm: 12px; --gap-md: 20px; --gap-lg: 32px; --gap-xl: 56px; --gap-2xl: 96px; --container: 1040px; --gutter: 32px;
+      --radius: 10px; --radius-lg: 16px;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: var(--fs-body); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; cursor: pointer; }
+    p { text-wrap: pretty; } h1, h2, h3 { text-wrap: balance; }
+    .container { max-width: var(--container); margin-inline: auto; padding-inline: var(--gutter); }
+    .section { padding-block: clamp(48px, 7vw, var(--gap-2xl)); }
+    .section + .section { border-top: 1px solid var(--border); }
+    .stack { display: flex; flex-direction: column; }
+    .row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--gap-md); }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--gap-lg); }
+    @media (max-width: 920px) { .grid-3 { grid-template-columns: 1fr; } }
+    h1 { font-family: var(--font-display); font-size: var(--fs-h1); line-height: 1.06; letter-spacing: -0.02em; margin: 0; font-weight: 500; }
+    h2 { font-family: var(--font-display); font-size: var(--fs-h2); line-height: 1.12; letter-spacing: -0.015em; margin: 0; font-weight: 500; }
+    h3 { font-size: var(--fs-h3); font-weight: 600; line-height: 1.3; margin: 0; }
+    .lead { font-size: var(--fs-lead); line-height: 1.55; color: var(--muted); max-width: 60ch; margin: 0; }
+    .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 var(--gap-md); }
+    .meta { font-family: var(--font-mono); font-size: var(--fs-meta); color: var(--muted); }
+    .topnav { position: sticky; top: 0; z-index: 10; background: color-mix(in oklch, var(--bg) 92%, transparent); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); }
+    .topnav-inner { display: flex; align-items: center; justify-content: space-between; padding-block: 14px; gap: var(--gap-md); }
+    .topnav .logo { font-family: var(--font-display); font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+    .topnav nav { display: flex; gap: var(--gap-lg); flex-wrap: wrap; }
+    .topnav nav a { font-size: 14px; color: var(--muted); }
+    .topnav nav a:hover { color: var(--fg); }
+    .pagefoot { padding-block: var(--gap-xl); color: var(--muted); font-size: 13px; border-top: 1px solid var(--border); }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 20px; border-radius: var(--radius); border: 1px solid transparent; font-size: 15px; font-weight: 500; transition: transform 0.05s ease, background 0.15s ease, border-color 0.15s ease; }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+    .btn-primary:hover { background: color-mix(in oklch, var(--accent) 88%, black); color: var(--surface); }
+    .btn-secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+    .btn-secondary:hover { border-color: var(--fg); }
+    .btn-ghost { background: transparent; color: var(--fg); border-color: transparent; padding-inline: 8px; }
+    .btn-ghost:hover { color: var(--accent); }
+    .btn-arrow::after { content: '→'; transition: transform 0.15s ease; }
+    .btn-arrow:hover::after { transform: translateX(2px); }
+    .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .card-flat { background: transparent; border: 0; padding: 0; }
+    .feature .feature-mark { width: 36px; height: 36px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 10px; color: var(--fg); margin-bottom: var(--gap-md); }
+    .feature .feature-mark svg { width: 18px; height: 18px; }
+    .feature h3 { margin-bottom: 6px; }
+    .feature p { margin: 0; color: var(--muted); font-size: 15px; }
+    .hero { padding-block: clamp(72px, 10vw, 140px); }
+    .hero-center { text-align: center; max-width: 34ch; margin-inline: auto; }
+    .hero h1 { margin-bottom: var(--gap-md); }
+    .hero .lead { margin-bottom: var(--gap-lg); margin-inline: auto; }
+    .hero-cta { display: inline-flex; gap: var(--gap-sm); flex-wrap: wrap; justify-content: center; }
+    .log-row { display: grid; grid-template-columns: 150px 1fr 120px; gap: var(--gap-lg); padding: 22px 0; border-top: 1px solid var(--border); align-items: baseline; }
+    .log-row h3 { font-size: 19px; }
+    .log-row h3 a:hover { color: var(--accent); }
+    .log-row .pull { text-align: right; }
+    @media (max-width: 920px) { .log-row { grid-template-columns: 1fr; gap: 6px; } .log-row .pull { text-align: left; } }
+    .rule-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+    .rule-list li { display: grid; grid-template-columns: 28px 1fr; gap: 12px; align-items: baseline; }
+    .rule-list .n { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+    .ds-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .ds-table th, .ds-table td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .ds-table th { color: var(--muted); font-weight: 500; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; }
+    .ds-table code { font-family: var(--font-mono); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="container topnav-inner">
+      <span class="logo">IPFS Sync · Vault agent</span>
+      <nav aria-label="Screens">
+        <a href="agent-panel.html">Sidebar view</a>
+        <a href="rag-chat.html">Notes chat</a>
+        <a href="quick-ask.html">Quick ask</a>
+        <a href="control-center.html">Control center</a>
+        <a href="vault-agent-ui-concept.md">Concept brief</a>
+      </nav>
+      <a class="btn btn-secondary" href="agent-panel.html">Open the prototype</a>
+    </div>
+  </header>
+
+  <main id="content">
+    <section class="section hero" data-od-id="hero">
+      <div class="container hero-center">
+        <p class="eyebrow">UI/UX concept · Obsidian plugin</p>
+        <h1>Search your vault by meaning. Ask it questions. See exactly what the agent did.</h1>
+        <p class="lead">A sidebar view, a quick-ask popup and a control center for IPFS Sync's agentic layer, built from Obsidian's own design variables so it reads as a core plugin in any theme.</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="agent-panel.html">Open the sidebar view</a>
+          <a class="btn btn-ghost btn-arrow" href="vault-agent-ui-concept.md">Read the brief</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" data-od-id="surfaces">
+      <div class="container stack" style="gap: 48px;">
+        <div style="max-width: 40ch;">
+          <p class="eyebrow">Three surfaces</p>
+          <h2>One view to work in, one popup to ask once, one place for every setting.</h2>
+        </div>
+        <div class="grid-3">
+          <div class="feature card-flat">
+            <div class="feature-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg></div>
+            <h3>Vault agent view</h3>
+            <p>A right-sidebar leaf with Search, Chat and Index tabs. Chat has two modes: <strong>Notes</strong>, a retrieval-only chat that answers from your passages and cites each sentence, and <strong>Agent</strong>, which adds skills, tools and approval cards.</p>
+          </div>
+          <div class="feature card-flat">
+            <div class="feature-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></div>
+            <h3>Quick ask</h3>
+            <p>The Quick switcher's silhouette. Type to search by meaning; ⌘↵ turns the same popup into a one-shot cited answer that hands off to the view. On a phone it is a bottom sheet.</p>
+          </div>
+          <div class="feature card-flat">
+            <div class="feature-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></div>
+            <h3>Control center</h3>
+            <p>Searchable settings in six sections, with Security first-class: device identity, pairing, grants with expiry, and consequence dialogs on every destructive action.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" data-od-id="principles">
+      <div class="container" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: var(--gap-xl); align-items: start;">
+        <div>
+          <p class="eyebrow">What makes it this plugin</p>
+          <h2>Honesty about the index, the lane and the skills.</h2>
+        </div>
+        <ol class="rule-list" style="font-size: 16px;">
+          <li><span class="n">01</span><span><strong>The index is a cache and says so.</strong> Model, coverage, what is pinned to the snapshot, one tap to rebuild. iOS eviction becomes a rebuild, not a loss.</span></li>
+          <li><span class="n">02</span><span><strong>A lane chip on every agent surface.</strong> Local, Remote or Offline, with the model or endpoint. A question that left the device looks different from one that did not.</span></li>
+          <li><span class="n">03</span><span><strong>Skill activations are never hidden.</strong> Name, source, description and arguments stay visible; tool calls, thinking and errors collapse but are always reachable and copyable.</span></li>
+          <li><span class="n">04</span><span><strong>Native first.</strong> Obsidian variables only, sentence case, no default hotkeys, Lucide icons, DOM built with the Vault API's helpers. The user's theme and accent apply unchanged.</span></li>
+          <li><span class="n">05</span><span><strong>One mechanism per job.</strong> Finding is Search, asking is Chat, configuring is the control center. Nothing is duplicated on one screen.</span></li>
+        </ol>
+      </div>
+    </section>
+
+    <section class="section" data-od-id="screens">
+      <div class="container">
+        <div class="row-between" style="margin-bottom: 24px;">
+          <h2>Screens</h2>
+          <span class="meta">concept fidelity · scripted data</span>
+        </div>
+        <article class="log-row">
+          <span class="meta">agent-panel.html</span>
+          <div><h3><a href="agent-panel.html">Sidebar view: Search, Chat, Index</a></h3><p style="margin: 4px 0 0; color: var(--muted); font-size: 14px;">Send the prepared question to watch a full turn stream: skill card, thinking, tool call, a skipped remote tool, memory recall, cited answer, sources, approval card. Rebuild opens a consequence dialog.</p></div>
+          <span class="pull meta">desktop · light/dark</span>
+        </article>
+        <article class="log-row">
+          <span class="meta">rag-chat.html</span>
+          <div><h3><a href="rag-chat.html">Notes chat: retrieval-augmented, read-only</a></h3><p style="margin: 4px 0 0; color: var(--muted); font-size: 14px;">Every answer starts with a Retrieved card (passages, headings, scores, pin/exclude). Click a citation to highlight the passage and the block in the editor. Ask the second starter to see the "Not in your notes" state; toggle Quote only for verbatim answers.</p></div>
+          <span class="pull meta">desktop · light/dark</span>
+        </article>
+        <article class="log-row">
+          <span class="meta">quick-ask.html</span>
+          <div><h3><a href="quick-ask.html">Quick ask: prompt and bottom sheet</a></h3><p style="margin: 4px 0 0; color: var(--muted); font-size: 14px;">Type to filter, ↑↓ to move, ↵ to open, ⌘↵ to ask. The phone frame opens the sheet from the toolbar and expands from the grabber.</p></div>
+          <span class="pull meta">desktop + mobile</span>
+        </article>
+        <article class="log-row">
+          <span class="meta">control-center.html</span>
+          <div><h3><a href="control-center.html">Control center: six sections, searchable</a></h3><p style="margin: 4px 0 0; color: var(--muted); font-size: 14px;">Search by name, description or alias ("rekey", "wipe", "battery"). Revoke a device or grant to see the consequence dialog with Cancel focused.</p></div>
+          <span class="pull meta">desktop · reflows</span>
+        </article>
+        <article class="log-row">
+          <span class="meta">vault-agent-ui-concept.md</span>
+          <div><h3><a href="vault-agent-ui-concept.md">Concept brief</a></h3><p style="margin: 4px 0 0; color: var(--muted); font-size: 14px;">Research findings, principles, information architecture, surface detail, token mapping, mobile and accessibility rules, implementation notes and open questions.</p></div>
+          <span class="pull meta">document</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" data-od-id="tokens">
+      <div class="container">
+        <div style="max-width: 40ch; margin-bottom: 32px;">
+          <p class="eyebrow">Token mapping</p>
+          <h2>Nothing in the plugin names a colour.</h2>
+        </div>
+        <table class="ds-table">
+          <thead><tr><th>Need</th><th>Obsidian variable</th><th>Where the prototype uses it</th></tr></thead>
+          <tbody>
+            <tr><td>Panel and cards</td><td><code>--background-secondary</code>, <code>--background-primary</code></td><td>Sidebar pane, chunk cards, result rows</td></tr>
+            <tr><td>Hover, borders, focus</td><td><code>--background-modifier-hover</code>, <code>--background-modifier-border</code>, <code>--background-modifier-border-focus</code></td><td>Every row and card; the composer ring</td></tr>
+            <tr><td>Text hierarchy</td><td><code>--text-normal</code>, <code>--text-muted</code>, <code>--text-faint</code></td><td>Body, descriptions, placeholders</td></tr>
+            <tr><td>The user's accent</td><td><code>--interactive-accent</code>, <code>--text-on-accent</code>, <code>--text-accent</code></td><td>Active tab indicator, send button, links and citations</td></tr>
+            <tr><td>Status</td><td><code>--text-error</code>, <code>--text-success</code>, <code>--text-warning</code>, <code>--color-green</code>, <code>--color-orange</code></td><td>Lane dot, badges, error card, coverage bar</td></tr>
+            <tr><td>Spacing and radii</td><td><code>--size-4-2</code> … <code>--size-4-8</code>, <code>--radius-s/m/l/xl</code></td><td>All padding and gaps; no other values</td></tr>
+            <tr><td>Type</td><td><code>--font-interface</code>, <code>--font-ui-small/medium</code>, <code>--font-monospace</code></td><td>UI text, answers, paths and arguments</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section" data-od-id="cta-strip" style="text-align: center;">
+      <div class="container" style="max-width: 620px;">
+        <h2>Start in the sidebar view.</h2>
+        <p class="lead" style="margin: 16px auto 32px;">Send the prepared question and watch a complete turn render, then toggle dark mode from the concept bar.</p>
+        <a class="btn btn-primary" href="agent-panel.html">Open the sidebar view</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="container row-between">
+      <span>IPFS Sync for Obsidian · concept, 2026-10-04</span>
+      <span class="meta">Obsidian variable defaults from docs.obsidian.md · sample vault content</span>
+    </div>
+  </footer>
+</body>
+</html>

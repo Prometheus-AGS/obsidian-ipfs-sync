@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Notes chat (RAG) · sidebar view — IPFS Sync concept</title>
+<link rel="stylesheet" href="assets/obsidian-shell.css" />
+<style>
+  .ipfs-sync-notice { position: fixed; top: var(--size-4-12); right: var(--size-4-4); z-index: 70; background: var(--background-primary); color: var(--text-normal); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); padding: 8px 12px; font-size: var(--font-ui-small); box-shadow: 0 6px 24px color-mix(in oklch, var(--mono-100) 18%, transparent); display: none; }
+  .ipfs-sync-notice[data-open="true"] { display: block; animation: ipfs-sync-pop var(--anim-in); }
+  /* retrieval card */
+  .ipfs-sync-passage { display: grid; grid-template-columns: 18px 1fr auto; gap: 4px 8px; padding: 8px 6px; border-top: 1px solid var(--background-modifier-border); border-radius: var(--radius-s); align-items: start; }
+  .ipfs-sync-passage:first-child { border-top: 0; }
+  .ipfs-sync-passage[data-hot="true"] { background: var(--background-modifier-active-hover); }
+  .ipfs-sync-passage[data-excluded="true"] { opacity: 0.45; }
+  .ipfs-sync-passage .n { font-family: var(--font-monospace); font-size: 11px; color: var(--text-muted); padding-top: 2px; }
+  .ipfs-sync-passage .src { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .ipfs-sync-passage .src b { font-weight: var(--font-medium); }
+  .ipfs-sync-passage .src .h { color: var(--text-muted); font-size: var(--font-ui-smaller); }
+  .ipfs-sync-passage .ex { grid-column: 2 / span 2; color: var(--text-muted); font-size: var(--font-ui-smaller); line-height: var(--line-height-tight); }
+  .ipfs-sync-passage .score { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-monospace); font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+  .ipfs-sync-passage .score i { display: inline-block; width: 36px; height: 3px; border-radius: 2px; background: var(--background-modifier-border); position: relative; overflow: hidden; }
+  .ipfs-sync-passage .score i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--text-muted); }
+  .ipfs-sync-passage .ops { grid-column: 2 / span 2; display: flex; gap: 2px; margin-top: 2px; }
+  .ipfs-sync-ground { display: flex; align-items: center; gap: 8px; font-size: var(--font-ui-smaller); color: var(--text-muted); flex-wrap: wrap; }
+  .ipfs-sync-ground .ipfs-sync-badge { height: 20px; }
+  /* citation hover link */
+  .ipfs-sync-md sup a[data-cite] { border-radius: 3px; }
+  .ipfs-sync-md sup a[data-cite]:hover, .ipfs-sync-md sup a[data-cite][data-hot="true"] { background: var(--background-modifier-active-hover); }
+  /* context strip above composer */
+  .ipfs-sync-ctxstrip { display: flex; align-items: center; gap: 8px; padding: 6px var(--size-4-3); border-top: 1px solid var(--background-modifier-border); background: var(--background-secondary); font-size: var(--font-ui-smaller); color: var(--text-muted); }
+  .ipfs-sync-ctxstrip .budget { display: inline-flex; align-items: center; gap: 6px; font-family: var(--font-monospace); }
+  .ipfs-sync-ctxstrip .budget i { display: inline-block; width: 48px; height: 4px; border-radius: 2px; background: var(--background-modifier-border); position: relative; overflow: hidden; }
+  .ipfs-sync-ctxstrip .budget i::after { content: ""; position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--text-muted); }
+  .ipfs-sync-ctxstrip .grow { flex: 1; }
+  /* not-in-notes card */
+  .ipfs-sync-notfound { border: 1px dashed var(--background-modifier-border-hover); border-radius: var(--radius-m); padding: var(--size-4-3); display: grid; gap: 8px; }
+  .ipfs-sync-notfound b { font-weight: var(--font-medium); }
+  /* editor block highlight on citation click */
+  .ob-editor .block { border-radius: var(--radius-s); margin: 0 -8px; padding: 0 8px; transition: background var(--anim-out); }
+  .ob-editor .block[data-hot="true"] { background: var(--text-highlight-bg); }
+  .ipfs-sync-starter { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .ipfs-sync-starter button { text-align: left; padding: 8px 10px; border-radius: var(--radius-m); border: 1px solid var(--background-modifier-border); background: var(--background-primary); color: var(--text-normal); font-size: var(--font-ui-small); }
+  .ipfs-sync-starter button:hover { background: var(--background-modifier-hover); border-color: var(--background-modifier-border-hover); }
+</style>
+</head>
+<body class="theme-light">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9L9.2 3.9A2 2 0 0 0 7.5 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M9 3h6l-1 7 3 3H7l3-3z"/></symbol>
+  <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 10.6a3 3 0 0 0 4.2 4.2M9.9 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.7 9.7 0 0 0 4.4-1"/></symbol>
+  <symbol id="i-quote" viewBox="0 0 24 24"><path d="M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v6a4 4 0 0 1-4 4"/><path d="M20 11h-4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v6a4 4 0 0 1-4 4"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+</svg>
+
+<div class="ob-app" data-od-id="obsidian-window">
+  <nav class="ob-ribbon" aria-label="Ribbon">
+    <button aria-label="Open quick switcher"><svg class="ob-icon"><use href="#i-layers"/></svg></button>
+    <button aria-label="Open graph view"><svg class="ob-icon"><use href="#i-hash"/></svg></button>
+    <button aria-label="Open today's daily note"><svg class="ob-icon"><use href="#i-cal"/></svg></button>
+    <button aria-label="Vault agent" aria-pressed="true"><svg class="ob-icon"><use href="#i-chat"/></svg></button>
+    <span class="spacer"></span>
+    <button aria-label="Settings"><svg class="ob-icon"><use href="#i-sliders"/></svg></button>
+  </nav>
+
+  <aside class="ob-side left" aria-label="Left sidebar">
+    <div class="ob-tabs" role="tablist"><span class="ob-tab" role="tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-folder"/></svg>Files</span><span class="ob-tab" role="tab" aria-selected="false"><svg class="ob-icon sm"><use href="#i-search"/></svg>Search</span></div>
+    <div class="ob-tree">
+      <div class="folder">Journal</div>
+      <div class="file">2026-09-28 Weekly review</div>
+      <div class="file">2026-10-04</div>
+      <div class="folder">Projects / IPFS Sync</div>
+      <div class="file">History pruning policy</div>
+      <div class="file">Removal guard — publish refuses mass deletes</div>
+      <div class="file" aria-current="true">Encrypted vault format notes</div>
+      <div class="file">Threat model — open-write node</div>
+      <div class="file">Release 0.2.0 retro</div>
+      <div class="folder">Security</div>
+      <div class="file">Argon2id cost presets</div>
+      <div class="file">Kubo RPC auth options</div>
+    </div>
+  </aside>
+
+  <main class="ob-main" aria-label="Editor">
+    <div class="ob-tabs" role="tablist"><span class="ob-tab" role="tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-file"/></svg>Encrypted vault format notes</span></div>
+    <article class="ob-editor" data-od-id="editor" id="editor">
+      <h1>Encrypted vault format notes</h1>
+      <div class="props"><span>tags</span><span>ipfs-sync, format</span><span>updated</span><span>2026-10-01</span></div>
+      <h2 id="h-roots">Root versions</h2>
+      <p class="block" data-block="p1">A version 1 root is plaintext. The current tree refuses it on read: the plaintext reader was removed when the encrypted format landed, so nothing in this build can turn a 0.2.0 publish back into files.</p>
+      <p class="block" data-block="p2">A version 2 root holds <code>current/</code> (encrypted files under opaque names in two-character prefix folders), <code>manifests/</code> (one encrypted history copy per publish), <code>manifest.enc</code> and <code>keyslots.json</code>.</p>
+      <h2 id="h-names">Manifest history names</h2>
+      <p class="block" data-block="p3">History copies are named <code>&lt;16-digit sequence&gt;-&lt;rootCID&gt;.enc</code>. A development build wrote <code>&lt;rootCID&gt;.enc</code> without the sequence; those still read, and the restore list sorts them last because their sequence is unknown.</p>
+      <h2>Key slots</h2>
+      <p class="block" data-block="p4">The key-slot file is public. It holds the wrapped vault content key under each device's Argon2id-derived slot, so anyone who obtains the CID sees how many slots exist and at what cost, and nothing else.</p>
+    </article>
+  </main>
+
+  <aside class="ob-side right" aria-label="Right sidebar">
+    <div class="ob-tabs" role="tablist"><span class="ob-tab" role="tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-chat"/></svg>Vault agent</span><span class="ob-tab" role="tab" aria-selected="false"><svg class="ob-icon sm"><use href="#i-link"/></svg>Backlinks</span></div>
+    <section class="ipfs-sync-agent" data-od-id="vault-agent-view" aria-label="Vault agent">
+      <div class="ipfs-sync-agent-tabs" role="tablist" aria-label="Vault agent sections">
+        <a class="ipfs-sync-agent-tab" role="tab" aria-selected="false" href="agent-panel.html"><svg class="ob-icon sm"><use href="#i-search"/></svg>Search</a>
+        <button class="ipfs-sync-agent-tab" role="tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-chat"/></svg>Chat</button>
+        <a class="ipfs-sync-agent-tab" role="tab" aria-selected="false" href="agent-panel.html"><svg class="ob-icon sm"><use href="#i-db"/></svg>Index <span class="count">1,204 / 1,218</span></a>
+      </div>
+
+      <div class="ipfs-sync-pane" data-active="true" data-od-id="rag-chat-pane">
+        <div class="ipfs-sync-scopebar">
+          <div class="ipfs-sync-mode" role="group" aria-label="Chat mode" data-od-id="mode-switch">
+            <button aria-pressed="true" id="mode-notes"><svg class="ob-icon sm"><use href="#i-book"/></svg>Notes</button>
+            <a aria-pressed="false" href="agent-panel.html" role="button" style="text-decoration:none"><svg class="ob-icon sm"><use href="#i-zap"/></svg>Agent</a>
+          </div>
+          <button class="ipfs-sync-chip toggle" aria-haspopup="listbox"><svg class="ob-icon sm"><use href="#i-folder"/></svg>Whole vault<svg class="ob-icon sm"><use href="#i-chev"/></svg></button>
+          <span class="grow"></span>
+          <span class="ipfs-sync-chip" data-lane="local" title="Retrieval: all-MiniLM-L6-v2 on device · Answer: Qwen2.5 1.5B on device"><span class="dot"></span>Local</span>
+        </div>
+
+        <div class="ipfs-sync-scroll" id="thread-scroll">
+          <div class="ipfs-sync-thread" id="thread" aria-live="polite">
+            <div class="ipfs-sync-turn user">
+              <div class="who">You · 11:02</div>
+              <div class="body ipfs-sync-md"><p>How are manifest history files named, and what happens to the ones without a sequence?</p></div>
+            </div>
+            <div class="ipfs-sync-turn assistant" id="turn-1">
+              <div class="who">Notes <span class="ipfs-sync-badge" data-tone="ok">local</span></div>
+              <div class="ipfs-sync-chunk" data-kind="retrieval">
+                <button class="hdr" aria-expanded="true"><svg class="ob-icon sm"><use href="#i-search"/></svg><span class="t">Retrieved</span><span class="s">3 passages from 2 notes · 41 ms</span><svg class="ob-icon sm chev"><use href="#i-chev"/></svg></button>
+                <div class="bd"><div><div class="bd-in" id="passages-1">
+                  <div class="ipfs-sync-passage" data-cite="1" data-block="p3">
+                    <span class="n">1</span>
+                    <span class="src"><b>Encrypted vault format notes</b><span class="h">› Manifest history names</span></span>
+                    <span class="score" aria-label="similarity 0.91"><i style="--w:91%"></i>0.91</span>
+                    <span class="ex">History copies are named &lt;16-digit sequence&gt;-&lt;rootCID&gt;.enc. A development build wrote &lt;rootCID&gt;.enc without the sequence; those still read…</span>
+                    <span class="ops"><button class="ipfs-sync-mini" data-op="open"><svg class="ob-icon sm"><use href="#i-file"/></svg>Open at heading</button><button class="ipfs-sync-mini" data-op="pin"><svg class="ob-icon sm"><use href="#i-pin"/></svg>Pin</button><button class="ipfs-sync-mini" data-op="exclude"><svg class="ob-icon sm"><use href="#i-eyeoff"/></svg>Exclude</button></span>
+                  </div>
+                  <div class="ipfs-sync-passage" data-cite="2" data-block="p2">
+                    <span class="n">2</span>
+                    <span class="src"><b>Encrypted vault format notes</b><span class="h">› Root versions</span></span>
+                    <span class="score" aria-label="similarity 0.74"><i style="--w:74%"></i>0.74</span>
+                    <span class="ex">A version 2 root holds current/, manifests/ (one encrypted history copy per publish), manifest.enc and keyslots.json.</span>
+                    <span class="ops"><button class="ipfs-sync-mini" data-op="open"><svg class="ob-icon sm"><use href="#i-file"/></svg>Open at heading</button><button class="ipfs-sync-mini" data-op="pin"><svg class="ob-icon sm"><use href="#i-pin"/></svg>Pin</button><button class="ipfs-sync-mini" data-op="exclude"><svg class="ob-icon sm"><use href="#i-eyeoff"/></svg>Exclude</button></span>
+                  </div>
+                  <div class="ipfs-sync-passage" data-cite="3" data-block="">
+                    <span class="n">3</span>
+                    <span class="src"><b>Restore an older version</b><span class="h">› What the list shows</span></span>
+                    <span class="score" aria-label="similarity 0.69"><i style="--w:69%"></i>0.69</span>
+                    <span class="ex">Lists the newest 20 history names, reads the date and device of entries of at most 8 MiB, and shows that entry's own sequence and date before you confirm.</span>
+                    <span class="ops"><button class="ipfs-sync-mini" data-op="open"><svg class="ob-icon sm"><use href="#i-file"/></svg>Open at heading</button><button class="ipfs-sync-mini" data-op="pin"><svg class="ob-icon sm"><use href="#i-pin"/></svg>Pin</button><button class="ipfs-sync-mini" data-op="exclude"><svg class="ob-icon sm"><use href="#i-eyeoff"/></svg>Exclude</button></span>
+                  </div>
+                </div></div></div>
+              </div>
+              <div class="ipfs-sync-md">
+                <p>Each publish writes one history copy named <code>&lt;16-digit sequence&gt;-&lt;rootCID&gt;.enc</code><sup><a href="#" data-cite="1">1</a></sup>. A development build wrote <code>&lt;rootCID&gt;.enc</code> with no sequence; those files still read, and the restore list sorts them last because their sequence is unknown<sup><a href="#" data-cite="1">1</a></sup>. The restore list itself shows the newest 20 names and reads each entry's own sequence and date before you confirm<sup><a href="#" data-cite="3">3</a></sup>.</p>
+              </div>
+              <div class="ipfs-sync-ground"><span class="ipfs-sync-badge" data-tone="ok">grounded</span><span>3 sentences · 3 cited · 0 without a source</span></div>
+              <div class="ipfs-sync-msg-actions">
+                <button class="ipfs-sync-mini" data-notice="Copied markdown with [[wikilink]] citations"><svg class="ob-icon sm"><use href="#i-copy"/></svg>Copy</button>
+                <button class="ipfs-sync-mini" data-notice="Saved to Inbox/Notes chat — 2026-10-04.md"><svg class="ob-icon sm"><use href="#i-save"/></svg>Save as note</button>
+                <button class="ipfs-sync-mini" data-notice="Inserted at cursor"><svg class="ob-icon sm"><use href="#i-link"/></svg>Insert at cursor</button>
+              </div>
+            </div>
+            <div class="ipfs-sync-starter" id="starters" data-od-id="starters">
+              <span class="ipfs-sync-note">Try a follow-up, or one the notes cannot answer:</span>
+              <button data-q="And is the key-slot file secret?">And is the key-slot file secret?</button>
+              <button data-q="What did the independent crypto review conclude?">What did the independent crypto review conclude?</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ipfs-sync-ctxstrip" data-od-id="context-strip">
+          <span class="budget" title="Passages sent with the next question"><i style="--w:38%"></i><span id="budget-txt">3 of 8 passages</span></span>
+          <span id="pinned-txt">· 0 pinned</span>
+          <span class="grow"></span>
+          <button class="ipfs-sync-chip toggle" id="quote-only" aria-pressed="false" title="Answer only with quoted sentences from your notes"><svg class="ob-icon sm"><use href="#i-quote"/></svg>Quote only</button>
+        </div>
+        <div class="ipfs-sync-composer" data-od-id="composer">
+          <div class="box">
+            <textarea id="composer" rows="2" placeholder="Ask your notes… answers cite passages, nothing is written" aria-label="Message"></textarea>
+            <div class="tools">
+              <button class="ob-icon-btn" aria-label="Add current note as context" data-notice="Encrypted vault format notes pinned as context"><svg class="ob-icon"><use href="#i-plus"/></svg></button>
+              <button class="ob-icon-btn" aria-label="Conversations"><svg class="ob-icon"><use href="#i-hist"/></svg></button>
+              <span class="grow"></span>
+              <button class="ipfs-sync-send" id="send" data-state="send" aria-label="Send"><svg class="ob-icon"><use href="#i-up"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  <footer class="ob-status-bar" aria-label="Status bar">
+    <button><svg class="ob-icon sm"><use href="#i-db"/></svg>Index 1,204 / 1,218 · local</button>
+    <span>Published 11 min ago</span>
+    <span>1,218 notes</span>
+  </footer>
+</div>
+<div class="ipfs-sync-notice" id="notice" role="status" data-open="false"></div>
+
+<div class="concept-bar" aria-label="Concept controls">
+  <span class="label">Concept</span>
+  <a href="index.html">Overview</a>
+  <a href="agent-panel.html">Agent mode</a>
+  <a href="quick-ask.html">Quick ask</a>
+  <a href="control-center.html">Control center</a>
+  <button id="theme" aria-pressed="false"><svg class="ob-icon sm"><use href="#i-sun"/></svg>Dark</button>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const icon = (id, sm = true) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'ob-icon' + (sm ? ' sm' : '')); const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#' + id); s.appendChild(u); return s; };
+  let nt; const notice = (m) => { const n = $('#notice'); n.textContent = m; n.dataset.open = 'true'; clearTimeout(nt); nt = setTimeout(() => n.dataset.open = 'false', 2400); };
+  $('#theme').addEventListener('click', (e) => { const dark = !document.body.classList.contains('theme-dark'); document.body.classList.toggle('theme-dark', dark); document.body.classList.toggle('theme-light', !dark); e.currentTarget.setAttribute('aria-pressed', String(dark)); e.currentTarget.lastChild.textContent = dark ? 'Light' : 'Dark'; });
+
+  const scroller = $('#thread-scroll'), thread = $('#thread'), ta = $('#composer'), sendBtn = $('#send');
+  const stick = () => scroller.scrollTo({ top: scroller.scrollHeight });
+  let pinned = 0, excluded = 0;
+  const budget = () => { const inCtx = Math.max(0, 3 - excluded + pinned); $('#budget-txt').textContent = inCtx + ' of 8 passages'; $('.budget i').style.setProperty('--w', Math.round(inCtx / 8 * 100) + '%'); $('#pinned-txt').textContent = '· ' + pinned + ' pinned'; };
+
+  // citation <-> passage <-> editor block linking
+  const hot = (turn, cite, on) => { $$('[data-cite="' + cite + '"]', turn).forEach(n => n.dataset.hot = String(on)); };
+  const flashBlock = (id) => { const b = id && $('.block[data-block="' + id + '"]'); if (!b) { notice('Opens the note at that heading'); return; } $$('.block[data-hot]').forEach(x => x.dataset.hot = 'false'); b.dataset.hot = 'true'; $('#editor').scrollTo({ top: Math.max(0, b.offsetTop - 120), behavior: 'smooth' }); setTimeout(() => b.dataset.hot = 'false', 2200); };
+  document.addEventListener('mouseover', (e) => { const a = e.target.closest('sup a[data-cite]'); if (a) hot(a.closest('.ipfs-sync-turn'), a.dataset.cite, true); });
+  document.addEventListener('mouseout', (e) => { const a = e.target.closest('sup a[data-cite]'); if (a) hot(a.closest('.ipfs-sync-turn'), a.dataset.cite, false); });
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('sup a[data-cite]'); if (a) { e.preventDefault(); const turn = a.closest('.ipfs-sync-turn'); const hdr = $('.ipfs-sync-chunk[data-kind="retrieval"] > .hdr', turn); hdr.setAttribute('aria-expanded', 'true'); const p = $('.ipfs-sync-passage[data-cite="' + a.dataset.cite + '"]', turn); flashBlock(p && p.dataset.block); return; }
+    const hdr = e.target.closest('.ipfs-sync-chunk > .hdr'); if (hdr) { hdr.setAttribute('aria-expanded', String(hdr.getAttribute('aria-expanded') !== 'true')); return; }
+    const op = e.target.closest('[data-op]'); if (op) { const p = op.closest('.ipfs-sync-passage'); if (op.dataset.op === 'open') flashBlock(p.dataset.block); if (op.dataset.op === 'pin') { const on = op.getAttribute('aria-pressed') !== 'true'; op.setAttribute('aria-pressed', String(on)); op.lastChild.textContent = on ? 'Pinned' : 'Pin'; pinned += on ? 1 : -1; budget(); notice(on ? 'Pinned: stays in context for the next questions' : 'Unpinned'); } if (op.dataset.op === 'exclude') { const on = p.dataset.excluded !== 'true'; p.dataset.excluded = String(on); op.lastChild.textContent = on ? 'Excluded' : 'Exclude'; excluded += on ? 1 : -1; budget(); notice(on ? 'Excluded from the next retrieval · ask again to re-answer' : 'Included again'); } return; }
+    const nn = e.target.closest('[data-notice]'); if (nn) { e.preventDefault(); notice(nn.dataset.notice); return; }
+    const st = e.target.closest('#starters button'); if (st) { ta.value = st.dataset.q; send(); }
+  });
+  $('#quote-only').addEventListener('click', (e) => { const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'; e.currentTarget.setAttribute('aria-pressed', String(on)); notice(on ? 'Answers will only quote sentences from your notes' : 'Answers may paraphrase, every sentence still cites'); });
+  ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(144, ta.scrollHeight) + 'px'; });
+
+  // scripted answers
+  const scripts = {
+    'And is the key-slot file secret?': {
+      passages: [
+        { n: 'Encrypted vault format notes', h: 'Key slots', s: 0.89, ex: 'The key-slot file is public. It holds the wrapped vault content key under each device\'s Argon2id-derived slot…', block: 'p4' },
+        { n: 'Threat model — open-write node', h: 'What the node sees', s: 0.83, ex: 'The key-slot file is public and the node is open-write. The passphrase is the only thing between an attacker and every note ever published.', block: '' },
+        { n: 'Argon2id cost presets', h: 'Default', s: 0.58, ex: 'Default 64 MiB, 3 iterations. A higher cost slows an attacker and this phone equally.', block: '' },
+      ],
+      quote: ['"The key-slot file is public."', '"The passphrase is the only thing between an attacker and every note ever published."'],
+      sentences: [['No. The key-slot file is public by design: it holds the vault content key wrapped under each device\'s Argon2id-derived slot, so a reader learns how many slots exist and at what cost, and nothing else', 1], ['Your threat model note states the consequence plainly: the passphrase is the only thing between an attacker and every note ever published', 2], ['Raising the key-derivation cost slows an attacker and your phone equally', 3]],
+      ground: '3 sentences · 3 cited · 0 without a source',
+    },
+    'What did the independent crypto review conclude?': { notfound: true, passages: [
+        { n: '2026-09-28 Weekly review', h: '', s: 0.44, ex: 'Encrypted pull has not been run inside Obsidian yet. Keep fixture-only until the independent review of the crypto is done.', block: '' },
+        { n: 'Encrypted vault format notes', h: 'Root versions', s: 0.31, ex: 'A version 1 root is plaintext. The current tree refuses it on read…', block: 'p1' },
+      ] },
+  };
+  const fallback = { passages: [{ n: 'Encrypted vault format notes', h: 'Root versions', s: 0.52, ex: 'A version 1 root is plaintext…', block: 'p1' }], sentences: [['Your notes mention this only in passing: the current tree refuses plaintext roots on read', 1]], quote: ['"A version 1 root is plaintext. The current tree refuses it on read."'], ground: '1 sentence · 1 cited · 0 without a source' };
+
+  let streaming = null; const wait = (ms) => new Promise(r => streaming.timers.push(setTimeout(r, ms)));
+  const passageRow = (p, i) => {
+    const d = el('div', 'ipfs-sync-passage'); d.dataset.cite = String(i + 1); d.dataset.block = p.block;
+    d.appendChild(el('span', 'n', String(i + 1)));
+    const src = el('span', 'src'); src.appendChild(el('b', null, p.n)); if (p.h) src.appendChild(el('span', 'h', '› ' + p.h)); d.appendChild(src);
+    const sc = el('span', 'score'); sc.setAttribute('aria-label', 'similarity ' + p.s.toFixed(2)); const bar = el('i'); bar.style.setProperty('--w', Math.round(p.s * 100) + '%'); sc.appendChild(bar); sc.appendChild(document.createTextNode(p.s.toFixed(2))); d.appendChild(sc);
+    d.appendChild(el('span', 'ex', p.ex));
+    const ops = el('span', 'ops'); [['open', 'i-file', 'Open at heading'], ['pin', 'i-pin', 'Pin'], ['exclude', 'i-eyeoff', 'Exclude']].forEach(([op, ic, l]) => { const b = el('button', 'ipfs-sync-mini'); b.dataset.op = op; b.appendChild(icon(ic)); b.appendChild(document.createTextNode(l)); ops.appendChild(b); }); d.appendChild(ops);
+    return d;
+  };
+  async function send() {
+    const text = ta.value.trim(); if (!text || streaming) return; ta.value = ''; ta.style.height = 'auto'; $('#starters').remove && $('#starters')?.remove();
+    const u = el('div', 'ipfs-sync-turn user'); u.appendChild(el('div', 'who', 'You · now')); const ub = el('div', 'body ipfs-sync-md'); ub.appendChild(el('p', null, text)); u.appendChild(ub); thread.appendChild(u);
+    const a = el('div', 'ipfs-sync-turn assistant'); const who = el('div', 'who', 'Notes '); const lb = el('span', 'ipfs-sync-badge', 'local'); lb.dataset.tone = 'ok'; who.appendChild(lb); a.appendChild(who); thread.appendChild(a); stick();
+    streaming = { timers: [], stopped: false }; sendBtn.dataset.state = 'stop'; sendBtn.setAttribute('aria-label', 'Stop'); sendBtn.replaceChildren(icon('i-stop', false));
+    const s = scripts[text] || fallback;
+    try {
+      const card = el('div', 'ipfs-sync-chunk'); card.dataset.kind = 'retrieval';
+      const hdr = el('button', 'hdr'); hdr.setAttribute('aria-expanded', 'true'); hdr.appendChild(icon('i-search')); hdr.appendChild(el('span', 't', 'Retrieving')); const sum = el('span', 's', 'embedding the question on device…'); hdr.appendChild(sum); const sp = el('span', 'ipfs-sync-spin'); hdr.appendChild(sp); hdr.appendChild(icon('i-chev')).classList.add('chev'); card.appendChild(hdr);
+      const bd = el('div', 'bd'); const inner = el('div'); const bi = el('div', 'bd-in'); inner.appendChild(bi); bd.appendChild(inner); card.appendChild(bd); a.appendChild(card); stick();
+      await wait(650); sp.remove(); $('.t', hdr).textContent = 'Retrieved'; const notes = new Set(s.passages.map(p => p.n)).size; sum.textContent = s.passages.length + ' passages from ' + notes + ' note' + (notes > 1 ? 's' : '') + ' · ' + (36 + Math.round(Math.random() * 20)) + ' ms';
+      s.passages.forEach((p, i) => bi.appendChild(passageRow(p, i))); stick(); await wait(400);
+      if (s.notfound) {
+        const nf = el('div', 'ipfs-sync-notfound');
+        const t = el('div'); t.appendChild(el('b', null, 'Not in your notes. ')); t.appendChild(document.createTextNode('The closest passage scores 0.44, below the 0.60 floor for an answer. One note says the independent review is still pending; nothing records a conclusion.')); nf.appendChild(t);
+        const row = el('div', 'ipfs-sync-row'); const b1 = el('button', 'ob-btn', 'Search text for “crypto review”'); b1.addEventListener('click', () => notice('Would open Search with a text query')); const b2 = el('a', 'ob-btn', 'Ask the agent instead'); b2.href = 'agent-panel.html'; row.appendChild(b1); row.appendChild(b2); nf.appendChild(row);
+        nf.appendChild(el('span', 'ipfs-sync-note', 'Notes mode never answers from the model\'s own knowledge. Lower the floor in Appearance › Notes chat if you want weak matches answered with a warning.'));
+        a.appendChild(nf); const g = el('div', 'ipfs-sync-ground'); const gb = el('span', 'ipfs-sync-badge', 'no answer'); gb.dataset.tone = 'warn'; g.appendChild(gb); g.appendChild(el('span', null, '0 sentences · nothing generated')); a.appendChild(g); stick(); return;
+      }
+      hdr.setAttribute('aria-expanded', 'false');
+      const md = el('div', 'ipfs-sync-md'); a.appendChild(md); const p = el('p'); md.appendChild(p); const caret = el('span', 'ipfs-sync-caret'); p.appendChild(caret);
+      const quoteOnly = $('#quote-only').getAttribute('aria-pressed') === 'true';
+      const parts = quoteOnly ? s.quote.map((q, i) => [q, i + 1]) : s.sentences;
+      for (const [sent, cite] of parts) { const words = (sent + '.').split(' '); for (let i = 0; i < words.length; i++) { if (streaming.stopped) break; caret.before(document.createTextNode((i ? ' ' : '') + words[i])); if (i % 5 === 0) stick(); await wait(26 + Math.random() * 36); } if (streaming.stopped) break; const sup = el('sup'); const ca = el('a', null, String(cite)); ca.href = '#'; ca.dataset.cite = String(cite); sup.appendChild(ca); caret.before(sup); caret.before(document.createTextNode(' ')); }
+      caret.remove();
+      if (streaming.stopped) { a.appendChild(el('div', 'ipfs-sync-stopped', 'Stopped')); }
+      else { const g = el('div', 'ipfs-sync-ground'); const gb = el('span', 'ipfs-sync-badge', quoteOnly ? 'quoted' : 'grounded'); gb.dataset.tone = 'ok'; g.appendChild(gb); g.appendChild(el('span', null, quoteOnly ? parts.length + ' quotes · verbatim from 2 notes' : s.ground)); a.appendChild(g);
+        const acts = el('div', 'ipfs-sync-msg-actions'); [['i-copy', 'Copy', 'Copied markdown with [[wikilink]] citations'], ['i-save', 'Save as note', 'Saved to Inbox/Notes chat — 2026-10-04.md'], ['i-link', 'Insert at cursor', 'Inserted at cursor']].forEach(([ic, l, m]) => { const b = el('button', 'ipfs-sync-mini'); b.appendChild(icon(ic)); b.appendChild(document.createTextNode(l)); b.addEventListener('click', () => notice(m)); acts.appendChild(b); }); a.appendChild(acts); }
+      stick();
+    } finally { streaming = null; sendBtn.dataset.state = 'send'; sendBtn.setAttribute('aria-label', 'Send'); sendBtn.replaceChildren(icon('i-up', false)); }
+  }
+  sendBtn.addEventListener('click', () => { if (streaming) { streaming.stopped = true; streaming.timers.forEach(clearTimeout); } else send(); });
+  budget();
+})();
+</script>
+</body>
+</html>

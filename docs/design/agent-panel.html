@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Vault agent · sidebar view — IPFS Sync concept</title>
+<link rel="stylesheet" href="assets/obsidian-shell.css" />
+<style>
+  .ipfs-sync-notice { position: fixed; top: var(--size-4-4); right: var(--size-4-4); z-index: 70; background: var(--background-primary); color: var(--text-normal); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); padding: 8px 12px; font-size: var(--font-ui-small); box-shadow: 0 6px 24px color-mix(in oklch, var(--mono-100) 18%, transparent); display: none; }
+  .ipfs-sync-notice[data-open="true"] { display: block; animation: ipfs-sync-pop var(--anim-in); }
+  .ipfs-sync-skillhead { display: grid; gap: 2px; padding: 8px 10px 0; }
+  .ipfs-sync-skillhead .d { font-size: var(--font-ui-smaller); color: var(--text-muted); }
+  .ipfs-sync-skillhead .a { font-family: var(--font-monospace); font-size: 11px; color: var(--text-muted); }
+  .ipfs-sync-empty { padding: var(--size-4-6) var(--size-4-3); color: var(--text-muted); text-align: center; font-size: var(--font-ui-small); }
+</style>
+</head>
+<body class="theme-light">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-term" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+  <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="i-hist" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.4 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-think" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9L9.2 3.9A2 2 0 0 0 7.5 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 12 10 5 10-5"/><path d="m2 17 10 5 10-5"/></symbol>
+  <symbol id="i-sidebar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></symbol>
+</svg>
+
+<div class="ob-app" data-od-id="obsidian-window">
+  <nav class="ob-ribbon" aria-label="Ribbon">
+    <button aria-label="Open quick switcher"><svg class="ob-icon"><use href="#i-layers"/></svg></button>
+    <button aria-label="Open graph view"><svg class="ob-icon"><use href="#i-hash"/></svg></button>
+    <button aria-label="Open today's daily note"><svg class="ob-icon"><use href="#i-cal"/></svg></button>
+    <button aria-label="Vault agent" aria-pressed="true" title="Vault agent"><svg class="ob-icon"><use href="#i-chat"/></svg></button>
+    <span class="spacer"></span>
+    <button aria-label="Settings"><svg class="ob-icon"><use href="#i-sliders"/></svg></button>
+  </nav>
+
+  <aside class="ob-side left" aria-label="Left sidebar">
+    <div class="ob-tabs" role="tablist"><span class="ob-tab" role="tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-folder"/></svg>Files</span><span class="ob-tab" role="tab" aria-selected="false"><svg class="ob-icon sm"><use href="#i-search"/></svg>Search</span></div>
+    <div class="ob-tree">
+      <div class="folder">Journal</div>
+      <div class="file">2026-09-28 Weekly review</div>
+      <div class="file">2026-10-04</div>
+      <div class="folder">Projects / IPFS Sync</div>
+      <div class="file" aria-current="true">History pruning policy</div>
+      <div class="file">Removal guard — publish refuses mass deletes</div>
+      <div class="file">Encrypted vault format notes</div>
+      <div class="file">Threat model — open-write node</div>
+      <div class="file">Release 0.2.0 retro</div>
+      <div class="folder">Security</div>
+      <div class="file">Argon2id cost presets</div>
+      <div class="file">Kubo RPC auth options</div>
+      <div class="folder">Reading</div>
+      <div class="file">How to Take Smart Notes — Ahrens</div>
+    </div>
+  </aside>
+
+  <main class="ob-main" aria-label="Editor">
+    <div class="ob-tabs" role="tablist"><span class="ob-tab" role="tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-file"/></svg>History pruning policy</span></div>
+    <article class="ob-editor" data-od-id="editor">
+      <h1>History pruning policy</h1>
+      <div class="props"><span>tags</span><span>ipfs-sync, decision</span><span>updated</span><span>2026-09-30</span></div>
+      <p>Every publish adds one encrypted manifest copy under <code>manifests/</code>. On a daily auto-publish the folder grows by roughly one file per edit session, so a vault that is never pruned will eventually hit the publisher's file limit on the node.</p>
+      <h2>Decision</h2>
+      <p>Keep the newest 200 history entries by default. <code>prune-history</code> removes the oldest first and never touches <code>current/</code>. The plugin does not prune; only the CLI does, because pruning is irreversible and the <span class="selection">removal guard counts deletions in <code>current/</code> only, not history files</span>.</p>
+      <h2>Open</h2>
+      <ul><li>Should a pruned entry's root CID stay pinned until GC? See <a class="internal" href="#">[[IPFS pinning and GC policy]]</a>.</li><li>Does the restore list need to say that older entries were pruned?</li></ul>
+    </article>
+  </main>
+
+  <aside class="ob-side right" aria-label="Right sidebar">
+    <div class="ob-tabs" role="tablist"><span class="ob-tab" role="tab" aria-selected="true"><svg class="ob-icon sm"><use href="#i-chat"/></svg>Vault agent</span><span class="ob-tab" role="tab" aria-selected="false"><svg class="ob-icon sm"><use href="#i-link"/></svg>Backlinks</span></div>
+
+    <section class="ipfs-sync-agent" data-od-id="vault-agent-view" aria-label="Vault agent">
+      <div class="ipfs-sync-agent-tabs" role="tablist" aria-label="Vault agent sections">
+        <button class="ipfs-sync-agent-tab" role="tab" aria-selected="false" aria-controls="pane-search" data-tab="search" data-od-id="tab-search"><svg class="ob-icon sm"><use href="#i-search"/></svg>Search</button>
+        <button class="ipfs-sync-agent-tab" role="tab" aria-selected="true" aria-controls="pane-chat" data-tab="chat" data-od-id="tab-chat"><svg class="ob-icon sm"><use href="#i-chat"/></svg>Chat</button>
+        <button class="ipfs-sync-agent-tab" role="tab" aria-selected="false" aria-controls="pane-index" data-tab="index" data-od-id="tab-index"><svg class="ob-icon sm"><use href="#i-db"/></svg>Index <span class="count" id="index-count">1,204 / 1,218</span></button>
+      </div>
+
+      <!-- SEARCH -->
+      <div class="ipfs-sync-pane" id="pane-search" role="tabpanel" data-active="false" data-od-id="search-pane">
+        <div class="ipfs-sync-scroll">
+          <div class="ipfs-sync-searchbox">
+            <svg class="ob-icon"><use href="#i-search"/></svg>
+            <input id="search-input" type="search" placeholder="Search by meaning…" aria-label="Search by meaning" autocomplete="off" />
+          </div>
+          <div class="ipfs-sync-chiprow" style="margin-top: 8px;">
+            <button class="ipfs-sync-chip toggle" aria-pressed="true">Whole vault</button>
+            <button class="ipfs-sync-chip toggle" aria-pressed="false">Folder…</button>
+            <button class="ipfs-sync-chip toggle" aria-pressed="false">Tag…</button>
+            <button class="ipfs-sync-chip toggle" aria-pressed="false">Since…</button>
+          </div>
+          <p class="ipfs-sync-coverage"><span class="ipfs-sync-chip" data-lane="local"><span class="dot"></span>Local · all-MiniLM-L6-v2</span><span>Searching 1,204 of 1,218 notes · <a href="#" data-goto="index">14 queued</a></span></p>
+          <div id="search-results" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <!-- CHAT -->
+      <div class="ipfs-sync-pane" id="pane-chat" role="tabpanel" data-active="true" data-od-id="chat-pane">
+        <div class="ipfs-sync-scopebar two-row">
+          <div class="ipfs-sync-mode" role="group" aria-label="Chat mode" data-od-id="mode-switch"><a aria-pressed="false" href="rag-chat.html" role="button"><svg class="ob-icon sm"><use href="#i-book"/></svg>Notes</a><button aria-pressed="true"><svg class="ob-icon sm"><use href="#i-zap"/></svg>Agent</button></div>
+          <span class="grow"></span>
+          <button class="ob-icon-btn" aria-label="Conversations"><svg class="ob-icon"><use href="#i-hist"/></svg></button>
+          <button class="ob-icon-btn" aria-label="New conversation"><svg class="ob-icon"><use href="#i-plus"/></svg></button>
+          <span class="brk"></span>
+          <button class="ipfs-sync-chip toggle" aria-haspopup="listbox" data-od-id="scope-chip"><svg class="ob-icon sm"><use href="#i-file"/></svg>Scope: current note<svg class="ob-icon sm"><use href="#i-chev"/></svg></button>
+          <span class="ipfs-sync-chip" data-lane="local" id="lane-chip" data-od-id="lane-chip"><span class="dot"></span>Local · on device</span>
+        </div>
+        <div class="ipfs-sync-scroll" id="thread-scroll">
+          <div class="ipfs-sync-thread" id="thread" aria-live="polite">
+            <div class="ipfs-sync-turn user">
+              <div class="who">You · 10:41</div>
+              <div class="body ipfs-sync-md"><p>Why does pull refuse a plaintext root?</p></div>
+            </div>
+            <div class="ipfs-sync-turn assistant">
+              <div class="who">Vault agent <span class="ipfs-sync-badge" data-tone="ok">local</span></div>
+              <div class="ipfs-sync-chunk" data-kind="thinking">
+                <button class="hdr" aria-expanded="false"><svg class="ob-icon sm"><use href="#i-think"/></svg><span class="t">Thinking</span><span class="s">Two notes mention version 1 roots; checking which is the decision record</span><svg class="ob-icon sm chev"><use href="#i-chev"/></svg></button>
+                <div class="bd"><div><div class="bd-in"><p class="meta" style="margin:6px 0 0">The release retro says 0.2.0 wrote plaintext. The format notes record that version 1 roots are refused on read because the reader was removed. The question is about the refusal, so the format note is primary.</p></div></div></div>
+              </div>
+              <div class="ipfs-sync-chunk" data-kind="tool">
+                <button class="hdr" aria-expanded="false"><svg class="ob-icon sm"><use href="#i-term"/></svg><span class="t">search_vault</span><span class="s">"plaintext root refused" · 3 results</span><span class="ipfs-sync-badge" data-tone="ok">done</span><svg class="ob-icon sm chev"><use href="#i-chev"/></svg></button>
+                <div class="bd"><div><div class="bd-in"><div class="ipfs-sync-row"><span class="meta">Arguments</span><button class="ipfs-sync-mini copy" data-copy='{"query":"plaintext root refused","scope":"vault","k":5}'><svg class="ob-icon sm"><use href="#i-copy"/></svg>Copy</button></div><pre>{ "query": "plaintext root refused", "scope": "vault", "k": 5 }</pre><p class="meta" style="margin:8px 0 0">Result · 3 notes above 0.62 similarity</p></div></div></div>
+              </div>
+              <div class="ipfs-sync-md">
+                <p>Because the reader that understood a version 1 (plaintext) root was removed when encryption landed<sup><a href="#src-1">1</a></sup>. Release 0.2.0 is the only build that ever published plaintext, and anything it published is readable by anyone with the CID<sup><a href="#src-2">2</a></sup>. Refusing to read it is how the current tree avoids being used to pull an unencrypted vault into a device that then publishes it encrypted, hiding the earlier exposure.</p>
+              </div>
+              <div class="ipfs-sync-chunk" data-kind="sources">
+                <button class="hdr" aria-expanded="true"><svg class="ob-icon sm"><use href="#i-book"/></svg><span class="t">Sources</span><span class="s">2 notes</span><svg class="ob-icon sm chev"><use href="#i-chev"/></svg></button>
+                <div class="bd"><div><div class="bd-in ipfs-sync-sources">
+                  <a class="ipfs-sync-source" id="src-1" href="#" draggable="true"><span class="n">1</span><span>Encrypted vault format notes</span><span class="p">Projects/IPFS Sync</span></a>
+                  <a class="ipfs-sync-source" id="src-2" href="#" draggable="true"><span class="n">2</span><span>Release 0.2.0 retro</span><span class="p">Projects/IPFS Sync</span></a>
+                </div></div></div>
+              </div>
+              <div class="ipfs-sync-msg-actions">
+                <button class="ipfs-sync-mini" data-copy="Because the reader that understood a version 1 (plaintext) root was removed when encryption landed [[Encrypted vault format notes]]. Release 0.2.0 is the only build that ever published plaintext [[Release 0.2.0 retro]]."><svg class="ob-icon sm"><use href="#i-copy"/></svg>Copy</button>
+                <button class="ipfs-sync-mini" data-notice="Saved to Inbox/Vault agent — 2026-10-04 10-41.md"><svg class="ob-icon sm"><use href="#i-save"/></svg>Save as note</button>
+                <button class="ipfs-sync-mini" data-notice="Inserted at cursor"><svg class="ob-icon sm"><use href="#i-link"/></svg>Insert at cursor</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ipfs-sync-composer" data-od-id="composer">
+          <div class="ipfs-sync-popover" id="slash-pop" role="listbox" aria-label="Commands"></div>
+          <div class="box">
+            <div class="ipfs-sync-row" id="ctx-row"><span class="ipfs-sync-ctx"><svg class="ob-icon sm"><use href="#i-file"/></svg>History pruning policy<button class="x" aria-label="Remove context"><svg class="ob-icon sm"><use href="#i-x"/></svg></button></span></div>
+            <textarea id="composer" rows="2" placeholder="Ask about this note… [[ to mention a note, / for commands" aria-label="Message"></textarea>
+            <div class="tools">
+              <button class="ob-icon-btn" aria-label="Add current selection as context" data-notice="Selection added as context"><svg class="ob-icon"><use href="#i-plus"/></svg></button>
+              <button class="ob-icon-btn" aria-label="Choose agent" data-notice="Agents: vault-librarian (local), research (remote)"><svg class="ob-icon"><use href="#i-cpu"/></svg></button>
+              <span class="grow"></span>
+              <button class="ipfs-sync-send" id="send" data-state="send" aria-label="Send"><svg class="ob-icon"><use href="#i-up"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- INDEX -->
+      <div class="ipfs-sync-pane" id="pane-index" role="tabpanel" data-active="false" data-od-id="index-pane">
+        <div class="ipfs-sync-scroll ipfs-sync-stack">
+          <div class="ipfs-sync-card">
+            <h4>Embedding model</h4>
+            <dl class="ipfs-sync-kv">
+              <dt>Model</dt><dd>onnx:all-MiniLM-L6-v2</dd>
+              <dt>Dimensions</dt><dd>384</dd>
+              <dt>Runs</dt><dd>on this device (WASM)</dd>
+              <dt>Store</dt><dd>PGlite · IndexedDB · 14.8 MB</dd>
+              <dt>Rebuilt</dt><dd>2026-10-01 · 2 min 40 s</dd>
+            </dl>
+          </div>
+          <div class="ipfs-sync-card">
+            <h4>Coverage</h4>
+            <div class="ipfs-sync-progress" role="progressbar" aria-valuemin="0" aria-valuemax="1218" aria-valuenow="1204" aria-label="Notes embedded"><span id="prog" style="width: 98.8%"></span></div>
+            <div class="ipfs-sync-stack" style="gap: 6px; margin-top: 10px;">
+              <div class="ipfs-sync-stat"><span>Embedded</span><b id="n-done">1,204</b></div>
+              <div class="ipfs-sync-stat"><span>Changed since last publish</span><b id="n-queued">14</b></div>
+              <div class="ipfs-sync-stat"><span>Skipped (excluded or binary)</span><b>31</b></div>
+              <div class="ipfs-sync-stat"><span>Failed</span><b>0</b></div>
+            </div>
+            <div class="ipfs-sync-row" style="margin-top: 12px;">
+              <button class="ob-btn cta" id="embed-changed" data-od-id="embed-changed">Embed changed</button>
+              <button class="ob-btn" id="pause-btn" aria-pressed="false"><svg class="ob-icon sm"><use href="#i-pause"/></svg>Pause on battery</button>
+            </div>
+          </div>
+          <p class="ipfs-sync-note">Embeddings are keyed by file content and travel with the vault snapshot. This device can rebuild them at any time; nothing here is the source of truth.</p>
+          <div class="ipfs-sync-card">
+            <h4>Queue</h4>
+            <div id="queue">
+              <button class="ipfs-sync-filerow"><svg class="ob-icon sm"><use href="#i-file"/></svg><span class="nm">Journal/2026-10-04.md</span><span class="ipfs-sync-badge" data-tone="warn">changed</span></button>
+              <button class="ipfs-sync-filerow"><svg class="ob-icon sm"><use href="#i-file"/></svg><span class="nm">Projects/IPFS Sync/History pruning policy.md</span><span class="ipfs-sync-badge" data-tone="warn">changed</span></button>
+              <button class="ipfs-sync-filerow"><svg class="ob-icon sm"><use href="#i-file"/></svg><span class="nm">Security/Kubo RPC auth options.md</span><span class="ipfs-sync-badge" data-tone="warn">changed</span></button>
+              <button class="ipfs-sync-filerow"><svg class="ob-icon sm"><use href="#i-file"/></svg><span class="nm">Reading/How to Take Smart Notes — Ahrens.md</span><span class="ipfs-sync-badge">skipped · .smart-env</span></button>
+            </div>
+            <p class="ipfs-sync-note" style="margin: 8px 0 0;">Showing 4 of 45 · <a href="#" style="color: var(--text-accent)">filter</a></p>
+          </div>
+          <div class="ipfs-sync-row">
+            <button class="ob-btn warn" id="rebuild" data-od-id="rebuild-index"><svg class="ob-icon sm"><use href="#i-refresh"/></svg>Rebuild index</button>
+            <span class="ipfs-sync-note">Removes the local store and re-embeds every note.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </aside>
+
+  <footer class="ob-status-bar" aria-label="Status bar">
+    <button data-goto="index" data-od-id="status-chip"><svg class="ob-icon sm"><use href="#i-db"/></svg><span id="status-text">Index 1,204 / 1,218 · local</span></button>
+    <span>Published 11 min ago</span>
+    <span>1,218 notes</span>
+  </footer>
+</div>
+
+<!-- consequence dialog -->
+<div class="modal-bg" id="dlg-bg" data-open="false"></div>
+<div class="modal" id="dlg" data-open="false" role="dialog" aria-modal="true" aria-labelledby="dlg-title">
+  <div class="dialog" data-od-id="rebuild-dialog">
+    <h3 id="dlg-title">Rebuild the index on this device?</h3>
+    <p>The local store (14.8 MB) is deleted and every note is embedded again. Search falls back to text until it finishes.</p>
+    <ul><li>Estimated 2 to 4 minutes for 1,218 notes; keep the app in the foreground on a phone.</li><li>Nothing in the vault or on the node changes. Embeddings pinned to the current snapshot are reused where the content hash matches.</li><li>Conversations and settings are kept.</li></ul>
+    <div class="btns"><button class="ob-btn" id="dlg-cancel">Cancel</button><button class="ob-btn warn" id="dlg-ok">Rebuild index</button></div>
+  </div>
+</div>
+<div class="ipfs-sync-notice" id="notice" role="status" data-open="false"></div>
+
+<div class="concept-bar" aria-label="Concept controls">
+  <span class="label">Concept</span>
+  <a href="index.html">Overview</a>
+  <a href="rag-chat.html">Notes chat</a>
+  <a href="quick-ask.html">Quick ask</a>
+  <a href="control-center.html">Control center</a>
+  <button id="theme" aria-pressed="false"><svg class="ob-icon sm"><use href="#i-sun"/></svg>Dark</button>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+  const icon = (id, sm = true) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('class', 'ob-icon' + (sm ? ' sm' : '')); const u = document.createElementNS('http://www.w3.org/2000/svg', 'use'); u.setAttribute('href', '#' + id); s.appendChild(u); return s; };
+  let noticeTimer;
+  const notice = (msg) => { const n = $('#notice'); n.textContent = msg; n.dataset.open = 'true'; clearTimeout(noticeTimer); noticeTimer = setTimeout(() => n.dataset.open = 'false', 2400); };
+
+  // theme
+  $('#theme').addEventListener('click', (e) => { const dark = !document.body.classList.contains('theme-dark'); document.body.classList.toggle('theme-dark', dark); document.body.classList.toggle('theme-light', !dark); e.currentTarget.setAttribute('aria-pressed', String(dark)); e.currentTarget.lastChild.textContent = dark ? 'Light' : 'Dark'; });
+
+  // tabs
+  const showTab = (name) => { $$('.ipfs-sync-agent-tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === name))); $$('.ipfs-sync-pane').forEach(p => p.dataset.active = String(p.id === 'pane-' + name)); if (name === 'search') $('#search-input').focus(); };
+  $$('.ipfs-sync-agent-tab').forEach(t => t.addEventListener('click', () => showTab(t.dataset.tab)));
+  $$('[data-goto]').forEach(b => b.addEventListener('click', (e) => { e.preventDefault(); showTab(b.dataset.goto); }));
+  $$('.ipfs-sync-chip.toggle[aria-pressed]').forEach(c => c.addEventListener('click', () => { if (c.closest('.ipfs-sync-chiprow')) { $$('.ipfs-sync-chip', c.parentElement).forEach(o => o.setAttribute('aria-pressed', 'false')); c.setAttribute('aria-pressed', 'true'); } }));
+
+  // collapsibles (delegated)
+  document.addEventListener('click', (e) => {
+    const hdr = e.target.closest('.ipfs-sync-chunk > .hdr'); if (hdr && !e.target.closest('.copy')) { hdr.setAttribute('aria-expanded', String(hdr.getAttribute('aria-expanded') !== 'true')); return; }
+    const cp = e.target.closest('[data-copy]'); if (cp) { e.preventDefault(); const txt = cp.dataset.copy; (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.resolve()).finally(() => notice('Copied markdown source')); return; }
+    const nt = e.target.closest('[data-notice]'); if (nt) { e.preventDefault(); notice(nt.dataset.notice); }
+  });
+
+  // search
+  const notes = [
+    { t: 'Encrypted vault format notes', p: 'Projects/IPFS Sync', x: 'A version 1 root is plaintext and is refused on read; the plaintext reader was removed when the encrypted format landed. Manifest copies are named <seq>-<rootCID>.enc.' , k: ['plaintext','root','refused','encrypted','manifest','format'] },
+    { t: 'Release 0.2.0 retro', p: 'Projects/IPFS Sync', x: 'The 0.2.0 pre-release published plaintext; everything it wrote is readable by anyone who obtains the CID. Lesson: ship the refusal before the format.', k: ['plaintext','release','cid','retro','refused'] },
+    { t: 'Threat model — open-write node', p: 'Projects/IPFS Sync', x: 'The key-slot file is public and the node is open-write. The passphrase is the only thing between an attacker and every note ever published.', k: ['threat','node','passphrase','attacker','public','open-write'] },
+    { t: 'History pruning policy', p: 'Projects/IPFS Sync', x: 'Keep the newest 200 history entries. Only the CLI prunes, because pruning is irreversible and the removal guard counts deletions in current/ only.', k: ['history','prune','pruning','removal','guard','cli','irreversible'] },
+    { t: 'Removal guard — publish refuses mass deletes', p: 'Projects/IPFS Sync', x: 'A manual publish that removes many files stops with a dialog showing counts; Cancel is the default. The timer never opens the dialog, it writes nothing and shows a notice.', k: ['removal','guard','publish','mass','deletes','dialog','timer'] },
+    { t: 'Argon2id cost presets', p: 'Security', x: 'Default 64 MiB, 3 iterations. High is 128 MiB, 4. A slot above the default makes the plugin ask through a cost dialog; a phone may not unlock High.', k: ['argon2id','cost','memory','passphrase','phone','preset'] },
+    { t: 'Kubo RPC auth options', p: 'Security', x: 'Bearer token through a reverse proxy, client certificates, or an IP allowlist over Tailscale. The open /api/v0 write API must be closed before real notes.', k: ['kubo','rpc','auth','bearer','proxy','tailscale','node'] },
+    { t: '2026-09-28 Weekly review', p: 'Journal', x: 'Encrypted pull has not been run inside Obsidian yet. Decided to keep fixture-only until the independent review of the crypto is done.', k: ['review','pull','fixture','crypto','weekly'] },
+    { t: 'How to Take Smart Notes — Ahrens', p: 'Reading', x: 'Permanent notes should be written as if for someone else; the slip-box works because every note is a claim, not a quote.', k: ['notes','ahrens','slip-box','claim','permanent'] },
+  ];
+  const results = $('#search-results');
+  const renderResults = (q) => {
+    results.replaceChildren();
+    const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) { results.appendChild(el('p', 'ipfs-sync-empty', 'Type to search 1,204 embedded notes by meaning. Results show similarity, not relevance ranking by date.')); return; }
+    const scored = notes.map(n => { let s = 0; terms.forEach(t => { if (n.k.some(k => k.startsWith(t))) s += 0.28; if (n.t.toLowerCase().includes(t)) s += 0.22; if (n.x.toLowerCase().includes(t)) s += 0.12; }); return { n, s: Math.min(0.97, 0.38 + s) }; }).filter(r => r.s > 0.45).sort((a, b) => b.s - a.s);
+    if (!scored.length) { results.appendChild(el('p', 'ipfs-sync-empty', 'No notes close to that. Try fewer words, or widen the scope above.')); return; }
+    scored.forEach(({ n, s }) => {
+      const row = el('div', 'ipfs-sync-result'); row.tabIndex = 0;
+      const title = el('div', 'title'); const tt = el('span', null, n.t); tt.draggable = true; title.appendChild(tt); title.appendChild(el('span', 'pct', Math.round(s * 100) + '%')); row.appendChild(title);
+      row.appendChild(el('div', 'path', n.p));
+      const sim = el('div', 'sim'); const bar = el('span'); bar.style.width = Math.round(s * 100) + '%'; sim.appendChild(bar); row.appendChild(sim);
+      const ex = el('div', 'excerpt'); const re = new RegExp('(' + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'ig'); n.x.split(re).forEach((part, i) => { if (i % 2) { ex.appendChild(el('mark', null, part)); } else ex.appendChild(document.createTextNode(part)); }); row.appendChild(ex);
+      const acts = el('div', 'row-actions');
+      [['i-file', 'Open', 'Opened ' + n.t], ['i-link', 'Insert link', 'Inserted [[' + n.t + ']] at cursor'], ['i-chat', 'Add to chat', 'Added to chat context']].forEach(([ic, label, msg]) => { const b = el('button', 'ipfs-sync-mini'); b.appendChild(icon(ic)); b.appendChild(document.createTextNode(label)); b.addEventListener('click', (e) => { e.stopPropagation(); if (label === 'Add to chat') { addCtx(n.t); showTab('chat'); } notice(msg); }); acts.appendChild(b); });
+      row.appendChild(acts); results.appendChild(row);
+    });
+  };
+  $('#search-input').addEventListener('input', (e) => renderResults(e.target.value));
+  $('#search-input').value = 'plaintext root'; renderResults('plaintext root');
+
+  // composer context chips
+  const addCtx = (name) => { const row = $('#ctx-row'); if ($$('.ipfs-sync-ctx', row).some(c => c.firstChild.nextSibling && c.textContent.trim() === name)) return; const chip = el('span', 'ipfs-sync-ctx'); chip.appendChild(icon('i-file')); chip.appendChild(document.createTextNode(name)); const x = el('button', 'x'); x.setAttribute('aria-label', 'Remove context'); x.appendChild(icon('i-x')); x.addEventListener('click', () => chip.remove()); chip.appendChild(x); row.appendChild(chip); };
+  $$('#ctx-row .x').forEach(x => x.addEventListener('click', () => x.closest('.ipfs-sync-ctx').remove()));
+
+  // slash commands
+  const commands = [['/search', 'Search the vault by meaning'], ['/summarize', 'Summarize the current note'], ['/sync status', 'Show publish and pull state'], ['/publish', 'Publish the vault (asks before a mass removal)'], ['/save', 'Save this conversation as a note']];
+  const pop = $('#slash-pop'); const ta = $('#composer'); let sel = 0;
+  const renderPop = (q) => { const items = commands.filter(([c]) => c.startsWith(q)); pop.replaceChildren(); if (!items.length) { pop.dataset.open = 'false'; return; } items.forEach(([c, d], i) => { const b = el('button', 'item'); b.setAttribute('role', 'option'); b.setAttribute('aria-selected', String(i === sel)); b.appendChild(el('code', null, c)); b.appendChild(el('span', 'd', d)); b.addEventListener('click', () => { ta.value = c + ' '; pop.dataset.open = 'false'; ta.focus(); }); pop.appendChild(b); }); pop.dataset.open = 'true'; };
+  ta.addEventListener('input', () => { if (ta.value.startsWith('/') && !ta.value.includes(' ')) { sel = 0; renderPop(ta.value); } else pop.dataset.open = 'false'; ta.style.height = 'auto'; ta.style.height = Math.min(144, ta.scrollHeight) + 'px'; });
+  ta.addEventListener('keydown', (e) => {
+    if (pop.dataset.open === 'true') { const n = pop.children.length; if (e.key === 'ArrowDown') { e.preventDefault(); sel = (sel + 1) % n; renderPop(ta.value); return; } if (e.key === 'ArrowUp') { e.preventDefault(); sel = (sel - 1 + n) % n; renderPop(ta.value); return; } if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pop.children[sel].click(); return; } if (e.key === 'Escape') { pop.dataset.open = 'false'; return; } }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  });
+
+  // scripted turn
+  const thread = $('#thread'); const scroller = $('#thread-scroll'); const sendBtn = $('#send');
+  let streaming = null;
+  const chunk = (kind, iconId, title, summary, bodyNodes, badge) => {
+    const c = el('div', 'ipfs-sync-chunk'); c.dataset.kind = kind;
+    const h = el('button', 'hdr'); h.setAttribute('aria-expanded', 'true'); h.appendChild(icon(iconId)); h.appendChild(el('span', 't', title)); const s = el('span', 's', summary); h.appendChild(s);
+    if (badge) { const b = el('span', 'ipfs-sync-badge', ''); b.dataset.tone = 'run'; const sp = el('span', 'ipfs-sync-spin'); b.appendChild(sp); h.appendChild(b); c._badge = b; }
+    h.appendChild(icon('i-chev')).classList.add('chev'); c.appendChild(h);
+    const bd = el('div', 'bd'); const inner = el('div'); const bi = el('div', 'bd-in'); bodyNodes.forEach(n => bi.appendChild(n)); inner.appendChild(bi); bd.appendChild(inner); c.appendChild(bd); c._summary = s; return c;
+  };
+  const finish = (c, badgeText, tone) => { if (c._badge) { c._badge.replaceChildren(); c._badge.textContent = badgeText; c._badge.dataset.tone = tone; } $('.hdr', c).setAttribute('aria-expanded', 'false'); };
+  const pre = (t) => el('pre', null, t);
+  const meta = (t) => { const p = el('p', 'meta', t); p.style.margin = '6px 0 0'; return p; };
+  const wait = (ms) => new Promise(r => { streaming.timers.push(setTimeout(r, ms)); });
+  const stickBottom = () => { scroller.scrollTo({ top: scroller.scrollHeight }); };
+
+  async function send() {
+    const text = ta.value.trim(); if (!text || streaming) return;
+    ta.value = ''; ta.style.height = 'auto'; pop.dataset.open = 'false';
+    const u = el('div', 'ipfs-sync-turn user'); u.appendChild(el('div', 'who', 'You · now')); const ub = el('div', 'body ipfs-sync-md'); ub.appendChild(el('p', null, text)); u.appendChild(ub); thread.appendChild(u);
+    const a = el('div', 'ipfs-sync-turn assistant'); const who = el('div', 'who', 'Vault agent '); const lb = el('span', 'ipfs-sync-badge', 'local'); lb.dataset.tone = 'ok'; who.appendChild(lb); a.appendChild(who); thread.appendChild(a); stickBottom();
+    streaming = { timers: [], stopped: false }; sendBtn.dataset.state = 'stop'; sendBtn.setAttribute('aria-label', 'Stop'); sendBtn.replaceChildren(icon('i-stop', false));
+    try {
+      // skill activation: always visible
+      const sk = chunk('skill', 'i-zap', 'vault-librarian', 'skill · project', [meta('Skill body'), pre('Answer only from notes in scope. Cite every claim with the note that supports it. Never turn a question about policy into a change to a note without an approval card.')], true);
+      const head = el('div', 'ipfs-sync-skillhead'); head.appendChild(el('div', 'd', 'Answers vault questions with citations; proposes note edits through approval cards.')); head.appendChild(el('div', 'a', 'args: scope=current-note, k=5, lane=local-onnx')); sk.insertBefore(head, sk.querySelector('.bd'));
+      a.appendChild(sk); stickBottom(); await wait(500);
+      // thinking
+      const th = chunk('thinking', 'i-think', 'Thinking', 'Comparing the pruning decision against the removal guard note', [meta('The pruning note says only the CLI prunes and that the guard counts current/ only. The guard note says the timer never opens the dialog. Both are consistent; the gap is that pruning is not counted by the guard at all, which the pruning note already states as the reason.')]);
+      a.appendChild(th); stickBottom(); await wait(900); finish(th);
+      // tool call
+      const tc = chunk('tool', 'i-term', 'search_vault', '"history pruning removal guard" · running', [el('div', 'meta', 'Arguments'), pre('{ "query": "history pruning removal guard", "scope": "current-note+links", "k": 5 }')], true);
+      a.appendChild(tc); stickBottom(); await wait(900); tc._summary.textContent = '"history pruning removal guard" · 2 results'; tc.querySelector('.bd-in').appendChild(meta('Result · History pruning policy (0.91), Removal guard — publish refuses mass deletes (0.84)')); finish(tc, 'done', 'ok');
+      // failed remote tool
+      const er = chunk('error', 'i-alert', 'net_fetch denied', 'Remote lane not available offline', [meta('Error · ToolDenied'), pre('tool: net_fetch\nhost: ipfs.prometheusags.ai\nreason: lane remote-agui disabled while offline; manifest marks net optional\nrun: 7f3a…c1\nchunk: TOOL_CALL_END')], true);
+      a.appendChild(er); stickBottom(); await wait(600); finish(er, 'skipped', 'warn');
+      // memory
+      const mem = chunk('memory', 'i-hist', 'Memory', '2 recalled entries', [memRow('Decision 2026-09-30 · history cap is 200 entries', 'relevance 0.88 · from Decisions'), memRow('Correction 2026-09-29 · the guard counts current/ only', 'relevance 0.81 · from this conversation')]);
+      a.appendChild(mem); stickBottom(); await wait(500); finish(mem);
+      // streamed text
+      const md = el('div', 'ipfs-sync-md'); a.appendChild(md);
+      const paras = [
+        'Yes, and the two notes agree on why. You decided to keep the newest 200 history entries and to let only the CLI prune, because pruning is irreversible and the removal guard does not look at history files at all. It counts deletions in `current/` only.',
+        'That is consistent, but it is a deliberate gap rather than a protection: a prune that goes wrong is not stopped by the guard. The pruning note already says so; the guard note does not mention history. If you want the guard to see pruning, that is a change to the guard, not to the policy.',
+      ];
+      for (const p of paras) { const pe = el('p'); md.appendChild(pe); const caret = el('span', 'ipfs-sync-caret'); pe.appendChild(caret); const words = p.split(' '); for (let i = 0; i < words.length; i++) { if (streaming.stopped) break; caret.before(document.createTextNode((i ? ' ' : '') + words[i])); if (i % 4 === 0) stickBottom(); await wait(28 + Math.random() * 40); } caret.remove(); if (streaming.stopped) break; }
+      cite(md.children[0], ['1', '2']); if (md.children[1]) cite(md.children[1], ['1']);
+      if (streaming.stopped) { a.appendChild(el('div', 'ipfs-sync-stopped', 'Stopped')); } else {
+        // sources
+        const srcs = chunk('sources', 'i-book', 'Sources', '2 notes', [srcRow('1', 'History pruning policy', 'Projects/IPFS Sync'), srcRow('2', 'Removal guard — publish refuses mass deletes', 'Projects/IPFS Sync')]); srcs.querySelector('.bd-in').classList.add('ipfs-sync-sources'); a.appendChild(srcs);
+        // approval card
+        const ap = chunk('confirm', 'i-file', 'Append to note', 'Proposed edit to History pruning policy', [meta('The agent wants to run write_note (append) with this text:'), pre('- 2026-10-04: Guard and pruning are consistent; pruning is outside the guard by design. See [[Removal guard — publish refuses mass deletes]].'), approveRow()]);
+        a.appendChild(ap);
+        // actions
+        const acts = el('div', 'ipfs-sync-msg-actions');
+        [['i-copy', 'Copy', 'Copied markdown source'], ['i-save', 'Save as note', 'Saved to Inbox/Vault agent — 2026-10-04.md'], ['i-link', 'Insert at cursor', 'Inserted at cursor']].forEach(([ic, l, m]) => { const b = el('button', 'ipfs-sync-mini'); b.appendChild(icon(ic)); b.appendChild(document.createTextNode(l)); b.addEventListener('click', () => notice(m)); acts.appendChild(b); });
+        a.appendChild(acts);
+      }
+      stickBottom();
+    } finally { streaming = null; sendBtn.dataset.state = 'send'; sendBtn.setAttribute('aria-label', 'Send'); sendBtn.replaceChildren(icon('i-up', false)); }
+  }
+  const memRow = (t, m) => { const d = el('div'); d.style.padding = '6px 0'; d.appendChild(el('div', null, t)); d.appendChild(el('div', 'meta', m)); return d; };
+  const srcRow = (n, t, p) => { const a = el('a', 'ipfs-sync-source'); a.href = '#'; a.draggable = true; a.appendChild(el('span', 'n', n)); a.appendChild(el('span', null, t)); a.appendChild(el('span', 'p', p)); a.addEventListener('click', (e) => { e.preventDefault(); notice('Opened ' + t); }); return a; };
+  const cite = (p, ns) => { ns.forEach(n => { const s = el('sup'); const a = el('a', null, n); a.href = '#'; a.addEventListener('click', (e) => e.preventDefault()); s.appendChild(a); p.appendChild(s); }); };
+  const approveRow = () => { const r = el('div', 'ipfs-sync-approve'); const ok = el('button', 'ob-btn cta', 'Approve'); const no = el('button', 'ob-btn', 'Deny'); const done = (txt, tone) => { r.replaceChildren(); const b = el('span', 'ipfs-sync-badge', txt); b.dataset.tone = tone; r.appendChild(b); const c = r.closest('.ipfs-sync-chunk'); c._summary.textContent = txt + ' · ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }; ok.addEventListener('click', () => { done('Approved · appended', 'ok'); notice('Appended to History pruning policy'); }); no.addEventListener('click', () => done('Denied · nothing written', 'warn')); r.appendChild(ok); r.appendChild(no); return r; };
+  sendBtn.addEventListener('click', () => { if (streaming) { streaming.stopped = true; streaming.timers.forEach(clearTimeout); } else send(); });
+  ta.value = 'What did I decide about history pruning, and is it still consistent with the removal guard?';
+
+  // index
+  const dlg = $('#dlg'), bg = $('#dlg-bg'); let lastFocus;
+  const openDlg = () => { lastFocus = document.activeElement; dlg.dataset.open = 'true'; bg.dataset.open = 'true'; $('#dlg-cancel').focus(); };
+  const closeDlg = () => { dlg.dataset.open = 'false'; bg.dataset.open = 'false'; lastFocus && lastFocus.focus(); };
+  $('#rebuild').addEventListener('click', openDlg); $('#dlg-cancel').addEventListener('click', closeDlg); bg.addEventListener('click', closeDlg);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && dlg.dataset.open === 'true') closeDlg(); });
+  $('#dlg-ok').addEventListener('click', () => { closeDlg(); notice('Rebuilding index · search uses text until it finishes'); });
+  $('#pause-btn').addEventListener('click', (e) => { const on = e.currentTarget.getAttribute('aria-pressed') !== 'true'; e.currentTarget.setAttribute('aria-pressed', String(on)); notice(on ? 'Embedding pauses while on battery' : 'Embedding runs on battery'); });
+  $('#embed-changed').addEventListener('click', (e) => {
+    const btn = e.currentTarget; btn.disabled = true; let done = 1204, q = 14; const total = 1218;
+    const t = setInterval(() => { done++; q--; $('#prog').style.width = (done / total * 100).toFixed(1) + '%'; $('#n-done').textContent = done.toLocaleString(); $('#n-queued').textContent = q; $('#index-count').textContent = done.toLocaleString() + ' / 1,218'; $('#status-text').textContent = 'Index ' + done.toLocaleString() + ' / 1,218 · local'; $$('#queue .ipfs-sync-badge[data-tone="warn"]')[0] && (() => { const b = $$('#queue .ipfs-sync-badge[data-tone="warn"]')[0]; b.dataset.tone = 'ok'; b.textContent = 'embedded'; })(); if (q <= 0) { clearInterval(t); btn.disabled = false; $('.ipfs-sync-coverage span:last-child').textContent = 'Searching all 1,218 notes'; notice('14 notes embedded'); } }, 180);
+  });
+})();
+</script>
+</body>
+</html>
