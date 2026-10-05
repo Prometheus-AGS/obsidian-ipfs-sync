@@ -499,6 +499,31 @@ fixed by this change. The load-time notice call `warnAboutRetiredDefault` in `sr
 `retiredDefaultNoticeShown` field are still in the code; since load now clears the host, they cannot fire from stored
 data and are effectively dead. They are not removed.
 
+Stored data with no version marker is the previous plugin's form only when `isLegacyForm` in
+`src/plugin/settings-migration.ts` says so: the object is empty, or has one of `LEGACY_KEYS` and none of
+`CURRENT_FORM_KEYS`. Anything else is `unreadable`: defaults are used, `persist` is false and the stored data stays
+untouched. This stops a current-form file that lost its `version` key from being migrated over with defaults, which
+would wipe `ownedKeys`, `gatewayAuth`, the device store and the sequence floor. In `migrateLegacy`, a previous-plugin
+`rpcUrl` with userinfo (`hasUserinfo`) is stored empty and `LEGACY_CREDENTIALS_NOTICE` is shown. The legacy
+`authToken` is dropped in that case too, as it is for the retired host; the user enters credentials again. Status shows addresses through `displayAddress` (`src/core/config/endpoint.ts`): scheme, host, port and
+path, or "invalid address", never userinfo, query or fragment. `redactUserinfo` covers everything between `//` and the
+last `@` before whitespace. An invalid auth header name is not echoed in the error. The 401 or 403 gateway hint is
+added only when the resolved gateway endpoint has `credentialWithheld` (`src/core/config/build-config.ts`,
+`src/kubo/http.ts`): its origin differs from the RPC's, the RPC has a credential, and the gateway has none. A JWT
+whose `exp` is a finite number beyond the date range gives the fixed warning "expiry could not be read" in
+`authWarnings` instead of throwing; an `exp` that is missing or not a number gives no warning. Switching either authentication
+picker away from a kind clears that kind's draft secret fields (`src/plugin/settings-view-model.ts`).
+
+**Switching nodes.** Clearing a retired host resets only `rpc`, `gateway`, `auth` and `gatewayAuth`. `ownedKeys`,
+`pullName`, `lastPublish`, `lastPull`, `kv`, `deviceStore`, `publicationKey` and `mfsRoot` persist. Vault-side state under
+`.ipfs-sync/` is named by a hash of `mfsRoot`, not by the node, so a new empty node meets the old local key-slot copy and
+state. `openVault` in `src/sync/vault-keys.ts` finds a copy, finds no key slots on the node and finds local state, and
+throws `lost-slots`: a publish is refused, fail closed, with no new key generated. Abandon is the way out. It keeps the
+sequence floor and moves the key slots, state, journal and maintenance files aside. It deletes nothing, and that is the
+uncomfortable part: a refusal that has a one-click exit teaches users to click past refusals. `pullName` is not cleared
+by the reset, so the user should clear it when switching nodes. Status keeps the old publish's root CID and time until
+the next publish (`lastPublished` in `src/plugin/sync-status.ts`, which reads the per-root record).
+
 Which endpoint gets the credential is decided in `src/core/config/build-config.ts`. The global auth is the RPC credential.
 The gateway inherits it only when the gateway origin (scheme, host and port) equals the RPC origin; on any other origin it
 gets auth kind `none` unless an explicit gateway auth is set, so the credential never goes to a host the operator did not

@@ -39,6 +39,30 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     when N is 0. It is a lower-bound preview; the stage plans again (`src/sync/encrypted-pull.ts`,
     `cli/pull-encrypted-command.ts`, `src/plugin/first-pull-dialog-model.ts`).
 
+- **Settings loading, display and the settings tab, from the next review round.**
+  - Stored data with no version marker takes the previous-plugin path only if it is empty, or has a key of that plugin
+    and none of the current form's. Anything else is unreadable and left untouched, so a current-form file that lost its
+    `version` key no longer has `ownedKeys`, `gatewayAuth`, the device store and the sequence floor overwritten with
+    defaults (`isLegacyForm` in `src/plugin/settings-migration.ts`).
+  - A previous-plugin `rpcUrl` with a user name or password is stored empty, with a notice. The legacy `authToken` beside
+    such an address is dropped too, as it is for the retired host; the user enters credentials again.
+  - Status shows an address as scheme, host, port and path, or "invalid address", never userinfo, query or fragment
+    (`displayAddress` in `src/core/config/endpoint.ts`, `src/plugin/sync-status.ts`). URL redaction covers everything
+    between `//` and the last `@`. An invalid auth header name is no longer echoed.
+  - The 401 or 403 gateway hint appears only when the gateway has no credential because its origin differs from the RPC's
+    while the RPC has one (`credentialWithheld`). An explicit None, or a node without a credential, gets the plain message.
+  - A JWT whose `exp` is a finite number beyond the date range gives a fixed warning and does not throw
+    (`authWarnings` in `src/core/config/jwt.ts`).
+  - Switching the node or gateway authentication picker away from a kind clears that kind's typed secret fields; Bearer to
+    Basic and back needs the token typed again (`src/plugin/settings-view-model.ts`).
+  - `manifest.json` `authorUrl` is now the GitHub repository.
+- **Switching nodes is documented (README, DESIGN section 8.6).** After the retired host is cleared, only the URLs and the
+  two credentials reset. Owned keys, pull name, last publish and pull, device store, publication key and MFS root
+  persist, and the vault state under `.ipfs-sync/` is named by a hash of the MFS root, so a new empty node meets the old
+  key-slot copy and a publish is refused with `lost-slots` until the user runs Abandon. Clear the pull name too. Status
+  shows the old publish's root CID and time until the next publish (`src/plugin/sync-status.ts`). Abandon is the way out
+  and moves files aside rather than deleting them; it also teaches users to click past refusals.
+
 ### Added
 
 - **`abandon` works with no node configured** (CLI and plugin). It only moves local state aside and prints the sequence
@@ -76,7 +100,12 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   host.
 - **Dead code left in place.** `warnAboutRetiredDefault` in `src/plugin/index.ts` and the `retiredDefaultNoticeShown`
   field remain. Load now clears the retired host, so the one-time notice they gate cannot fire from stored data.
-- **Obsidian's `requestUrl` redirect behaviour is untested.** It is to be probed on the phone and desktop runs.
+- **Obsidian's `requestUrl` redirect behaviour is untested.** It is to be probed on the phone and desktop runs. It may
+  forward a custom gateway header to a redirect target (the review's gateway-header item). Until probed, the gateway
+  must not redirect.
+- **LOW findings L4 and L5, not fixed.** L4 is the dead retired-notice code listed above. L5: re-pointing a URL keeps its
+  credential, so a credential written for one host goes to the next one typed.
+- M4 below (plain `http` accepted with credentials, no warning) and the plain-text credential in `data.json` stand.
 - The credential in `data.json` is plain text, as is the node credential. Anyone who can read the vault folder on that
   device can read both.
 - **Open findings from an independent code-reading review.** The reviewer read the code and executed nothing. The labels

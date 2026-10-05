@@ -164,12 +164,29 @@ What the plugin does today:
   credential goes to the gateway only when scheme, host and port equal the RPC address, and otherwise the gateway gets
   none. Any other choice is used as set and wins, and None sends nothing even when the addresses match. The gateway
   credential goes to the gateway only, never to the RPC endpoint. When the node credential is held back from a gateway
-  on a different address, the tab says so. A gateway that answers 401 or 403 without a credential now reports where
-  to set one. **The gateway secret is stored in plain text in `data.json`, beside the node credential**, and is not
-  published. The settings version stays 3; data saved without a gateway block loads as Same as node, and the node
+  on a different address, the tab says so. The 401 or 403 hint that says where to set a gateway credential appears
+  only when the gateway has no credential because its origin differs from the RPC's while the RPC has one; an explicit
+  None, or a node without a credential, gets the plain message. Switching the node or gateway authentication picker
+  away from a kind clears that kind's typed secret fields, so switching Bearer to Basic and back needs the token typed
+  again. **The gateway secret is stored in plain text in `data.json`, beside the node credential**, and is not
+  published. The gateway should not redirect: a redirect is refused where the plugin can see it, and Obsidian's
+  `requestUrl` may follow one and forward a custom gateway header to the target (see "Redirects" below). The settings version stays 3; data saved without a gateway block loads as Same as node, and the node
   credential is never copied into it. The origin rule compares origins, not paths, so one credential is shared by
   every path of one host. Nothing was rendered in Obsidian or on a phone, no mock of this control exists in
   `docs/design/` (the Open Design MCP did not connect), and `styles.css` does not exist.
+- **Stored settings that cannot be read stay untouched.** Data with no version marker is treated as the previous
+  plugin's only if it is empty, or has one of that plugin's keys and none of the current form's. A current-form file that
+  lost its version key is therefore left alone, with defaults in use and a notice, instead of being overwritten (which
+  would wipe the owned keys, the gateway credential, the device store and the sequence floor). A previous-plugin address
+  with a user name or password in it is stored empty, with a notice. Status shows an address as scheme, host, port and
+  path, or "invalid address"; never a user name, query or fragment.
+- **Switching nodes.** Clearing a retired host resets only the URLs and the node and gateway credentials. The owned keys,
+  pull name, last publish and last pull, device store, publication key and MFS root stay. The vault's state under
+  `.ipfs-sync/` is named by a hash of the MFS root, not by the node, so a new empty node meets the old local key-slot copy
+  and state, and a publish is refused with `lost-slots`. The way out is Abandon: it keeps the sequence floor and moves
+  the key slots, state, journal and maintenance files aside. Abandon moves files aside and deletes none, and that makes it
+  easy to click past a refusal without reading it; read the dialog. Clear the pull name too when you change nodes. Status keeps showing the
+  old publish's root CID and time until the next publish.
 - Node requests go through Obsidian's `requestUrl`, not `fetch`, because the node's CORS
   rules block the WebView (quirk 4 below).
 - The whole `.obsidian/` folder is never published and never pulled (before `mvp-07a` only `.obsidian/plugins/` was):
