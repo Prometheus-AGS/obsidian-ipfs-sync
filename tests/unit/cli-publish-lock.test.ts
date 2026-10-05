@@ -161,14 +161,17 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     expect(s.err.join("\n")).toContain("--break-lock is only valid for the publish command");
   });
 
-  it("writes nothing into a vault without the fixture marker: no lock file, no state folder", async () => {
+  it("a publish that refuses before doing work (no encrypted vault at the MFS root, no marker needed) writes nothing: no lock file, no state folder, no node write", async () => {
     const real = join(dir, "real");
     await mkdir(real);
     await writeFile(join(real, "note.md"), "private");
     const s = sink(undefined);
-    expect(await runCli(["publish", real, "--config", configPath], deps(), s.io)).toBe(2);
-    expect(await readdir(real)).toEqual(["note.md"]);
-    expect(requests).toEqual([]);
+    expect(await runCli(["publish", real, "--config", configPath], deps(), s.io)).toBe(1);
+    expect(s.err.join("\n")).toContain("this MFS root holds no encrypted vault yet");
+    // The lock is taken before the vault check (the marker guard that used to refuse first is gone), so an empty .ipfs-sync folder may remain; the lock file and any state may not.
+    expect((await readdir(real)).filter((name) => name !== ".ipfs-sync")).toEqual(["note.md"]);
+    expect(await readdir(join(real, ".ipfs-sync")).catch(() => [])).toEqual([]);
+    expect(requests.filter((r) => /\/api\/v0\/(files\/(write|mkdir|rm|cp|mv|flush)|add|name\/publish|pin)/.test(r))).toEqual([]);
   });
 
   it("the lock file holds the token, process id, host and time, and is private to the user", async () => {

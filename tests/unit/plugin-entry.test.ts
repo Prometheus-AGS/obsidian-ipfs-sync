@@ -80,17 +80,24 @@ describe("plugin entry", () => {
   it("arms the timer from the stored interval and explains a refusal at most once per session", async () => {
     const setInterval = vi.fn(() => 7);
     vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });
-    const { stub } = await loadPlugin({ ...testNodeSettings(), publishIntervalMinutes: 5 });
+    const { plugin, stub } = await loadPlugin({ ...testNodeSettings(), publishIntervalMinutes: 5 });
     expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 5 * 60_000);
     expect(stub.intervals).toEqual([7]);
 
+    // The tick is fire-and-forget and the refusal waits on real file-system reads, so a timer turn is not a completion signal.
+    // Spy on the instance method the tick calls: it passes through and records each run's promise to await.
+    const publishSpy = vi.spyOn(plugin, "publishVault");
+    const setUpNotices = (): number => Notice.shown.filter((n) => n.message.includes("no encrypted vault is set up")).length;
     const tick = (setInterval.mock.calls[0] as unknown as [() => void])[0];
     tick();
-    await flush();
+    await vi.waitFor(() => expect(setUpNotices()).toBe(1));
     tick();
-    await flush();
+    expect(publishSpy).toHaveBeenCalledTimes(2);
+    const outcomes = await Promise.all(publishSpy.mock.results.map((r) => r.value as Promise<{ kind: string; reason?: string }>));
+    // Both runs finished and both were the set-up refusal, so the single notice is suppression, not a second run that never ended.
+    expect(outcomes.map((o) => `${o.kind}:${o.reason}`)).toEqual(["refused:not-set-up", "refused:not-set-up"]);
     // The vault has no marker and no encrypted vault on this device: the refusal is the set-up one, explained once.
-    expect(Notice.shown.filter((n) => n.message.includes("no encrypted vault is set up"))).toHaveLength(1);
+    expect(setUpNotices()).toBe(1);
     expect(Notice.shown.filter((n) => n.message.includes("independently reviewed"))).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
   });

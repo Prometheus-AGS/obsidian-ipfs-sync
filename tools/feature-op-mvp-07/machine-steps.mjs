@@ -77,7 +77,7 @@ async function firstPullStep(S, X, { add }) {
   const actual = new Map(present.filter((file) => file.path !== MARKER).map((file) => [file.path, file.sha256]));
   const mismatches = treeMismatches(expected, actual);
   add(BYTES, `V2 holds exactly the ${count} published files, each byte-equal to V1's (${mismatches.length} mismatches)`, mismatches.length === 0, mismatches.slice(0, 3).join(", "));
-  add(BYTES, "V2's fixture marker is pulled-fixture", (await readFile(join(X.B.vault, MARKER), "utf8").catch(() => "")).trim() === "pulled-fixture");
+  add(BYTES, "V2 holds no fixture marker: a pull no longer writes one (the restore does not depend on a marker)", !present.some((file) => file.path === MARKER));
   add(BYTES, "the blobs the pull fetched match the files it reports fetching", blobNamesFetched(trace).length === summary.fetched, `${blobNamesFetched(trace).length} blob names, ${summary.fetched} fetched`);
   X.expected = expected;
   X.afterFirst = actual;
