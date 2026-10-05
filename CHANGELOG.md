@@ -31,8 +31,9 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   - **Redirects are refused, never followed.** A 301, 302, 303, 307 or 308 answer fails with a fixed message that does not
     echo `Location` and tells the operator to check the URL's scheme and path. The Node stream transport never follows
     one. Obsidian's `requestUrl` follows redirects itself with no
-    option to stop it, so on mobile and on desktop non-ranged requests a followed redirect is neither prevented nor
-    detected (`src/kubo/http.ts`, `tests/unit/kubo-redirect.test.ts`).
+    option to stop it, so on mobile a followed redirect is neither prevented nor detected. (This entry first said "and on
+    desktop non-ranged requests"; the ninth round below moved all desktop requests to Node and corrected it.)
+    (`src/kubo/http.ts`, `tests/unit/kubo-redirect.test.ts`).
   - **The retired host is cleared at load, for every readable format.** See the retired-host entry below.
   - **The first-pull confirmation states the replacement count.** When at least N existing local files differ from the
     vault, the confirmation says "at least N" files will be replaced and a dated copy of each is kept. It is not shown
@@ -249,6 +250,38 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     the next MEDIUM finding one level further out. The lock is best effort, and abandon fails open on a broken one. **Rounds stop here by decision, not because the
     reviews ran out of findings.** The next review will probably find more, and the items under "Not done" are what is
     already known.
+- **Ninth round / desktop transport: desktop sends every request through Node and refuses redirects (commit `9276e34`;
+  probe tool changes in `6ac4698`, `e7c0ccb`, `e385918`).** The redirect behaviour of `requestUrl` was untested through
+  the first eight rounds. It was probed on a real desktop and on an iPhone, and the desktop result changed the code.
+  - **Desktop: every request, any method and body type, goes through Node's `http` and `https`**
+    (`src/plugin/node-transport.ts`, chosen by `pluginTransport` in `src/plugin/request-url-transport.ts`; all plugin call
+    sites use it). Node returns a 3xx instead of following it, and `requestEndpoint` refuses it with the fixed message.
+    The request, its method and its credential go to the configured URL only. Response bodies stream, so the size caps
+    apply before a body is buffered. The old ranged-read-only transport (`range-streaming-transport.ts`) is replaced by
+    this file. Mobile has no Node and keeps `requestUrl`, which cannot refuse a redirect.
+  - **Cost on desktop.** Node's TLS uses its own CA list: a private CA needs `NODE_EXTRA_CA_CERTS`, and the TLS failure
+    message says so (`TLS_FAILURE_MESSAGE`). Node ignores the system proxy and the Chromium trust store, so a node reached
+    through a system proxy, or through a private CA that Node does not trust, fails on desktop.
+  - **Probed on a real desktop** (Obsidian installer 1.8.4, app 1.14.4, Electron 33.3.2, macOS), by the operator and by the
+    lead using computer control. With the old `requestUrl` path a node's cross-origin 307 to `127.0.0.1` was followed and
+    the POST replayed (method kept, no `Origin` header). With the new build the probe said "redirect NOT followed; the
+    redirect target was not reached", and the request carried the configured `X-Api-Key` to its own URL only and none of
+    Chromium's `sec-fetch` headers.
+  - **Probed on an iPhone** (CFNetwork, `requestUrl`). A cross-origin redirect was followed and the POST replayed with an
+    empty body (`key/list` carries none). `Authorization` was stripped on the cross-origin hop. A custom header
+    (`X-Api-Key`) was forwarded. **iOS forwards a custom-header credential across origins and the plugin cannot stop it;**
+    use Bearer or Basic on a phone, and a node that does not redirect.
+  - **Finding history.** A reviewer rated the `requestUrl` redirect HIGH and two others MEDIUM (third round, below). The
+    desktop probe confirmed the loopback case, which is the HIGH criterion, and the desktop transport closes it. On mobile
+    it stays a documented MEDIUM.
+  - **`tools/probe-redirect-forwarding.mjs`.** `node tools/probe-redirect-forwarding.mjs --host <LAN address>` (or
+    `--loopback` for a desktop run) serves a redirecting "node" on port 5101 and a target on 5102. It prints one `VERDICT`
+    line per request and the header names it received with a short hash of each credential value, never the value.
+  - **How the desktop result was obtained.** It came only after the operator had spent about an hour on earlier probe
+    attempts that failed for reasons on the lead's side: incomplete instructions, and a user-agent the first probe printed
+    truncated.
+  - Tests: `tests/unit/node-transport.test.ts` (new), `tests/unit/hostile-gateway-bounds.test.ts`. They run outside
+    Obsidian; the probes above are the only runs on real devices.
 
 ### Added
 
@@ -335,9 +368,13 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   - The `NOTHING_TO_ABANDON` wording does not name the key-management journal. The CLI message does.
 - **Dead code left in place.** `warnAboutRetiredDefault` in `src/plugin/index.ts` and the `retiredDefaultNoticeShown`
   field remain. Load now clears the retired host, so the one-time notice they gate cannot fire from stored data.
-- **Obsidian's `requestUrl` redirect behaviour is untested.** It is to be probed on the phone and desktop runs. It may
-  forward a custom gateway header to a redirect target (the review's gateway-header item). Until probed, the gateway
-  must not redirect.
+- **Redirect probe coverage (the item "`requestUrl` redirect behaviour is untested" is replaced by this list).**
+  - Probed: one macOS desktop (Obsidian installer 1.8.4, app 1.14.4, Electron 33.3.2) and one iPhone (CFNetwork,
+    `requestUrl`). Results are in the ninth round above.
+  - Not probed: Android; body-carrying calls on mobile (the multipart upload); an https-to-http downgrade; Windows and
+    Linux desktops.
+  - Open on mobile: iOS forwards a custom-header credential (`X-Api-Key`) to another origin and the plugin cannot stop it.
+    The gateway must not redirect, and Bearer or Basic is the safer choice on a phone.
 - **LOW findings L4 and L5, not fixed.** L4 is the dead retired-notice code listed above. L5: re-pointing a URL keeps its
   credential, so a credential written for one host goes to the next one typed.
 - M4 below (plain `http` accepted with credentials) is superseded in part: a non-loopback `http:` endpoint with a
@@ -357,7 +394,8 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
 - **Findings left open from the third review round.** It was an independent code-reading review that executed nothing.
   The ratings are the reviewers' own. None is fixed on this branch.
   - `requestUrl` follows redirects and may forward headers, on mobile and on desktop non-ranged requests. One reviewer
-    rated it HIGH, another MEDIUM. Untested; to be probed on the phone.
+    rated it HIGH, another MEDIUM. Untested; to be probed on the phone. (Superseded by the ninth round: probed; closed on
+    desktop, a documented MEDIUM on mobile.)
   - The plugin transports have no request timeout.
   - The mobile transport buffers whole bodies (memory).
   - "Not found" is taken from unauthenticated node text.
@@ -478,7 +516,8 @@ covered by fake-DOM and wiring tests only. Nothing here is tagged or released, a
   "Measure key derivation time" (one Argon2id derivation at the default cost on random input, with the longest event-loop
   gap and the first 16 characters of the `main.js` hash).
 - **Desktop Range streaming.** On desktop a GET with a `Range` header goes through Node `http` and `https` (found with
-  `globalThis.require`) and is cancelled after the header bytes. Mobile still buffers whole bodies.
+  `globalThis.require`) and is cancelled after the header bytes. Mobile still buffers whole bodies. (Superseded in the
+  ninth round: on desktop every request goes through Node, not ranged reads alone.)
 - **Guard evidence tooling:** `tools/check-guard-preconditions.mjs` (tree hash, clean-export build, review record,
   operator-run record, phone timing, dist and checklist tests), `tools/record-phone-timing.mjs`, `tools/release-mvp-07.mjs`
   and per-release descriptors in `tools/release/`. Fixture policy is centralised in `src/sync/fixture-constants.ts`,
@@ -530,7 +569,8 @@ covered by fake-DOM and wiring tests only. Nothing here is tagged or released, a
   history files a day: the warning at about 15.6 days, the refusal at about 20.8 days. The timer default is off. Auto-publish
   does not coalesce; the recovery is pruning, from the CLI or the plugin.
 - On a High-cost vault the auto-publish timer stays refused until a manual unlock; a wrong-passphrase pull asks the cost
-  question again on every attempt; the desktop streaming lookup is unconfirmed inside Obsidian.
+  question again on every attempt; the desktop streaming lookup is unconfirmed inside Obsidian. (The ninth round's desktop
+  probe ran the Node transport in Obsidian 1.8.4 on macOS; other desktops are untested.)
 
 ## [Unreleased] - encrypted pull and second-device publish (fixture-only, after the encrypted publish below)
 
@@ -859,7 +899,8 @@ Increment mvp-04, plugin publish and settings:
   exclusion list editor, owned-key display and adopt-by-ID with a confirmation dialog, optional auto-publish interval.
 - Settings migration from the old flat settings; the old default key name `obsidian-vault` maps to `obsidian-vault-sync`,
   and an existing foreign key is never adopted implicitly.
-- Node requests go through Obsidian's `requestUrl`, because the node's CORS rules block the WebView's `fetch`.
+- Node requests go through Obsidian's `requestUrl`, because the node's CORS rules block the WebView's `fetch`. (Since the
+  ninth round this holds on mobile only; desktop uses Node's `http` and `https`.)
 
 Increment mvp-05, plugin pull and conflict:
 - **IPFS Sync: Pull vault** command and a Pull ribbon icon, with progress in a notice and the status bar and a

@@ -60,8 +60,8 @@ On this branch nothing stops you from publishing a real vault. Accept each line 
 7. **Plugin timer and High cost.** The timer never opens a dialog. It skips while the vault is locked, and it never asks
    the cost question, so a key slot above the default cost (64 MiB, 3 iterations) keeps the timer and the catch-up pull
    refused until you unlock by hand.
-8. **Mobile.** `requestUrl` buffers whole response bodies. Desktop can stream ranged reads if `globalThis.require` exists
-   in Obsidian (unconfirmed); mobile cannot. Phone behaviour with a real vault is unmeasured. Android is untested.
+8. **Mobile.** `requestUrl` buffers whole response bodies and follows redirects. Desktop sends every request through
+   Node's `http` and `https`, which streams and refuses a redirect; mobile cannot. Phone behaviour with a real vault is unmeasured. Android is untested.
 9. **Mass-removal limits.** The guard stops removing every remaining entry or more than half. It does not stop the removal
    of 49 percent of the entries, does not check a vault's first publish, and does not see a half-mounted folder that is
    missing less than half the files.
@@ -313,7 +313,8 @@ file claims nothing about Smart Connections beyond that; its behaviour on a runn
   or `null` (how JSON stores NaN and infinity), loads as 0 (off) and the credentials in the file are kept. A stored
   value of any other type makes the file unreadable. Any change of origin also blanks the credential you typed
   but have not saved in that block and puts its kind picker back to what is stored. One sentence under the credential
-  fields (Authentication section) warns that requests may follow redirects the plugin cannot see; with only a gateway
+  fields (Authentication section) warns that requests may follow redirects the plugin cannot see (true of mobile; desktop
+  refuses a redirect, and the sentence is the same on both); with only a gateway
   credential it is not beside the gateway fields, and it has no style rule because `styles.css` does not exist. The tab
   is emptied when it closes.
 - Closing Abandon or Clear stale lock while it runs does not stop it. If it then fails, a notice reports the failure
@@ -337,8 +338,8 @@ file claims nothing about Smart Connections beyond that; its behaviour on a runn
   attempt. Never run in Obsidian.
 - Key management, the mass-removal dialog and the measure command are described in "Change the passphrase or the cost",
   "Mass removal" and "Release checks". The plugin has no `keys discard` and does not finish an interrupted operation; use the command line for both. It does have a "Prune history..." row (see "Prune the history").
-- Memory. The CLI streams each blob and holds about one segment per file in flight. The plugin reads blobs through Obsidian's `requestUrl`,
-  which buffers whole response bodies, in segment-aligned Range requests. Its in-flight ciphertext and plaintext are
+- Memory. The CLI streams each blob and holds about one segment per file in flight. The plugin reads blobs in segment-aligned Range requests. On
+  mobile that is Obsidian's `requestUrl`, which buffers whole response bodies; desktop streams through Node. Its in-flight ciphertext and plaintext are
   budgeted at 128 MiB (a design budget, not a measurement). A gateway that ignores the Range header answers with the whole
   blob: up to 32 MiB is accepted, and a larger one is discarded after the transport buffered it, so the file is
   `unfetched`. Blobs with segments below 1 MiB are `unfetched` in the plugin. **Large-file pull in the plugin is not
@@ -813,7 +814,14 @@ real vault.
 - The node can see sizes, counts and timing, and can delete, replace, withhold or roll back. A pull detects a rollback
   only against the sequence this device already accepted (the floor and the state; see "The record and the sequence
   floor"), cannot detect a freeze, and has no baseline on a first pull.
-- `requestUrl` in the plugin buffers whole response bodies; size caps do not protect its memory.
+- `requestUrl`, which the plugin uses on mobile, buffers whole response bodies; size caps do not protect its memory.
+- Redirects. Desktop refuses a redirect and sends your credential to the configured URL only. Mobile cannot refuse one.
+  On iOS a redirect to another origin is followed, `Authorization` is stripped on that hop, and a custom header such as
+  `X-Api-Key` is forwarded: the plugin cannot stop it, so use Bearer or Basic on a phone and a node that does not
+  redirect. Desktop cost: Node uses its own CA list (set `NODE_EXTRA_CA_CERTS` for a private CA) and ignores the system
+  proxy, so a node behind either fails on desktop. Not probed: Android, mobile multipart bodies, an https-to-http
+  downgrade, Windows and Linux. The probe is `node tools/probe-redirect-forwarding.mjs --host <LAN address>` (or
+  `--loopback`); it prints a VERDICT line per request and never a credential value.
 - Every recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) leaves a folder with no baseline, and the
   baseline is what protects you from the node. The confirmation for that case shows a lower bound ("at least N"), and
   the stage plans again.

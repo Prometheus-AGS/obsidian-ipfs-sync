@@ -174,8 +174,8 @@ What the plugin does today:
   None, or a node without a credential, gets the plain message. Switching the node or gateway authentication picker
   away from a kind clears that kind's typed secret fields, so switching Bearer to Basic and back needs the token typed
   again. **The gateway secret is stored in plain text in `data.json`, beside the node credential**, and is not
-  published. The gateway should not redirect: a redirect is refused where the plugin can see it, and Obsidian's
-  `requestUrl` may follow one and forward a custom gateway header to the target (see "Redirects" below). The settings version stays 3; data saved without a gateway block loads as Same as node, and the node
+  published. The gateway should not redirect: desktop refuses a redirect, and on iOS Obsidian's `requestUrl` follows one
+  and forwards a custom gateway header to the target (see "Redirects" below). The settings version stays 3; data saved without a gateway block loads as Same as node, and the node
   credential is never copied into it. The origin rule compares origins, not paths, so one credential is shared by
   every path of one host. Nothing was rendered in Obsidian or on a phone, no mock of this control exists in
   `docs/design/` (the Open Design MCP did not connect), and `styles.css` does not exist.
@@ -202,7 +202,8 @@ What the plugin does today:
   gateway credential kind is chosen: "Requests may follow redirects the plugin cannot see, so use a node address you
   trust and prefer Basic or Bearer over a custom header." It is below the node and gateway fields together. With only a
   gateway credential it is not beside the gateway fields. It has the class `ipfs-sync-redirect-note` and no style rule,
-  because `styles.css` does not exist. The note is a warning, not a control: see "Redirects" below.
+  because `styles.css` does not exist. The note is a warning, not a control: see "Redirects" below. It is shown on every
+  platform. On desktop the plugin refuses a redirect, so the sentence is true of mobile only (it was not changed).
 - **Editing an address, port or credential does not ask the node about the key.** The key row then says it was not
   checked since the settings changed; press **Check again**. Opening the tab still checks. The settings tab is emptied
   when it closes, so a typed secret does not stay in the page.
@@ -215,8 +216,9 @@ What the plugin does today:
   It also says that a pending rewrap or prune is dropped and its write to the node is not withdrawn (see "Interrupted
   publishes, `--repair`, `--recover-slots`, `--break-lock`"). Clear the pull name too when you change nodes. Status keeps showing the
   old publish's root CID and time until the next publish.
-- Node requests go through Obsidian's `requestUrl`, not `fetch`, because the node's CORS
-  rules block the WebView (quirk 4 below).
+- Node requests do not use the WebView's `fetch`, because the node's CORS rules block it (quirk 4 below). On desktop
+  every request goes through Node's `http` and `https` (`src/plugin/node-transport.ts`). On mobile, which has no Node,
+  requests go through Obsidian's `requestUrl`.
 - The whole `.obsidian/` folder is never published and never pulled (before `mvp-07a` only `.obsidian/plugins/` was):
   plugin code and plugin data, including this plugin's own `data.json` with your credentials, stay on the device. Those
   credentials are stored in plain text, and so is the sequence floor, which lives in the same plugin data.
@@ -317,26 +319,44 @@ code path reads a plaintext manifest.
   accept").
 - The plugin cannot detect symbolic links, because Obsidian's file adapter has no `lstat`. The CLI refuses to
   write through a symlink; the plugin cannot make that check. Do not place symlinks in a vault you sync.
-- **Desktop streams ranged reads; mobile still buffers.** On desktop the plugin sends a GET that carries a `Range`
-  header through Node's `http` and `https`, found with `globalThis.require`, and cancels after the header bytes, so a
-  hostile gateway cannot make it buffer a multi-GB body for a 22-byte header read. Whether `globalThis.require` exists
-  inside real Obsidian is unconfirmed; if it does not, the plugin falls back to buffering without saying so. On mobile
-  and for every other request, Obsidian's `requestUrl` buffers each whole response body in memory. The streaming path
-  has no timeout.
+- **Desktop streams every response; mobile buffers.** On desktop the plugin sends every request, whatever its method or
+  body, through Node's `http` and `https` (`src/plugin/node-transport.ts`), found with `globalThis.require`. The response
+  body streams, so the size caps apply before the body is buffered, and a hostile gateway cannot make the plugin buffer a
+  multi-GB body for a 22-byte header read. On mobile, which has no Node, Obsidian's `requestUrl` buffers each whole
+  response body in memory. The desktop path has no timeout. Desktop costs you Chromium's network stack. Node trusts its
+  own certificate list, so a private CA needs `NODE_EXTRA_CA_CERTS` (the TLS failure message says so). Node ignores the
+  system proxy and the Chromium trust store, so a node reached through a system proxy, or through a private CA that Node
+  does not trust, fails on desktop.
 - **Redirects.** A 301, 302, 303, 307 or 308 answer is refused on the shared request path with a fixed message that
-  tells you to check the URL's scheme (http or https) and path; the
-  `Location` the node named is not shown and not followed. The Node stream transport never follows one, so that
-  refusal holds. Obsidian's `requestUrl` follows redirects itself and offers no option to stop it and no way to read the
-  final URL. On mobile, and on desktop for every request that is not a ranged read, a followed redirect is neither
-  prevented nor detected. Whether `requestUrl` forwards the credential to the redirect target was not checked, and what
-  `requestUrl` does on a redirect is untested: it is to be probed on the phone and desktop runs. Point the plugin
-  only at an endpoint you control and trust not to redirect.
-- Obsidian's `requestUrl` transport buffers each whole response body in memory. The one-segment memory bound and the
-  size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and Range requests
-  reduce the exposure only against gateways that honour them. The plugin pull holds up to a 128 MiB budget (a design
-  budget, not a measurement); a gateway that ignores Range makes files above 32 MiB `unfetched`, and so does a blob with
-  segments below 1 MiB. Multi-megabyte binary bodies through `requestUrl` are unverified, and large-file pull in the
-  plugin is not advertised as working until the `mvp-07b` operator run records the outcome.
+  tells you to check the URL's scheme (http or https) and path; the `Location` the node named is not shown and not
+  followed. On desktop that refusal holds: Node's modules return the 3xx instead of following it, and the credential goes
+  to the configured URL only. **On mobile it cannot hold.** Obsidian's `requestUrl` follows redirects itself, offers no
+  option to stop it and no way to read the final URL, so a followed redirect there is neither prevented nor detected.
+  **On iOS the plugin cannot stop a custom-header credential (for example `X-Api-Key`) from reaching another origin.**
+  Use Bearer or Basic on a phone: iOS strips those on a cross-origin hop. What was probed (`tools/probe-redirect-forwarding.mjs`,
+  see "Redirect probe" below):
+  - **Desktop, probed** (Obsidian installer 1.8.4, app 1.14.4, Electron 33.3.2, macOS). With the old `requestUrl` path a
+    node's cross-origin 307 to `127.0.0.1` was followed and the POST replayed, method kept, no `Origin` header. With the
+    current build the redirect was not followed and the request carried the configured `X-Api-Key` to its own URL only
+    and none of Chromium's `sec-fetch` headers.
+  - **iPhone, probed** (CFNetwork, `requestUrl`). A cross-origin redirect was followed and the POST replayed with an
+    empty body (the `key/list` call carries none). `Authorization` was stripped on the cross-origin hop. A custom header
+    (`X-Api-Key`) was forwarded.
+  - **Not probed:** Android; a body-carrying call on mobile (the multipart upload); an https-to-http downgrade; Windows
+    and Linux desktops.
+  Point the plugin only at an endpoint you control and trust not to redirect.
+- Obsidian's `requestUrl` transport, which mobile uses, buffers each whole response body in memory. The one-segment
+  memory bound and the size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and
+  Range requests reduce the exposure only against gateways that honour them. The plugin pull holds up to a 128 MiB
+  budget (a design budget, not a measurement); a gateway that ignores Range makes files above 32 MiB `unfetched`, and so
+  does a blob with segments below 1 MiB. Multi-megabyte binary bodies through `requestUrl` are unverified, and
+  large-file pull in the plugin is not advertised as working until the `mvp-07b` operator run records the outcome.
+- **Redirect probe.** `node tools/probe-redirect-forwarding.mjs --host <this machine's LAN address>` (or `--loopback`
+  for a desktop run) starts two plain-http servers, A on port 5101 and B on 5102 (`--port-a`, `--port-b`). A answers each
+  request with the next redirect status in the cycle 307, 308, 302, 301, 303, pointing at B. Set the plugin's node and
+  gateway URL to A and use the plugin. For every request the tool prints one `VERDICT` line (followed or not, whether
+  method and body were kept, which credential headers were forwarded or stripped), then the raw detail. It prints header
+  names and a short hash of each credential header, never a value. It answers nothing but redirects and an empty 200.
 - Writes go through a temporary file in `.ipfs-sync/tmp/` and then a rename. Where the destination already exists,
   the plugin removes it first and then renames, so `rename` is not atomic and a crash in between can leave the file
   missing until the next pull. This window has not been tested. The temporary files hold verified plaintext until they are
@@ -543,9 +563,8 @@ way this goes wrong for you.
   stays locked to the timer and to the catch-up pull until you unlock by hand. The timer also writes history files:
   at 15 minutes on a vault that changes every tick, the warning comes in about 15.6 days and the refusal in about
   20.8 days unless you prune.
-- **Mobile limits.** The plugin reads through Obsidian's `requestUrl`, which buffers each whole response body in
-  memory. Desktop can stream ranged reads when `globalThis.require` exists, which is unconfirmed inside Obsidian;
-  mobile always buffers. How a phone behaves with a real vault, and whether it can unlock a High-cost slot, is
+- **Mobile limits.** On mobile the plugin reads through Obsidian's `requestUrl`, which buffers each whole response body
+  in memory and follows redirects. Desktop streams through Node's `http` and `https`; mobile always buffers. How a phone behaves with a real vault, and whether it can unlock a High-cost slot, is
   unmeasured. The only phone measurements are of earlier builds (see "Not verified"). Android is untested.
 - **The mass-removal guard has limits.** It stops a publish that would remove every remaining entry or more than half of
   at least two, and not the first publish of a vault. Removing 49 percent of the entries is silent. A half-mounted
@@ -889,7 +908,8 @@ commands are in the operator runbook. The checker and the release tool bind to t
 
 Nothing in this list has been checked, and none of it should be assumed to work: any part of the plugin's encryption
 flow inside Obsidian, including Pull, Restore, Resolve fork, the key-management, mass-removal and cost dialogs, the
-measure command and desktop Range streaming (the `globalThis.require` lookup); the `keys` commands and `prune-history`
+measure command and the desktop Node transport beyond the redirect probe (the probe ran on one macOS desktop only; see
+"Plugin limitations"); the `keys` commands and `prune-history`
 against the shared node or a real kubo; a High-cost key slot on a phone; the encrypted pull against the shared node
 and with a real second device; an encrypted publish or pull on a phone; Android; HKDF, HMAC and AES-GCM under Obsidian's
 WebView; `requestUrl` with large binary bodies and Range requests, and large-file pull in the plugin; zeroization beyond
@@ -934,8 +954,8 @@ token is not re-checked immediately before each node write) is open. Details: `D
    always sends it.
 4. **CORS blocks the Obsidian WebView.** The node answers requests with the origin
    `app://obsidian.md` with 403 and sends no CORS headers, so the WebView's `fetch` cannot
-   reach it. The plugin sends every node request through Obsidian's `requestUrl`, which is
-   not subject to CORS. The CLI uses plain `fetch` and is unaffected.
+   reach it. The plugin sends node requests through Node's `http` and `https` on desktop and through
+   Obsidian's `requestUrl` on mobile; neither is subject to CORS. The CLI uses plain `fetch` and is unaffected.
 
 ## ⚠ Security: an open RPC endpoint is wide open
 

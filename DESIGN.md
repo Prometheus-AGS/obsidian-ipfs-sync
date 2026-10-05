@@ -580,21 +580,40 @@ is shared by every path of one host. This control was not rendered in Obsidian o
 
 ### 8.7 Stated limits
 
-- **Desktop streaming.** On desktop, a GET with a `Range` header goes through Node `http` or `https`, found with
-  `globalThis.require` (`src/plugin/range-streaming-transport.ts`); the ranged source reads the header bytes and cancels,
-  which destroys the socket, so a hostile gateway cannot make the plugin buffer a large body for a header read. Whether
-  `globalThis.require` exists in real Obsidian is unconfirmed, and without it the plugin silently buffers through
-  `requestUrl`. Mobile always buffers. This path has no timeout. "Abort" means the plugin stops probing further size
-  classes; it does not fail the pull.
+- **Desktop transport.** On desktop every plugin request, of any method and body type, goes through Node `http` or
+  `https`, found with `globalThis.require` (`src/plugin/node-transport.ts`, chosen by `pluginTransport` in
+  `src/plugin/request-url-transport.ts`). The response body streams with one chunk of look-ahead and the socket is paused
+  while nothing reads, so the bounded readers cut a hostile body off before it is buffered. Cancelling destroys the
+  socket, so a hostile gateway cannot make the plugin buffer a large body for a header read. Mobile has no `require` and
+  keeps `requestUrl`, which buffers whole bodies. This path has no timeout. "Abort" means the plugin stops probing
+  further size classes; it does not fail the pull. The cost: Node's TLS uses its own CA list, so a private CA needs
+  `NODE_EXTRA_CA_CERTS` (a TLS failure is reported with fixed text that says so, `TLS_FAILURE_MESSAGE`), and Node ignores
+  the system proxy and the Chromium trust store. A node reached through a system proxy, or through a private CA that Node
+  does not trust, fails on desktop.
 - **Redirects.** `requestEndpoint` in `src/kubo/http.ts` passes `redirect: "manual"` and refuses a 301, 302, 303, 307 or
   308 answer (and a `fetch` opaque redirect) with the fixed `REDIRECT_REFUSED_MESSAGE`, which tells the operator to check
-  the URL's scheme and path. The `Location` is never echoed and
-  never followed, on RPC and gateway requests alike (`tests/unit/kubo-redirect.test.ts`). The Node stream transport does not
-  follow redirects, so a 3xx answer reaches that check. Obsidian's `requestUrl` follows redirects itself, has no option to
-  stop it and exposes no final URL. On mobile, and on desktop for every request that is not a ranged read, a followed
-  redirect is therefore neither prevented nor detected. Whether `requestUrl` forwards the credential to the target was not
-  checked, and its redirect behaviour is untested; the phone and desktop runs are to probe it. The control that holds is operator choice of an endpoint that does not redirect.
-- **Plugin transport.** The Obsidian `requestUrl` transport buffers whole response bodies. The streaming caps and the
+  the URL's scheme and path. The `Location` is never echoed and never followed, on RPC and gateway requests alike
+  (`tests/unit/kubo-redirect.test.ts`). The CLI's `fetch` and the desktop Node transport hand the 3xx back, so it reaches
+  that check; the request, its method and its credential go to the configured URL only. Obsidian's `requestUrl`, which
+  mobile uses, follows redirects itself, has no option to stop it and exposes no final URL, so on mobile a followed
+  redirect is neither prevented nor detected. Evidence, stated exactly:
+  - **Probed on a real desktop** (Obsidian installer 1.8.4, app 1.14.4, Electron 33.3.2, macOS), by the operator and by the
+    lead using computer control, with `tools/probe-redirect-forwarding.mjs`. With the old `requestUrl` path a node's
+    cross-origin 307 to `127.0.0.1` was followed and the POST replayed (method kept, no `Origin` header). With the current
+    build the probe reported "redirect NOT followed; the redirect target was not reached", and the request carried the
+    configured `X-Api-Key` to its own URL only and none of Chromium's `sec-fetch` headers.
+  - **Probed on an iPhone** (CFNetwork, `requestUrl`). A cross-origin redirect was followed and the POST replayed with an
+    empty body (`key/list` carries none). `Authorization` was stripped on the cross-origin hop. A custom header
+    (`X-Api-Key`) was forwarded.
+  - **Not probed:** Android; body-carrying calls on mobile (the multipart upload); an https-to-http downgrade; Windows and
+    Linux desktops.
+  - **Finding history.** One reviewer rated the `requestUrl` redirect HIGH and two MEDIUM. The desktop probe confirmed the
+    loopback case, which is the HIGH criterion, and the desktop transport closes it. On mobile it stays a MEDIUM that the
+    plugin cannot fix: **iOS forwards a custom-header credential across origins and the plugin cannot stop it.** The
+    control that holds on a phone is operator choice of an endpoint that does not redirect, and Bearer or Basic over a
+    custom header; the settings tab says so (`SECRETS_REDIRECT_NOTE`, shown on every platform and unchanged).
+  The probe prints a `VERDICT` line per request and header names with short hashes of credential values, never values.
+- **Plugin transport.** The Obsidian `requestUrl` transport, which mobile uses, buffers whole response bodies. The streaming caps and the
   one-segment memory bound therefore give no memory protection inside the plugin for what the transport has already
   buffered; Range requests reduce the exposure only against gateways that honour them. The CLI pull streams. The plugin
   pull holds up to the 128 MiB in-flight budget (`SEGMENT_MEMORY_BUDGET`, a design budget, not a measurement); a gateway
@@ -806,7 +825,8 @@ is shared by every path of one host. This control was not rendered in Obsidian o
 Unverified, or unenforced, at the time of writing:
 1. Anything inside Obsidian: the setup, unlock and abandon dialogs, an encrypted publish from the plugin, HKDF, HMAC and
    AES-GCM under Obsidian's WebView (only a SHA-256 digest is recorded as having run in Obsidian 1.13.7), and
-   `requestUrl` with multi-megabyte binary bodies and Range requests.
+   `requestUrl` with multi-megabyte binary bodies and Range requests, and the desktop Node transport beyond the redirect
+   probe (one macOS desktop; Windows and Linux are untested).
 2. Encrypted publish and pull on a phone (Argon2id alone was timed on an iPhone; see "Mobile"), and Android.
 3. Zeroization beyond the arrays the core owns.
 4. Rollback and freeze prevention: a pull refuses a sequence below this device's record, and nothing detects a freeze or a
