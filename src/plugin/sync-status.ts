@@ -1,7 +1,7 @@
 import { classifyKey, ConfigError, describeAuth, displayAddress, type KeyState, type SyncConfig } from "../core/config";
 import { createKuboClient, KuboError, type KuboClient, type Transport } from "../kubo";
 import { readRootState } from "../sync/root-state";
-import { requestUrlTransport } from "./request-url-transport";
+import { pluginTransport } from "./request-url-transport";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
 import type { SettingsStore } from "./settings-store";
@@ -70,7 +70,7 @@ export async function collectStatus(deps: StatusDeps): Promise<StatusReport> {
       notes: [reason],
     };
   }
-  const client = deps.createClient?.(config) ?? createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: deps.transport ?? requestUrlTransport });
+  const client = deps.createClient?.(config) ?? createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: deps.transport ?? pluginTransport() });
   let key = unknownKey("not checked");
   const notes = [...config.warnings];
   try {

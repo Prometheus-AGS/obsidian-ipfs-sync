@@ -23,7 +23,7 @@ import { createSessionDialogs, describeDialogError, obsidianDialogFactories, typ
 import { createSessionKeys, type SessionKeys } from "./session-keys";
 import { observed } from "./session-status";
 import { IpfsSyncSettingTab } from "./settings-tab";
-import { requestUrlTransport } from "./request-url-transport";
+import { pluginTransport } from "./request-url-transport";
 import { createStaleLockControl } from "./stale-lock";
 import { createStaleLockFlow, type StaleLockFlow } from "./stale-lock-flow";
 import { MAX_PUBLISH_INTERVAL_MINUTES } from "./settings-model";
@@ -91,7 +91,7 @@ export default class IpfsSyncPlugin extends Plugin {
       this.dialogs.settling(
         createSessionKeys({
           dialogs: this.dialogs.callbacks,
-          open: createVaultOpener({ store, adapter, transport: requestUrlTransport, now, costPolicy: costConfirmation.policy }),
+          open: createVaultOpener({ store, adapter, transport: pluginTransport(), now, costPolicy: costConfirmation.policy }),
           vaultExists: createVaultProbe({ store, adapter, now }),
         }),
       ),
@@ -123,7 +123,7 @@ export default class IpfsSyncPlugin extends Plugin {
       store,
       adapter,
       lock,
-      transport: requestUrlTransport,
+      transport: pluginTransport(),
       now,
       dialogs: obsidianKeyDialogs(this.app),
       // A slot above the default cost is unlocked or accepted only after an explicit yes in the cost-confirm dialog.
@@ -272,7 +272,7 @@ export default class IpfsSyncPlugin extends Plugin {
       configDir: this.app.vault.configDir,
       listNodeKeys: () => {
         const config = settingsToConfig(this.store.get(), new Date());
-        return createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: requestUrlTransport }).keyList();
+        return createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: pluginTransport() }).keyList();
       },
       onSaved: () => {
         this.rearmAutoPublish();

@@ -49,7 +49,7 @@ import { reportOf, summaryOfReport, warningsOf } from "./pull-report";
 import { describeHistory, listHistoryFiles, loadChosenEntry, unlockForRestore, type RestoreReader } from "./pull-restore";
 import { sweepTempFiles, type SweepOutcome } from "./pull-sweep";
 import { resolvePullTarget } from "./pull-target";
-import { pullTransport } from "./request-url-transport";
+import { pluginTransport } from "./request-url-transport";
 import type { SessionKeys } from "./session-keys";
 import type { PluginSettings } from "./settings-model";
 import type { SettingsStore } from "./settings-store";
@@ -112,7 +112,7 @@ export interface PullRunnerDeps {
   readonly lockContext?: LockContext;
   /** Saves the pending content of every open editor to disk. Must reject if it cannot. Defaults to doing nothing. */
   readonly flushEditors?: () => Promise<void>;
-  /** Defaults to the `requestUrl` transport: the WebView's `fetch` is CORS-blocked by the node. */
+  /** Defaults to `pluginTransport()` (Node on desktop, `requestUrl` on mobile): the WebView's `fetch` is CORS-blocked by the node. */
   readonly transport?: Transport;
   /** Tests swap the node client. */
   readonly createClient?: (config: SyncConfig) => PullRunnerClient;
@@ -217,7 +217,7 @@ const isWrongPassphraseError = (error: unknown): boolean => error instanceof Cry
  */
 export function createPullRunner(deps: PullRunnerDeps): PullRunner {
   const now = deps.now ?? ((): Date => new Date());
-  const transport = deps.transport ?? pullTransport();
+  const transport = deps.transport ?? pluginTransport();
   const lock = deps.lock ?? createSyncLock();
   const lockFile = deps.lockFile ?? createAdapterLockFile(deps.adapter);
   const lockContext = deps.lockContext ?? createPluginLockContext(() => now().getTime());

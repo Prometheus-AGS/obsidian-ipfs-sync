@@ -14,7 +14,7 @@ import { lockHeld, PublishRefusedError, type MassRemovalCounts } from "../sync/p
 import { VaultKeysError } from "../sync/vault-keys";
 import { createAdapterLockFile, createPluginLockContext } from "./adapter-lock-file";
 import { createPluginDeviceStore } from "./device-store-plugin";
-import { requestUrlTransport } from "./request-url-transport";
+import { pluginTransport } from "./request-url-transport";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
 import {
@@ -98,7 +98,7 @@ export interface PublishRunnerDeps {
   readonly session: SessionKeys;
   /** Shared with the pull runner so the two never run at once. A runner without one has its own. */
   readonly lock?: SyncLock;
-  /** Defaults to the `requestUrl` transport: the WebView's `fetch` is CORS-blocked by the node. */
+  /** Defaults to `pluginTransport()` (Node on desktop, `requestUrl` on mobile): the WebView's `fetch` is CORS-blocked by the node. */
   readonly transport?: Transport;
   /** Tests swap the node client. */
   readonly createClient?: (config: SyncConfig) => PublishClient;
@@ -192,7 +192,7 @@ async function releaseLockFile(lock: PublishLock): Promise<string | undefined> {
  */
 export function createPublishRunner(deps: PublishRunnerDeps): PublishRunner {
   const now = deps.now ?? ((): Date => new Date());
-  const transport = deps.transport ?? requestUrlTransport;
+  const transport = deps.transport ?? pluginTransport();
   const lock = deps.lock ?? createSyncLock();
   const lockFile = deps.lockFile ?? createAdapterLockFile(deps.adapter);
   const lockContext = deps.lockContext ?? createPluginLockContext(() => now().getTime());

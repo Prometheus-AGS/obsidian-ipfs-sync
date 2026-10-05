@@ -5,7 +5,8 @@ const DETAIL_LIMIT = 200;
 
 /**
  * How a request reaches the network. The CLI uses the platform `fetch`. The Obsidian plugin uses an adapter over
- * Obsidian's `requestUrl` (src/plugin/request-url-transport.ts), because the WebView's `fetch` is CORS-blocked by the node.
+ * Node's `http`/`https` on desktop (src/plugin/node-transport.ts) and Obsidian's `requestUrl` where Node is unavailable
+ * (mobile, src/plugin/request-url-transport.ts), because the WebView's `fetch` is CORS-blocked by the node.
  * `transportName` appears in network error messages.
  */
 export interface Transport {
@@ -107,9 +108,12 @@ function isRedirect(response: Response): boolean {
  * Issue one request against an endpoint through `transport` (default: the platform `fetch`, which
  * the WebView and Node 24 both provide). Failures become typed errors.
  *
- * A redirect is never followed: the request, its method and its credential go only to the configured endpoint. A transport
- * that follows redirects itself ignores `redirect: "manual"` (Obsidian's `requestUrl` has no such option); one that does not
- * (`fetch`, the Node stream transport) hands the 3xx answer back, which is refused here.
+ * A redirect is never followed on desktop and on the CLI: the request, its method and its credential go only to the
+ * configured endpoint. `fetch` and the desktop Node transport hand the 3xx answer back, which is refused here. Mobile uses
+ * Obsidian's `requestUrl`, which has no `redirect: "manual"` option and follows redirects itself, so this check never sees
+ * the 3xx there and mobile cannot refuse a redirect (iOS probed: follows cross-origin, strips Authorization, forwards a
+ * custom header). A real desktop probe (Obsidian 1.8.4) saw `requestUrl` replay a POST after a 307, which is why desktop
+ * does not use it.
  */
 export async function requestEndpoint(
   endpoint: ResolvedEndpoint,

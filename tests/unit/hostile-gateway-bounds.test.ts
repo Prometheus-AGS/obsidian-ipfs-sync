@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ResolvedEndpoint } from "../../src/core/config";
 import { createKuboClient, type Transport } from "../../src/kubo";
-import { createRangeStreamingTransport } from "../../src/plugin/range-streaming-transport";
+import { createNodeTransport } from "../../src/plugin/node-transport";
 import { RangedSourceRefusal, createRangedBlobSources, probeSizeClasses, type GatewayBlobLocation } from "../../src/sync/blob-source";
 import { sizeClassOf, blobsPerSizeClass } from "../../src/sync/pull-budget";
 
@@ -140,7 +140,7 @@ describe("hostile gateway under the desktop streaming transport", () => {
 
   it("a multi-GiB full body for a 22-byte header request is cut off after the probe margin, not buffered", async () => {
     hostile = await startHostile(flood);
-    const sources = createRangedBlobSources(clientFor(hostile.endpoint, createRangeStreamingTransport({ fallback: refusedFallback, node: nodeModules })));
+    const sources = createRangedBlobSources(clientFor(hostile.endpoint, createNodeTransport({ fallback: refusedFallback, node: nodeModules })));
     const state = await sources.probe(location("large", 10 * GIB));
     expect(state).toBe("ignored");
     await expect(sources.source(location("large", 10 * GIB)).chunks[Symbol.asyncIterator]().next()).rejects.toBeInstanceOf(RangedSourceRefusal);
@@ -150,7 +150,7 @@ describe("hostile gateway under the desktop streaming transport", () => {
 
   it("honours Range for the smallest class, then stops probing at the first larger class that ignores it", async () => {
     hostile = await startHostile(flood);
-    const sources = createRangedBlobSources(clientFor(hostile.endpoint, createRangeStreamingTransport({ fallback: refusedFallback, node: nodeModules })));
+    const sources = createRangedBlobSources(clientFor(hostile.endpoint, createNodeTransport({ fallback: refusedFallback, node: nodeModules })));
     const blobs = [location("large", 10 * GIB), location("small", 100), location("larger", 20 * GIB), location("huge", 40 * GIB)];
     const sent = await probeSizeClasses(sources, blobs);
     expect(sent).toBe(2);
@@ -161,24 +161,26 @@ describe("hostile gateway under the desktop streaming transport", () => {
 
   it("a slow drip that ignores Range is refused after the margin has arrived (about 90 bytes), not after the body", async () => {
     hostile = await startHostile(drip);
-    const sources = createRangedBlobSources(clientFor(hostile.endpoint, createRangeStreamingTransport({ fallback: refusedFallback, node: nodeModules })));
+    const sources = createRangedBlobSources(clientFor(hostile.endpoint, createNodeTransport({ fallback: refusedFallback, node: nodeModules })));
     expect(await sources.probe(location("large", 10 * GIB))).toBe("ignored");
     expect(hostile.stats.bytesWritten).toBeLessThan(400);
     await expect.poll(() => hostile?.stats.closed).toBe(1);
   });
 
-  it("a request without a Range header, or a non-GET, goes to the fallback transport", async () => {
-    hostile = await startHostile(flood);
+  it("a request without a Range header, or a non-GET, also goes through Node, never to the fallback transport", async () => {
+    hostile = await startHostile((response) => {
+      response.end("ok");
+    });
     const calls: string[] = [];
-    const fallback: Transport = Object.assign(async (url: string, init: RequestInit): Promise<Response> => {
-      calls.push(`${init.method ?? "GET"} ${new Headers(init.headers).has("range")}`);
+    const fallback: Transport = Object.assign(async (): Promise<Response> => {
+      calls.push("fallback");
       return new Response("ok", { status: 200 });
     }, { transportName: "fallback" });
-    const transport = createRangeStreamingTransport({ fallback, node: nodeModules });
-    await transport(`${hostile.endpoint.baseUrl}/x`, { method: "GET" });
-    await transport(`${hostile.endpoint.baseUrl}/x`, { method: "POST", headers: { Range: "bytes=0-1" } });
-    expect(calls).toEqual(["GET false", "POST true"]);
-    expect(hostile.stats.requests).toBe(0);
+    const transport = createNodeTransport({ fallback, node: nodeModules });
+    await (await transport(`${hostile.endpoint.baseUrl}/x`, { method: "GET" })).text();
+    await (await transport(`${hostile.endpoint.baseUrl}/x`, { method: "POST", headers: { Range: "bytes=0-1" } })).text();
+    expect(calls).toEqual([]);
+    expect(hostile.stats.requests).toBe(2);
   });
 
   it("without Node modules (mobile, or require unavailable) every request goes to the fallback", async () => {
@@ -187,7 +189,7 @@ describe("hostile gateway under the desktop streaming transport", () => {
       calls.push("fallback");
       return new Response("ok", { status: 200 });
     }, { transportName: "fallback" });
-    const transport = createRangeStreamingTransport({ fallback, node: undefined });
+    const transport = createNodeTransport({ fallback, node: undefined });
     await transport("http://127.0.0.1:1/x", { method: "GET", headers: { Range: "bytes=0-1" } });
     expect(calls).toEqual(["fallback"]);
   });

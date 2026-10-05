@@ -1,11 +1,16 @@
 import { Platform, requestUrl } from "obsidian";
 import type { Transport } from "../kubo";
-import { createRangeStreamingTransport, desktopNodeModules } from "./range-streaming-transport";
+import { createNodeTransport, desktopNodeModules } from "./node-transport";
 
 /**
- * The plugin's transport: Obsidian's `requestUrl` instead of `fetch`. The node answers a request from the
+ * The mobile transport: Obsidian's `requestUrl` instead of `fetch`. The node answers a request from the
  * WebView origin (`app://obsidian.md`) with 403 and sends no CORS headers on the preflight, so the WebView's
  * own `fetch` is blocked; `requestUrl` goes through the app's network layer and is not subject to CORS.
+ *
+ * Desktop does not use it (see `pluginTransport`): `requestUrl` follows redirects itself and exposes no 3xx, so the
+ * plugin cannot refuse one. A real desktop probe (Obsidian 1.8.4) saw a 307 to a local address followed with the POST
+ * replayed. Mobile has no Node, so this is the transport there and it cannot refuse a redirect: iOS was probed and
+ * follows cross-origin, strips Authorization, and forwards a custom header. This is a stated limit, not a guard.
  *
  * `throw: false` makes a 4xx or 5xx answer an ordinary response, so `requestEndpoint` maps 401/403 and the
  * other statuses to the same typed errors as with `fetch`. The body arrives whole (no streaming), which is
@@ -45,9 +50,10 @@ async function send(url: string, init: RequestInit): Promise<Response> {
 export const requestUrlTransport: Transport = Object.assign(send, { transportName: "requestUrl" });
 
 /**
- * The transport of a decrypting pull: ranged gateway reads stream through Node on desktop (a hostile gateway's oversize body
- * is cut off after the probe margin), everything else, and every request on mobile, goes through `requestUrl`.
+ * The one transport choice for every plugin call site. On desktop (Node's `require` exists) every request goes through Node's
+ * `http`/`https` (src/plugin/node-transport.ts): a redirect is returned, not followed, and refused by `requestEndpoint`, and
+ * response bodies stream. Only where `require` is unavailable (mobile) does this return `requestUrl`.
  */
-export function pullTransport(): Transport {
-  return createRangeStreamingTransport({ fallback: requestUrlTransport, node: desktopNodeModules(Platform.isDesktopApp) });
+export function pluginTransport(host: unknown = globalThis): Transport {
+  return createNodeTransport({ fallback: requestUrlTransport, node: desktopNodeModules(Platform.isDesktopApp, host) });
 }
