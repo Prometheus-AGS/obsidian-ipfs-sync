@@ -1,5 +1,5 @@
 import { escapeForDisplay } from "./path-policy";
-import { lockHeld, lockLost, lockUnreadable } from "./publish-refusals";
+import { PublishRefusedError, lockHeld, lockLost, lockUnreadable } from "./publish-refusals";
 
 /**
  * Cross-process publish lock: one lock file in the vault's `.ipfs-sync/` folder, created exclusively, holding a
@@ -200,18 +200,54 @@ export async function acquirePublishLock(file: LockFile, ctx: LockContext): Prom
   }
   const beat = startHeartbeat(file, ctx, token);
   let released = false;
+  let heartbeatStopped = false;
   return {
     assertHeld: () => {
       if (!beat.held()) throw lockLost();
     },
     release: async () => {
       if (released) return;
-      released = true;
-      beat.stop();
+      if (!heartbeatStopped) {
+        heartbeatStopped = true;
+        beat.stop();
+      }
+      // Only a release that finished counts: one whose read or remove threw is tried again by the next call.
       const current = await readRecord(file);
       if (current.record?.token === token) await file.remove();
+      released = true;
     },
   };
+}
+
+export interface AbandonLock {
+  /** Undefined when the lock file could not be used and abandon runs without it. */
+  readonly lock: PublishLock | undefined;
+  readonly ranWithoutLock: boolean;
+}
+
+/**
+ * The lock for `abandon`, the escape hatch. A live lock held by another process is still refused (`lock-held`). A lock file that is
+ * unreadable (junk, or over the size cap) or unsupported (no hard links) must not trap the user, so abandon goes on without a lock and says so.
+ * Anything else the acquisition throws is passed on unchanged.
+ */
+export async function acquireAbandonLock(file: LockFile, ctx: LockContext): Promise<AbandonLock> {
+  try {
+    return { lock: await acquirePublishLock(file, ctx), ranWithoutLock: false };
+  } catch (error) {
+    if (error instanceof PublishRefusedError && (error.code === "lock-unreadable" || error.code === "lock-unsupported")) {
+      return { lock: undefined, ranWithoutLock: true };
+    }
+    throw error;
+  }
+}
+
+/** Release for a path whose outcome is already decided: a failure to release must never replace it, so it is swallowed (the error text is not read). */
+export async function releaseQuietly(lock: PublishLock | undefined): Promise<void> {
+  try {
+    await lock?.release();
+  } catch {
+    // The abandon outcome stands; a stale lock file ages out or is cleared by --break-lock.
+  }
 }
 
 export type BreakLockOutcome = "no-lock" | "removed" | "declined";

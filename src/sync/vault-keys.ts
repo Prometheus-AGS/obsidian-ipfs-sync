@@ -445,8 +445,11 @@ export function describeAbandonFloor(floor: AbandonFloor): string {
 
 /** The fixed statement for a move that stopped part-way: counts only, never an operating-system message. */
 export function partialMoveLine(moved: number, total: number): string {
-  return `${moved} of ${total} files were moved. Run abandon again to move the rest.`;
+  return `${moved} of ${total} files were moved. Run abandon again to move the rest into a new backup folder.`;
 }
+
+/** Said (CLI output, plugin note) when the publish lock file was unreadable or unsupported and abandon ran without it. Fixed text: no error message is read. */
+export const ABANDON_WITHOUT_LOCK_LINE = "the publish lock could not be used, so abandon ran without it; make sure no publish is running";
 
 /**
  * A rename failed after at least one file had moved: this device's files for the root are split between the live folder and the backup. It carries

@@ -490,7 +490,7 @@ describe("R6-M4: a rename that fails after the first one is a partial move", () 
     expect(partial.moved).toBe(kinds.length);
     expect(partial.total).toBe(4);
     expect(partial.kinds).toEqual(kinds);
-    expect(partial.message).toBe(`${counts} files were moved. Run abandon again to move the rest.`);
+    expect(partial.message).toBe(`${counts} files were moved. Run abandon again to move the rest into a new backup folder.`);
     expect(partial.message).toBe(partialMoveLine(kinds.length, 4));
     expect(partial.message).not.toContain("EIO");
     expect(partial.message).not.toContain("secret");

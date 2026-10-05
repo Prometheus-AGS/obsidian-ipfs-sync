@@ -10,7 +10,9 @@ import { defaultSettings } from "../../src/plugin/settings-model";
 import type { SettingsStore } from "../../src/plugin/settings-store";
 import { bytesToBase64 } from "../../src/plugin/base64";
 import { busyNotice, createSyncLock } from "../../src/plugin/sync-lock";
-import { encodeLock } from "../../src/sync/publish-lock";
+import { createAdapterLockFile } from "../../src/plugin/adapter-lock-file";
+import { encodeLock, type LockFile } from "../../src/sync/publish-lock";
+import { lockUnsupported } from "../../src/sync/publish-refusals";
 import { SEQUENCE_FLOOR_FILE, SEQUENCE_FLOOR_VERSION, SequenceFloorError, encodeFloor } from "../../src/sync/sequence-floor";
 import { VaultKeysError, rootDigest } from "../../src/sync/vault-keys";
 import { expectDiscardCaveat } from "../helpers/abandon-discard-text";
@@ -378,6 +380,99 @@ describe("abandon flow", () => {
     });
   });
 
+  describe("R7-M1 and R7-M2: the publish lock never decides the outcome", () => {
+    const LOCK_PATH = ".ipfs-sync/publish.lock";
+    const WITHOUT_LOCK = "the publish lock could not be used, so abandon ran without it; make sure no publish is running";
+    const PARTIAL = "1 of 4 files were moved. Run abandon again to move the rest into a new backup folder.";
+
+    const releaseThrows = (adapter: MemoryAdapter): LockFile => ({
+      ...createAdapterLockFile(adapter),
+      remove: async () => {
+        throw new Error("secret-lock-path EIO");
+      },
+    });
+
+    async function seedFour(adapter: MemoryAdapter): Promise<string> {
+      const digest = await rootDigest(defaultSettings().mfsRoot);
+      for (const kind of ["keyslots", "state", "journal", "maintenance"]) adapter.put(`.ipfs-sync/${kind}.${digest}.json`, `${kind}-body`);
+      return digest;
+    }
+
+    it("a release that throws after a full success returns the success result, locks the session and looks again", async () => {
+      const d = deps();
+      const digest = await seedState(d.adapter);
+      void createAbandonFlow({ ...d.all, lockFile: releaseThrows(d.adapter) }).open();
+      const result = await d.request()?.abandon();
+      expect(result).toMatchObject({ ok: true });
+      expect((result as { backupNote: string }).backupNote).toContain("3 files moved");
+      expect(JSON.stringify(result)).not.toContain("secret-lock-path");
+      for (const kind of KINDS) expect(d.adapter.files.has(`.ipfs-sync/${kind}.${digest}.json`)).toBe(false);
+      expect(d.lock).toHaveBeenCalledTimes(1);
+      expect(d.refresh).toHaveBeenCalledTimes(1);
+      expect(d.all.lock.holder()).toBeUndefined();
+    });
+
+    it("a release that throws after a partial move returns the partial-move result with its counts and locks the session", async () => {
+      const d = deps();
+      await seedFour(d.adapter);
+      let count = 0;
+      const rename = d.adapter.rename.bind(d.adapter);
+      d.adapter.rename = async (from: string, to: string) => {
+        if (to.includes("abandoned-") && ++count === 2) throw new Error("EIO");
+        return rename(from, to);
+      };
+      void createAbandonFlow({ ...d.all, lockFile: releaseThrows(d.adapter) }).open();
+      const result = await d.request()?.abandon();
+      expect(result).toEqual({ ok: false, reason: PARTIAL });
+      expect(d.lock).toHaveBeenCalledTimes(1);
+      expect(d.refresh).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["a junk lock file", "this is not a lock record\n"],
+      ["a 70 KiB lock file", "x".repeat(70 * 1024)],
+    ])("%s does not block abandon: the files move and the note carries the fixed line", async (_label, body) => {
+      const d = deps();
+      const digest = await seedState(d.adapter);
+      d.adapter.put(LOCK_PATH, body);
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toMatchObject({ ok: true });
+      const note = (result as { backupNote: string }).backupNote;
+      expect(note).toContain("3 files moved");
+      expect(note).toContain(WITHOUT_LOCK);
+      for (const kind of KINDS) expect(d.adapter.files.has(`.ipfs-sync/${kind}.${digest}.json`)).toBe(false);
+      expect(d.adapter.text(LOCK_PATH)).toBe(body);
+      expect(d.lock).toHaveBeenCalledTimes(1);
+    });
+
+    it("a lock file that cannot be created (no hard links) does not block abandon, and no error text is echoed", async () => {
+      const d = deps();
+      await seedState(d.adapter);
+      const lockFile: LockFile = {
+        ...createAdapterLockFile(d.adapter),
+        createExclusive: async () => {
+          throw lockUnsupported("EPERM");
+        },
+      };
+      void createAbandonFlow({ ...d.all, lockFile }).open();
+      const result = await d.request()?.abandon();
+      expect(result).toMatchObject({ ok: true });
+      const note = (result as { backupNote: string }).backupNote;
+      expect(note).toContain(WITHOUT_LOCK);
+      expect(note).not.toContain("EPERM");
+      expect(note).not.toContain("hard links");
+    });
+
+    it("a normal move has no without-lock line", async () => {
+      const d = deps();
+      await seedState(d.adapter);
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect((result as { backupNote: string }).backupNote).not.toContain(WITHOUT_LOCK);
+    });
+  });
+
   describe("R6-M3: a failing device store never blocks the move", () => {
     const SECRET = "/Users/someone/secret-store";
     it.each([
@@ -409,7 +504,7 @@ describe("abandon flow", () => {
   });
 
   describe("R6-M4: a rename that fails after the first is a partial move", () => {
-    const PARTIAL = (moved: number, total: number): string => `${moved} of ${total} files were moved. Run abandon again to move the rest.`;
+    const PARTIAL = (moved: number, total: number): string => `${moved} of ${total} files were moved. Run abandon again to move the rest into a new backup folder.`;
 
     /** Fail the `n`th rename into the backup folder (the lock file's own renames are not counted). */
     function failBackupRename(adapter: MemoryAdapter, n: number): void {

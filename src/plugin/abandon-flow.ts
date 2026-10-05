@@ -1,8 +1,8 @@
 import { ConfigError, assertMfsMutationPath, validateMfsRoot } from "../core/config";
 import { DeviceStoreError } from "../sync/device-store";
-import { acquirePublishLock, type LockContext, type LockFile } from "../sync/publish-lock";
+import { acquireAbandonLock, releaseQuietly, type LockContext, type LockFile } from "../sync/publish-lock";
 import { PublishRefusedError } from "../sync/publish-refusals";
-import { ABANDON_CONFIRMATION, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, partialMoveLine, type AbandonFloor } from "../sync/vault-keys";
+import { ABANDON_CONFIRMATION, ABANDON_WITHOUT_LOCK_LINE, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, partialMoveLine, type AbandonFloor } from "../sync/vault-keys";
 import type { AbandonDialogRequest, AbandonOutcome } from "./abandon-vault-dialog";
 import { createAdapterLockFile, createPluginLockContext } from "./adapter-lock-file";
 import { createPluginDeviceStore } from "./device-store-plugin";
@@ -92,16 +92,18 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
   }
 
   /** The move itself, under the cross-process publish lock (released in `finally`). A held lock file is `lock-held`. */
-  async function moveUnderLock(mfsRoot: string): Promise<Awaited<ReturnType<typeof abandonVault>>> {
+  async function moveUnderLock(mfsRoot: string): Promise<{ readonly result: Awaited<ReturnType<typeof abandonVault>>; readonly ranWithoutLock: boolean }> {
     const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
-    const fileLock = await acquirePublishLock(
+    const { lock, ranWithoutLock } = await acquireAbandonLock(
       deps.lockFile ?? createAdapterLockFile(deps.adapter),
       deps.lockContext ?? createPluginLockContext(() => deps.now().getTime()),
     );
     try {
-      return await abandonVault({ fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: deps.now().getTime(), deviceStore: createPluginDeviceStore(deps.store) });
+      const result = await abandonVault({ fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: deps.now().getTime(), deviceStore: createPluginDeviceStore(deps.store) });
+      return { result, ranWithoutLock };
     } finally {
-      await fileLock.release();
+      // The outcome (a result or a partial-move error) is decided; a lock that cannot be released must not replace it.
+      await releaseQuietly(lock);
     }
   }
 
@@ -110,10 +112,11 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
     if (release === undefined) return { ok: false, reason: busyNotice(deps.lock.holder()) };
     try {
       const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToLocalConfig(deps.store.get()).mfsRoot));
-      const { backupDir, moved, floor } = await moveUnderLock(mfsRoot);
+      const { result, ranWithoutLock } = await moveUnderLock(mfsRoot);
+      const { backupDir, moved, floor } = result;
       if (moved.length === 0) return { ok: false, reason: NOTHING_TO_ABANDON };
       const reread = await settleSession();
-      return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + reread };
+      return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + (ranWithoutLock ? ` Note: ${ABANDON_WITHOUT_LOCK_LINE}.` : "") + reread };
     } catch (error) {
       if (error instanceof PublishRefusedError && error.code === "lock-held") return { ok: false, reason: busyNotice(undefined) };
       // Some files moved and some did not: the vault state changed, so the session is locked and looked at again here too.

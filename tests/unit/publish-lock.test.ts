@@ -110,6 +110,38 @@ describe("publish lock", () => {
     expect(decodeLock(taken.file.bytes)?.token).toBe("other-token");
   });
 
+  it("R7-M1: a release whose remove throws is retried by the next release, which removes the file (the heartbeat is stopped once)", async () => {
+    const r = rig();
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    const remove = r.file.remove.bind(r.file);
+    let failures = 1;
+    r.file.remove = async () => {
+      if (failures-- > 0) throw new Error("EIO");
+      await remove();
+    };
+    await expect(lock.release()).rejects.toThrow("EIO");
+    expect(r.file.bytes).toBeDefined();
+    await lock.release();
+    expect(r.file.bytes).toBeUndefined();
+    expect(r.ctx.stopped).toBe(1);
+    await lock.release();
+    expect(r.ctx.stopped).toBe(1);
+  });
+
+  it("R7-M1: a release whose read throws is retried too", async () => {
+    const r = rig();
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    const read = r.file.read.bind(r.file);
+    let failures = 1;
+    r.file.read = async () => {
+      if (failures-- > 0) throw new Error("EIO");
+      return read();
+    };
+    await expect(lock.release()).rejects.toThrow("EIO");
+    await lock.release();
+    expect(r.file.bytes).toBeUndefined();
+  });
+
   it("assertHeld throws lock-lost when the lock was taken over or removed", async () => {
     const r = rig();
     const lock = await acquirePublishLock(r.file, r.ctx);

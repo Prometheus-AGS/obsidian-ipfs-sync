@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import { assertMfsMutationPath, validateMfsRoot, type EnvMap, type SyncConfig } from "../src/core/config";
-import { acquirePublishLock } from "../src/sync/publish-lock";
+import { acquireAbandonLock, releaseQuietly, type LockContext, type LockFile } from "../src/sync/publish-lock";
 import { PublishRefusedError } from "../src/sync/publish-refusals";
 import { DeviceStoreError, type DeviceStore } from "../src/sync/device-store";
-import { ABANDON_CONFIRMATION, STATE_DIR, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, rootDigest } from "../src/sync/vault-keys";
+import { ABANDON_CONFIRMATION, ABANDON_WITHOUT_LOCK_LINE, STATE_DIR, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, rootDigest } from "../src/sync/vault-keys";
 import { createLazyDeviceStore } from "./device-store-node";
 import { UsageError } from "./args";
 import { EXIT_CHECK_FAILED, EXIT_OK, type CliIo } from "./io";
@@ -21,6 +21,9 @@ export interface AbandonContext {
   readonly yesAbandon: boolean;
   /** The device-local store the floor is read from. Production leaves it out (the per-user directory); tests pass one. */
   readonly deviceStore?: DeviceStore;
+  /** The publish lock file and its process facts. Production leaves them out (the vault's lock file and the operating system's facts); tests pass them. */
+  readonly lockFile?: LockFile;
+  readonly lockContext?: LockContext;
 }
 
 /** The word typed on a terminal. The plugin's dialog accepts the same word, compared the same way. */
@@ -97,7 +100,11 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
       ctx.io.err(`ipfs-sync: abandon: the word "${ABANDON_WORD}" was not typed; nothing was moved`);
       return EXIT_CHECK_FAILED;
     }
-    const lock = await acquirePublishLock(createNodeLockFile(vault), createNodeLockContext(() => ctx.now().getTime()));
+    const { lock, ranWithoutLock } = await acquireAbandonLock(
+      ctx.lockFile ?? createNodeLockFile(vault),
+      ctx.lockContext ?? createNodeLockContext(() => ctx.now().getTime()),
+    );
+    if (ranWithoutLock) ctx.io.out(`note             ${ABANDON_WITHOUT_LOCK_LINE}`);
     try {
       // The per-user directory is located only when the floor is read, so a root with no resolvable vault never needs it.
       const deviceStore: DeviceStore = ctx.deviceStore ?? createLazyDeviceStore(ctx.env);
@@ -108,7 +115,8 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
       ctx.io.out("next: run `ipfs-sync init <vault> --mfs-root <new root>` to create a new vault in an empty MFS root");
       return EXIT_OK;
     } finally {
-      await lock.release();
+      // The outcome is decided; a lock that cannot be released must not replace it.
+      await releaseQuietly(lock);
     }
   } catch (error) {
     if (REPORTED_FAILURES.some((failure) => error instanceof failure)) {

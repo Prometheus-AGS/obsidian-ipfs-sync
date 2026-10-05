@@ -5,7 +5,8 @@ export const HELP_TEXT = `ipfs-sync - vault sync over your own kubo node
 
 There is no default node. Every command needs the RPC URL and the gateway URL of a kubo node you run or trust:
 set them with --rpc-url and --gateway-url, with IPFS_SYNC_RPC_URL and IPFS_SYNC_GATEWAY_URL, or with the "rpc.url" and
-"gateway.url" keys of the config file. A command run without them exits with code 2 and sends no request.
+"gateway.url" keys of the config file. A command run without them exits with code 2 and sends no request. The abandon
+command needs neither the RPC URL nor the gateway URL: it sends no request.
 
 Usage:
   ipfs-sync status [options]

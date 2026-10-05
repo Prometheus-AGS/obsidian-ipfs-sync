@@ -6,8 +6,10 @@ import type { CliIo } from "../../cli/io";
 import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
-import { runAbandon } from "../../cli/abandon-command";
+import { runAbandon, type AbandonContext } from "../../cli/abandon-command";
 import { DeviceStoreError } from "../../src/sync/device-store";
+import { LOCK_MAX_BYTES, encodeLock, type LockFile } from "../../src/sync/publish-lock";
+import { lockUnsupported } from "../../src/sync/publish-refusals";
 import { SEQUENCE_FLOOR_FILE, SequenceFloorError, raiseFloor } from "../../src/sync/sequence-floor";
 import { rootDigest } from "../../src/sync/vault-keys";
 import { expectDiscardCaveat } from "../helpers/abandon-discard-text";
@@ -264,7 +266,7 @@ describe("ipfs-sync abandon", () => {
       const s = sink(["abandon"]);
       expect(await abandon(s)).toBe(1);
       const err = s.err.join("\n");
-      expect(err).toContain(`${counts} files were moved. Run abandon again to move the rest.`);
+      expect(err).toContain(`${counts} files were moved. Run abandon again to move the rest into a new backup folder.`);
       expect(err).not.toMatch(OS_WORDS);
       expect(err).not.toContain(vault);
       for (const kind of ["keyslots", "state", "journal"]) expect(await exists(stateFile(kind)), kind).toBe(!movedKinds.includes(kind));
@@ -278,7 +280,7 @@ describe("ipfs-sync abandon", () => {
       const target = await block("maintenance");
       const s = sink(["abandon"]);
       expect(await abandon(s)).toBe(1);
-      expect(s.err.join("\n")).toContain("3 of 4 files were moved. Run abandon again to move the rest.");
+      expect(s.err.join("\n")).toContain("3 of 4 files were moved. Run abandon again to move the rest into a new backup folder.");
       expect(await exists(stateFile("maintenance"))).toBe(true);
       await rm(target, { recursive: true, force: true });
       const again = sink(["abandon"]);
@@ -297,6 +299,109 @@ describe("ipfs-sync abandon", () => {
       );
       expect(s.err.join("\n")).not.toContain("files were moved");
       for (const kind of ["keyslots", "state", "journal"]) expect(await exists(stateFile(kind))).toBe(true);
+    });
+  });
+
+  describe("R7-M1 and R7-M2: the publish lock never decides the outcome", () => {
+    const WITHOUT_LOCK = "the publish lock could not be used, so abandon ran without it; make sure no publish is running";
+    const KINDS3 = ["keyslots", "state", "journal"];
+    const NO_STORE = { get: async () => undefined, set: async () => undefined };
+
+    function memoryLock(overrides: Partial<LockFile> = {}, initial?: Uint8Array<ArrayBuffer>): LockFile {
+      let bytes = initial;
+      return {
+        createExclusive: async (b) => {
+          if (bytes !== undefined) return false;
+          bytes = b;
+          return true;
+        },
+        read: async () => bytes,
+        write: async (b) => {
+          bytes = b;
+        },
+        remove: async () => {
+          bytes = undefined;
+        },
+        moveAside: async () => undefined,
+        ...overrides,
+      };
+    }
+
+    const run = (s: Sink, extra: Partial<AbandonContext> = {}): Promise<number> =>
+      runAbandon({ config: { mfsRoot: MFS_ROOT }, io: s.io, vaultPath: vault, env: {}, now: () => NOW, yesAbandon: false, deviceStore: NO_STORE, ...extra });
+
+    const releaseThrows = (): LockFile =>
+      memoryLock({
+        remove: async () => {
+          throw new Error("secret-lock-path EIO");
+        },
+      });
+
+    it("a release that throws after a full success still exits 0 with the normal output and no error text", async () => {
+      const s = sink(["abandon"]);
+      expect(await run(s, { lockFile: releaseThrows() })).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain("3 files moved");
+      expect([...s.out, ...s.err].join("\n")).not.toContain("secret-lock-path");
+      expect(s.err).toEqual([]);
+    });
+
+    it("a release that throws after a partial move still exits 1 with the counts and no error text", async () => {
+      const backup = join(vault, ".ipfs-sync", `abandoned-${digest}-${NOW.getTime()}`);
+      await mkdir(join(backup, "state.json"), { recursive: true });
+      await writeFile(join(backup, "state.json", "occupied"), "x");
+      const s = sink(["abandon"]);
+      expect(await run(s, { lockFile: releaseThrows() })).toBe(1);
+      const err = s.err.join("\n");
+      expect(err).toContain("1 of 3 files were moved. Run abandon again to move the rest into a new backup folder.");
+      expect([...s.out, ...s.err].join("\n")).not.toContain("secret-lock-path");
+    });
+
+    it.each([
+      ["a junk lock file", "this is not a lock record\n"],
+      ["a 70 KiB lock file", "x".repeat(70 * 1024)],
+    ])("%s does not block abandon: the files move, the fixed line appears, no error text", async (_label, body) => {
+      expect(body.length).toBeGreaterThan(body.startsWith("x") ? LOCK_MAX_BYTES : 0);
+      const lockPath = join(vault, ".ipfs-sync", "publish.lock");
+      await writeFile(lockPath, body);
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+      expect(s.err).toEqual([]);
+      expect([...s.out, ...s.err].join("\n")).not.toContain("--break-lock");
+      expect(await readFile(lockPath, "utf8")).toBe(body);
+    });
+
+    it("a file system without hard links does not block abandon, and the hard-link advice is not shown", async () => {
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock({
+        createExclusive: async () => {
+          throw lockUnsupported("EPERM");
+        },
+      });
+      expect(await run(s, { lockFile })).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      const text = [...s.out, ...s.err].join("\n");
+      expect(text).toContain(WITHOUT_LOCK);
+      expect(text).not.toContain("hard links");
+      expect(text).not.toContain("EPERM");
+    });
+
+    it("a live lock held by another process stays busy and moves nothing", async () => {
+      const foreign = encodeLock({ token: "other-token", pid: 4242, host: "other-host", time: NOW.getTime() });
+      const s = sink(["abandon"]);
+      expect(await run(s, { lockFile: memoryLock({}, foreign) })).toBe(1);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(true);
+      expect(await backupDirs()).toEqual([]);
+      expect(s.err.join("\n")).toContain("another publish is running");
+      expect(s.out.join("\n")).not.toContain(WITHOUT_LOCK);
+    });
+
+    it("a normal run does not show the without-lock line", async () => {
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      expect(s.out.join("\n")).not.toContain(WITHOUT_LOCK);
     });
   });
 
