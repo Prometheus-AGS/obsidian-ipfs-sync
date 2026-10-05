@@ -824,6 +824,13 @@ real vault.
   only against the sequence this device already accepted (the floor and the state; see "The record and the sequence
   floor"), cannot detect a freeze, and has no baseline on a first pull.
 - `requestUrl`, which the plugin uses on mobile, buffers whole response bodies; size caps do not protect its memory.
+- Accepted and not fixed in the desktop transport and host bridge. The Node transport has no request timeout and no idle
+  deadline: a node that accepts the connection and goes silent leaves the call pending. `net.fetch` in the host bridge
+  buffers the whole response with no byte cap (it throws before sending when no transport is injected). A response body
+  stream that closes with neither `end` nor `error` is not explicitly errored. `NODE_TLS_REJECT_UNAUTHORIZED=0` in
+  Obsidian's environment would disable certificate verification, because the transport sets no `rejectUnauthorized`. Some
+  Node error texts (`ERR_OSSL_*`, invalid protocol) pass through, escaped. `escapeNodeText` does not cover U+2061 to
+  U+2064, U+180E, U+034F and U+FFF9 to U+FFFB.
 - Redirects. Desktop refuses a redirect and sends your credential to the configured URL only. Mobile cannot refuse one.
   On iOS a redirect to another origin is followed, `Authorization` is stripped on that hop, and a custom header such as
   `X-Api-Key` is forwarded: the plugin cannot stop it, so use Bearer or Basic on a phone and a node that does not
@@ -834,9 +841,16 @@ real vault.
   does not fall back to `requestUrl`. A node that answers with a status outside 200-599, or with headers the plugin cannot
   read, is refused ("the node answered with a response this plugin cannot read"); both sockets are destroyed and the sync
   lock is released. Before `7a9ce77` such an answer could hang the run and hold the lock until the plugin reloaded. A 1xx
-  interim response that never gets a final answer still hangs, because there is no timeout. None of this has run in
-  Obsidian. A custom auth header cannot be named Host, Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE,
-  Keep-Alive, Proxy-Connection or Trailer. Not probed: Android, mobile multipart bodies, an https-to-http
+  interim response that never gets a final answer still hangs, because there is no timeout. An aborted request can no
+  longer hang the desktop transport (abort before the response, after it, or a signal already aborted). A TLS failure has
+  two fixed messages: a certificate verification failure names `NODE_EXTRA_CA_CERTS`; a failure to set up TLS (an https URL
+  on a plain-HTTP port, a handshake alert) says "the connection could not be established as TLS: check the address and
+  scheme" and gives no CA advice. Set `NODE_EXTRA_CA_CERTS` in the environment Obsidian is launched with: a macOS GUI launch
+  does not inherit shell variables. Only the redirect probe has run in Obsidian: on 1.14.4 for macOS with the tenth-round
+  build (`main.js` sha256 prefix `5b906b2f`), a 308 from the node was not followed, the target was never reached, and the
+  request carried `x-api-key` only and no Chromium headers. A custom auth header cannot be named Host, Transfer-Encoding,
+  Connection, Content-Length, Upgrade, Expect, TE, Keep-Alive, Proxy-Connection or Trailer (one shared list,
+  `src/core/config/connection-headers.ts`, also enforced by the transport), nor Content-Type or Range. Not probed: Android, mobile multipart bodies, an https-to-http
   downgrade, Windows and Linux. The probe is `node tools/probe-redirect-forwarding.mjs --host <LAN address>` (or
   `--loopback`); it prints a VERDICT line per request and never a credential value.
 - Every recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) leaves a folder with no baseline, and the

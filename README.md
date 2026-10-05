@@ -162,7 +162,9 @@ What the plugin does today:
   cleared at the next load. The tab also holds the publication key name,
   MFS root, authentication scheme (none, basic, bearer, custom header; a custom header name cannot be Host,
   Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE, Keep-Alive, Proxy-Connection or Trailer, because
-  Node's `http` honours those as connection framing, `src/core/config/auth.ts`), **Gateway authentication** (below), the exclusion list, the
+  Node's `http` honours those as connection framing, and it cannot be Content-Type or Range, because `Headers` would
+  merge the credential into the real header; the ten framing names live in one module,
+  `src/core/config/connection-headers.ts`, used by both this check and the desktop transport), **Gateway authentication** (below), the exclusion list, the
   owned IPNS keys, and the pull name, catch-up and read cap settings above, an Encryption section (state: not set up,
   locked or unlocked; Lock, Set up and Unlock buttons), plus the last pull and last publish summaries
   (counts, CIDs and timestamps only, no file names or secrets).
@@ -332,12 +334,35 @@ code path reads a plaintext manifest.
   `requestUrl`, because `requestUrl` follows redirects. **A node that answers with a status outside 200-599, or with
   headers that cannot be read, is refused** with the fixed message "the node answered with a response this plugin cannot
   read"; the plugin destroys both sockets and releases the sync lock. Before this fix such an answer left the run hanging
-  with the lock held until the plugin was reloaded (`7a9ce77`). Both behaviours are covered by unit tests only; neither
-  has run in Obsidian. The desktop path has no timeout, so a 1xx interim response that never gets a final answer still
-  hangs. Desktop costs you Chromium's network stack. Node trusts its
-  own certificate list, so a private CA needs `NODE_EXTRA_CA_CERTS` (the TLS failure message says so). Node ignores the
+  with the lock held until the plugin was reloaded (`7a9ce77`). **An aborted request can no longer hang the transport.**
+  An abort before the response, after the response (the body stream errors with the abort reason) and a signal that is
+  already aborted when the request starts each settle the promise once and destroy the socket. The transport reads an
+  error's `code` only when it is a string (a `DOMException.code` is a legacy number). **The transport refuses
+  connection-framing request headers** (the ten names in `src/core/config/connection-headers.ts`) with the fixed message
+  "the node transport refuses connection-framing request headers". A request body must be text or bytes; anything else
+  is a typed error, not a silent fallback. These behaviours are covered by unit tests; the redirect probe below is the
+  only run in Obsidian. The desktop path has no timeout (see the accepted backlog below). Desktop costs you Chromium's
+  network stack. Node trusts its own certificate list, so a private CA needs `NODE_EXTRA_CA_CERTS`. Node ignores the
   system proxy and the Chromium trust store, so a node reached through a system proxy, or through a private CA that Node
-  does not trust, fails on desktop.
+  does not trust, fails on desktop. **TLS failures have two fixed messages.** A certificate verification failure (a
+  self-signed or expired certificate, an untrusted chain, a host name mismatch) says "the connection failed TLS
+  verification; on desktop the plugin uses Node's certificate list; set NODE_EXTRA_CA_CERTS for a private CA". A failure to
+  set up TLS at all (`EPROTO`, `ERR_SSL_*`, `ERR_TLS_*`: an https URL on a plain-HTTP port, a handshake alert) says "the
+  connection could not be established as TLS: check the address and scheme" and gives no CA advice, because a CA would not
+  help. **`NODE_EXTRA_CA_CERTS` must be set in the environment Obsidian is launched with.** A macOS GUI launch (Dock,
+  Spotlight, Finder) does not inherit variables from your shell profile.
+- **Accepted backlog in the desktop transport and host bridge, not fixed** (found by code-reading reviews; none was
+  executed). The Node transport has no request timeout and no idle deadline: a node that accepts the connection and then
+  goes silent leaves the call pending, by design, because no caller passes a signal. The host bridge's `net.fetch`
+  buffers the whole response with no byte cap. A response body stream that closes with neither `end` nor `error` is not
+  explicitly errored. `NODE_TLS_REJECT_UNAUTHORIZED=0` in Obsidian's environment would disable certificate verification,
+  because the transport sets no `rejectUnauthorized`. Some Node error texts outside the two TLS classes (`ERR_OSSL_*`,
+  invalid protocol) pass through, escaped. `escapeNodeText` does not cover U+2061 to U+2064, U+180E, U+034F and U+FFF9 to
+  U+FFFB.
+- **The host bridge has no permissive default.** `net.fetch` in the host bridge (`src/plugin/obsidian-host-bridge.ts`)
+  calls the injected transport. Without one it throws "network access is not available in this host" before sending
+  anything; it does not fall back to the WebView `fetch`, which follows redirects. The request body is typed as bytes and
+  passed to the transport as it is; the Node transport sends text or bytes only, so a `Blob` body is a `TypeError`. No caller uses `net.fetch` today.
 - **Redirects.** A 301, 302, 303, 307 or 308 answer is refused on the shared request path with a fixed message that
   tells you to check the URL's scheme (http or https) and path; the `Location` the node named is not shown and not
   followed. On desktop that refusal holds: Node's modules return the 3xx instead of following it, and the credential goes
@@ -350,6 +375,9 @@ code path reads a plaintext manifest.
     node's cross-origin 307 to `127.0.0.1` was followed and the POST replayed, method kept, no `Origin` header. With the
     current build the redirect was not followed and the request carried the configured `X-Api-Key` to its own URL only
     and none of Chromium's `sec-fetch` headers.
+  - **Desktop, re-probed on the tenth-round build** (Obsidian 1.14.4 on macOS, computer control, local probe, `main.js`
+    sha256 prefix `5b906b2f`). A 308 from the node was not followed, the target was never reached, and the request carried
+    `x-api-key` only and no Chromium headers.
   - **iPhone, probed** (CFNetwork, `requestUrl`). A cross-origin redirect was followed and the POST replayed with an
     empty body (the `key/list` call carries none). `Authorization` was stripped on the cross-origin hop. A custom header
     (`X-Api-Key`) was forwarded.
@@ -921,8 +949,9 @@ commands are in the operator runbook. The checker and the release tool bind to t
 
 Nothing in this list has been checked, and none of it should be assumed to work: any part of the plugin's encryption
 flow inside Obsidian, including Pull, Restore, Resolve fork, the key-management, mass-removal and cost dialogs, the
-measure command and the desktop Node transport beyond the redirect probe (the probe ran on one macOS desktop only, and
-before the fail-closed fixes of `7a9ce77`; nothing has run in Obsidian with the current transport; see
+measure command and the desktop Node transport beyond the redirect probe (the probe ran on one macOS desktop only,
+Obsidian 1.14.4, with the tenth-round build, `main.js` sha256 prefix `5b906b2f`: a 308 was not followed and the target was
+never reached; abort handling, TLS failures and the malformed-response paths have run in unit tests only; see
 "Plugin limitations"); the `keys` commands and `prune-history`
 against the shared node or a real kubo; a High-cost key slot on a phone; the encrypted pull against the shared node
 and with a real second device; an encrypted publish or pull on a phone; Android; HKDF, HMAC and AES-GCM under Obsidian's
@@ -970,8 +999,8 @@ token is not re-checked immediately before each node write) is open. Details: `D
    `app://obsidian.md` with 403 and sends no CORS headers, so the WebView's `fetch` cannot
    reach it. The plugin sends node requests through Node's `http` and `https` on desktop and through
    Obsidian's `requestUrl` on mobile; neither is subject to CORS. The CLI uses plain `fetch` and is unaffected. If a
-   browser `fetch` is blocked anyway, the error ends: "the browser blocked the request (CORS); desktop uses Node's http
-   and is not subject to CORS, mobile uses requestUrl" (`src/kubo/errors.ts`).
+   browser `fetch` is blocked anyway, the error ends: "this request used the browser fetch, which is subject to CORS; the node must allow the
+   app origin" (`src/kubo/errors.ts`). The hint appears only for a "Failed to fetch" `TypeError`, which only the WebView `fetch` raises.
 
 ## ⚠ Security: an open RPC endpoint is wide open
 

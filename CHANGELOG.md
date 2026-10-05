@@ -309,6 +309,30 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     build changes them: Homebrew Node 26.8.2 ships zlib 1.2.12 and writes 193 bytes, Node 22 and 24 write 195. It compares
     the gzip header and the decompressed tar bytes and adds a within-run reproducibility test. The lock-during-unlock test
     no longer races `vaultExists()`: it waits for the passphrase dialog request instead of sleeping 5 ms.
+  - **Round-10 follow-up: abort, shared header list, host bridge, TLS split (commit `f74cd96`).**
+    - **An aborted request can no longer hang the desktop transport.** A signal already aborted rejects before a request is
+      made. An abort before the response destroys the request and rejects. An abort after the response errors the body
+      stream with the abort reason. The promise settles once and the abort listener is removed on every exit. Only a string
+      error `code` is read (`DOMException.code` is the legacy number 20) (`src/plugin/node-transport.ts`).
+    - **The ten connection-framing header names live in one module**, `src/core/config/connection-headers.ts`, used by the
+      auth validation (`buildAuth`) and the transport. The custom auth header also cannot be Content-Type or Range
+      (`CREDENTIAL_FORBIDDEN_HEADERS`); the transport does not refuse those two. The earlier entry naming
+      `CONNECTION_HEADERS` in `src/core/config/auth.ts` is out of date.
+    - **The host bridge has no permissive default.** `net.fetch` without an injected transport throws "network access is not
+      available in this host" before sending anything. The body is typed as bytes and passed through; a `Blob` body is a
+      `TypeError` from the Node transport (`src/plugin/obsidian-host-bridge.ts`).
+    - **TLS failures have two fixed messages.** A certificate verification failure keeps `TLS_FAILURE_MESSAGE` and names
+      `NODE_EXTRA_CA_CERTS`. `EPROTO`, `ERR_SSL_*` and `ERR_TLS_*` get `TLS_CONNECT_FAILURE_MESSAGE` ("the connection could
+      not be established as TLS: check the address and scheme"), with no CA advice. This replaces the single
+      message that sent a `WRONG_VERSION_NUMBER` failure to the wrong remedy. `NODE_EXTRA_CA_CERTS` must be set in the
+      environment Obsidian is launched with; a macOS GUI launch does not inherit shell variables.
+    - **The CORS hint wording changed** to "this request used the browser fetch, which is subject to CORS; the node must
+      allow the app origin", and it appears only for a "Failed to fetch" `TypeError` (`src/kubo/errors.ts`). The wording
+      quoted in the previous bullet is superseded.
+    - **Verified in real Obsidian** 1.14.4 desktop on macOS (computer control, local probe, round-10 build `main.js` sha256
+      prefix `5b906b2f`): a 308 from the node was not followed, the target was never reached, and the request carried
+      `x-api-key` only and no Chromium headers. This is the only run of the current transport in Obsidian. Abort handling
+      and the TLS split have run in unit tests only. iOS and other mobile still follow redirects.
   - **The uncomfortable part.** The redirect guarantee exists only where Node's `http` is reachable. On mobile it does
     not exist, and this round did not change that.
   - **Release tarballs depend on the Node build.** A Release 1 CLI tarball built with a different Node build has a
@@ -412,6 +436,16 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   - A truncated body that ends in `close` or `aborted` without `error` might leave a response stream hanging. This is
     unverified.
   - A 1xx interim response that never gets a final answer hangs, because the desktop transport has no timeout by design.
+  - **Accepted after the round-10 follow-up, not fixed.**
+    - The Node transport has no request timeout and no idle deadline: a node that accepts the connection and goes silent
+      leaves the call pending. By design; no caller passes a signal.
+    - `net.fetch` in the host bridge buffers the whole response with no byte cap.
+    - A body stream that closes with neither `end` nor `error` is not explicitly errored.
+    - `NODE_TLS_REJECT_UNAUTHORIZED=0` in Obsidian's environment would disable certificate verification, because the
+      transport sets no `rejectUnauthorized`.
+    - Some Node error texts outside the two TLS classes (`ERR_OSSL_*`, invalid protocol) pass through, escaped.
+    - `escapeNodeText` does not cover U+2061 to U+2064, U+180E, U+034F and U+FFF9 to U+FFFB.
+    - The `isTlsFailure` item above is partly closed: `ERR_SSL_*` no longer points to `NODE_EXTRA_CA_CERTS`.
 - **Dead code left in place.** `warnAboutRetiredDefault` in `src/plugin/index.ts` and the `retiredDefaultNoticeShown`
   field remain. Load now clears the retired host, so the one-time notice they gate cannot fire from stored data.
 - **Redirect probe coverage (the item "`requestUrl` redirect behaviour is untested" is replaced by this list).**

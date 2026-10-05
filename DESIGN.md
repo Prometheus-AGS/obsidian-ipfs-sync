@@ -509,7 +509,10 @@ would wipe `ownedKeys`, `gatewayAuth`, the device store and the sequence floor. 
 path, or "invalid address", never userinfo, query or fragment. `redactUserinfo` covers everything between `//` and the
 last `@` before whitespace. An invalid auth header name is not echoed in the error. A custom auth header name cannot be
 Host, Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE, Keep-Alive, Proxy-Connection or Trailer
-(`CONNECTION_HEADERS` in `src/core/config/auth.ts`): Node honours them as framing or routing, `fetch` ignored them. The 401 or 403 gateway hint is
+(the set `CONNECTION_FRAMING_HEADERS` in `src/core/config/connection-headers.ts`, shared by `buildAuth` and the desktop transport, so the two
+cannot drift): Node honours them as framing or routing, `fetch` ignored them. A credential header also cannot be Content-Type or Range
+(`CREDENTIAL_FORBIDDEN_HEADERS`), because `Headers` would merge it into the real one; the transport does not refuse those two, since the
+client sets them legitimately. The 401 or 403 gateway hint is
 added only when the resolved gateway endpoint has `credentialWithheld` (`src/core/config/build-config.ts`,
 `src/kubo/http.ts`): its origin differs from the RPC's, the RPC has a credential, and the gateway has none. A JWT
 whose `exp` is a finite number beyond the date range gives the fixed warning "expiry could not be read" in
@@ -594,10 +597,16 @@ is shared by every path of one host. This control was not rendered in Obsidian o
   `Headers` refuses is rejected with `NODE_RESPONSE_UNREADABLE_MESSAGE` ("the node answered with a response this plugin
   cannot read"), both sockets are destroyed, and the promise settles, so the sync lock is released; before `7a9ce77` the
   handler threw inside an event callback and the run hung with the lock held until reload. 204, 205 and 304 are bodyless;
-  101 and 103 no longer are. The fixes are unit-tested; nothing has run in Obsidian with this build. This path has no
-  timeout, so a 1xx interim response that never gets a final answer hangs. "Abort" means the plugin stops probing
+  101 and 103 no longer are. The fixes are unit-tested. This path has no timeout, so a 1xx interim response that never
+  gets a final answer hangs. An abort cannot hang it either: a signal already aborted rejects before a request is made; an
+  abort before the response destroys the request and rejects once; an abort after the response errors the body stream with
+  the abort reason; the promise settles once, and the abort listener is removed on every exit. Only a string `code` is read
+  from an error (`DOMException.code` is the legacy number 20). The transport refuses the ten connection-framing request
+  headers with `NODE_HEADER_REFUSED_MESSAGE`. "Abort" means the plugin stops probing
   further size classes; it does not fail the pull. The cost: Node's TLS uses its own CA list, so a private CA needs
-  `NODE_EXTRA_CA_CERTS` (a TLS failure is reported with fixed text that says so, `TLS_FAILURE_MESSAGE`), and Node ignores
+  `NODE_EXTRA_CA_CERTS` (a certificate verification failure is reported with fixed text that says so, `TLS_FAILURE_MESSAGE`; a TLS
+  setup failure, `EPROTO`, `ERR_SSL_*` or `ERR_TLS_*`, gets `TLS_CONNECT_FAILURE_MESSAGE` and no CA advice; the variable must be
+  set in the environment Obsidian is launched with, and a macOS GUI launch does not inherit shell variables), and Node ignores
   the system proxy and the Chromium trust store. A node reached through a system proxy, or through a private CA that Node
   does not trust, fails on desktop.
 - **Redirects.** `requestEndpoint` in `src/kubo/http.ts` passes `redirect: "manual"` and refuses a 301, 302, 303, 307 or
@@ -613,6 +622,10 @@ is shared by every path of one host. This control was not rendered in Obsidian o
     cross-origin 307 to `127.0.0.1` was followed and the POST replayed (method kept, no `Origin` header). With the current
     build the probe reported "redirect NOT followed; the redirect target was not reached", and the request carried the
     configured `X-Api-Key` to its own URL only and none of Chromium's `sec-fetch` headers.
+  - **Re-probed on the tenth-round build** (Obsidian 1.14.4 on macOS, computer control, local probe, `main.js` sha256
+    prefix `5b906b2f`). A 308 from the node was not followed, the target was never reached, and the request carried
+    `x-api-key` only and no Chromium headers. This is the only run of the current transport in Obsidian; abort handling and
+    TLS classification have run in unit tests only.
   - **Probed on an iPhone** (CFNetwork, `requestUrl`). A cross-origin redirect was followed and the POST replayed with an
     empty body (`key/list` carries none). `Authorization` was stripped on the cross-origin hop. A custom header
     (`X-Api-Key`) was forwarded.
@@ -624,6 +637,19 @@ is shared by every path of one host. This control was not rendered in Obsidian o
     control that holds on a phone is operator choice of an endpoint that does not redirect, and Bearer or Basic over a
     custom header; the settings tab says so (`SECRETS_REDIRECT_NOTE`, shown on every platform and unchanged).
   The probe prints a `VERDICT` line per request and header names with short hashes of credential values, never values.
+- **Host bridge network access.** `net.fetch` in `src/plugin/obsidian-host-bridge.ts` calls the injected transport and nothing
+  else. With none injected it throws `HOST_NET_UNAVAILABLE_MESSAGE` ("network access is not available in this host") before
+  sending anything: there is no default, because the WebView `fetch` follows redirects and would bypass the desktop transport.
+  The body is typed as bytes and passed through; the Node transport sends text or bytes only, so a `Blob` body is a `TypeError`.
+  `net.fetch` calls the transport directly, so it does not go through `requestEndpoint` and does not enforce the redirect
+  refusal. No caller uses it today.
+- **Accepted and not fixed in the desktop transport and host bridge** (code-reading reviews, nothing executed). The Node
+  transport has no request timeout and no idle deadline: a node that accepts and goes silent leaves the call pending, by
+  design, because no caller passes a signal. `net.fetch` buffers the whole response with no byte cap. A body stream that
+  closes with neither `end` nor `error` is not explicitly errored. `NODE_TLS_REJECT_UNAUTHORIZED=0` in Obsidian's
+  environment would disable verification, because the transport sets no `rejectUnauthorized`. Some Node error texts outside
+  the two TLS classes (`ERR_OSSL_*`, invalid protocol) pass through, escaped. `escapeNodeText` does not cover U+2061 to
+  U+2064, U+180E, U+034F and U+FFF9 to U+FFFB.
 - **Plugin transport.** The Obsidian `requestUrl` transport, which mobile uses, buffers whole response bodies. The streaming caps and the
   one-segment memory bound therefore give no memory protection inside the plugin for what the transport has already
   buffered; Range requests reduce the exposure only against gateways that honour them. The CLI pull streams. The plugin
