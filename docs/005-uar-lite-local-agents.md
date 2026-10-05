@@ -83,7 +83,7 @@ manifest declares it optional).
   "protocols": { "agui": true, "a2a": true },
   "execution": { "default": "local", "allowRemote": ["uar", "agui:https://…"] },
   "llm": { "lane": ["local-onnx", "remote-agui"], "embeddingModel": "onnx:all-MiniLM-L6-v2" },
-  "capabilities": { "fs": ["notes/", ".ipfs-sync/ai/"], "net": ["ipfs.prometheusags.ai"] },
+  "capabilities": { "fs": ["notes/", ".ipfs-sync/ai/"], "net": ["ipfs.example.org"] },
   "memory": { "scope": "vault", "via": "kv" }
 }
 ```

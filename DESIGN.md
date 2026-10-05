@@ -5,8 +5,9 @@ Companion to the README (operations) — this file is the architecture spec.
 
 ## 1. Goals
 
-- Sync an Obsidian vault over IPFS through our own kubo node
-  (`https://ipfs.prometheusags.ai`) — no Obsidian Sync subscription, no third-party cloud.
+- Sync an Obsidian vault over IPFS through a kubo node the user runs or trusts, set explicitly (there is no default
+  node; the maintainer's shared node is the operator's verification target only, not a default) — no Obsidian Sync
+  subscription, no third-party cloud.
 - Work on **desktop (macOS first), iOS, and Android** from the same plugin codebase.
 - Provide the substrate for a later AI layer: embeddings and indexes stored as
   content-addressed data pinned to the vault snapshot, so any device gets the
@@ -33,9 +34,9 @@ device**.
 
 ```
 ┌────────────┐   HTTPS RPC    ┌──────────────────────────┐
-│  Desktop   │◄──────────────►│  ipfs.prometheusags.ai   │
-│  (plugin)  │                │  kubo: storage + pins    │
-└────────────┘                │  + IPNS pointer          │
+│  Desktop   │◄──────────────►│  your kubo node (set     │
+│  (plugin)  │                │  by you; no default)     │
+└────────────┘                │  storage + pins + IPNS   │
                               └──────▲───────────────────┘
 ┌────────────┐   HTTPS (requestUrl RPC, gateway blobs)
 │  iOS app   │◄─────────────────────┘
@@ -172,8 +173,9 @@ manifest-driven). Scripts remain desktop tools; mobile uses the plugin only.
 
 ## 5. Server-side prerequisites (not plugin code)
 
-1. **Gate `/api/v0` with bearer auth at the proxy.** The endpoint is currently
-   open to the internet for writes (verified during bring-up). Plugin + scripts
+1. **Gate `/api/v0` with bearer auth at the proxy.** The maintainer's shared node (the operator's verification
+   target, not a default) is open to the internet for writes (verified during bring-up); any node you expose the
+   same way is too. Plugin + scripts
    already send `Authorization: Bearer $IPFS_RPC_TOKEN` when set.
 2. Optional: read-only gateway subdomain for content retrieval (`cat`/`get`
    without write scopes), if we want defense-in-depth.
@@ -232,7 +234,8 @@ longer refused; `main` still refuses them (§8.9). Whoever publishes a real vaul
 Delivered in `mvp-06`: encrypted-only publish in the CLI and the plugin; `ipfs-sync init`; the crypto core
 (`src/crypto/`); per-root state, journal, resume, `--repair`, lock file and history check (`src/sync/`); the plugin key
 session, setup, unlock and abandon dialogs (`src/plugin/`). Delivered in `mvp-07a` (not independently reviewed, not run in
-Obsidian, on a phone or by the operator against the shared node): the decrypting pull in the CLI and the plugin (§8.10),
+Obsidian, on a phone or by the operator against the shared node, which is the maintainer's own test node and the
+operator's verification target, not a default): the decrypting pull in the CLI and the plugin (§8.10),
 the sequence floor, restore, fork resolution, second-device publish, history names with a sequence prefix, the path
 policy for pulled manifests, and the `.obsidian/` and `.smart-env/` exclusions. Delivered in `mvp-07b` code tasks (same
 standing: automated tests with fake nodes; not independently reviewed; not run in Obsidian, on a phone or by the operator
@@ -399,8 +402,9 @@ routing timeout on a vault's first publish counts as `not-found` by rule.
 
 ### 8.5 Threat model
 
-The adversary is anyone who can reach the node: its RPC endpoint accepts unauthenticated writes from the internet
-(README, "Security: your RPC endpoint is wide open"), and its gateway serves every published object to anyone who knows
+The adversary is anyone who can reach the node. The maintainer's shared node accepts unauthenticated writes from the
+internet (README, "Security: an open RPC endpoint is wide open"). That is why no node is a default. Removing the default
+does not close the exposure; it stops fresh installs from walking into it. A node's gateway serves every published object to anyone who knows
 the root CID or the IPNS name. Old roots stay pinned and fetchable forever; this project never unpins.
 
 A node operator or any other writer CAN:
@@ -474,6 +478,16 @@ objects. No request URL or body contains a vault path, file name or content othe
 of each publish is visible in the clear in its history file name (the node could count the files anyway), and a pull
 reads only: `name/resolve`, `key/list`, listings of the immutable root and gateway reads. Events keep their
 shape: `file.changed` carries its `path` inside the process only, and no persistent sink may store event paths.
+
+Which node sees this is the user's choice, made explicitly. The lowest configuration layer (`defaultLayer()` in
+`src/core/config/defaults.ts`) supplies no RPC or gateway URL. With none set by flag, environment variable or config
+file (or, in the plugin, settings), a command exits 2 with `no-rpc-url` or `no-gateway-url` and sends no request; both
+URLs are required because every pull, publish read-back, status and key command reads through the gateway. `abandon`
+needs neither (local state only). The plugin starts with empty URLs and refuses every node action with "Set your IPFS
+node in settings". A saved 0.2.0 URL that names the retired built-in host (`src/core/config/retired-default-hosts.ts`,
+a comparison only) is kept, with a one-time notice and a settings warning. The reason: the host that releases up to 0.2.0
+built in is the maintainer's own node and is open to anyone, so a default would have sent every fresh install's
+encrypted blobs and their metadata there. The exposure of that node is not fixed by this change.
 
 ### 8.7 Stated limits
 

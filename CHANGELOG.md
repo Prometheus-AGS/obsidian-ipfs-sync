@@ -4,6 +4,43 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries describe what exists in the code;
 anything not yet built is under "Known limitations" or not mentioned.
 
+## [Unreleased] - no default IPFS node (branch `mvp-07b-guard-removal`, not a release)
+
+**If you relied on the built-in node, you must now configure one.** Releases up to 0.2.0 sent every request to the
+maintainer's own node unless you changed it. This branch removes that default. A fresh install, or a script that never
+set a URL, no longer reaches any node: it stops and tells you what to set. This entry describes commit `f1e5236`. The
+maintainer's node is still open to anyone; this change does not fix that, it stops new installs from sending encrypted
+blobs and their metadata (sizes, timing, how many files) to it without being asked.
+
+### Changed
+
+- **No built-in RPC or gateway URL.** `defaultLayer()` in `src/core/config/defaults.ts` supplies neither. Set both, by
+  flag (`--rpc-url`, `--gateway-url`), environment (`IPFS_SYNC_RPC_URL`, `IPFS_SYNC_GATEWAY_URL`) or config file
+  (`rpc.url`, `gateway.url`). With either missing, a command exits 2 with a configuration error (`no-rpc-url`,
+  `no-gateway-url`) and sends no request. Both are required because every pull, publish read-back, status and key command
+  reads through the gateway; the gateway URL is not derived from the RPC URL. A port setting alone counts as unset.
+- **The plugin starts with empty URLs.** The settings tab shows "Node: Not configured". Publish, pull, status, the key
+  actions, the vault opener and the auto-publish timer refuse with "Set your IPFS node in settings" and send no request.
+- **The operator tools name the shared node themselves** (`tools/feature-op-client.ts` and the `feature-op-mvp-*`
+  toolboxes), and `IPFS_SYNC_RPC_URL` and `IPFS_SYNC_GATEWAY_URL` still override it.
+
+### Added
+
+- **`abandon` works with no node configured** (CLI and plugin). It only moves local state aside and prints the sequence
+  floor, so it is the way out when a node is gone.
+- **A retired-host warning.** A saved 0.2.0 URL whose host is the retired built-in host is kept as an explicit value,
+  not cleared. The plugin shows a one-time notice at load and a warning in the settings that it is the maintainer's own
+  node and is open to anyone. The host string lives only in `src/core/config/retired-default-hosts.ts`, for that
+  comparison; `tests/unit/no-default-node.test.ts` fails if it appears elsewhere under `src/` or `cli/`.
+- **A blocking constraint, `no-default-node`,** in `.kbd-orchestrator/constraints.md`, with a grep that fails on a
+  built-in URL under `src/` or `cli/`.
+
+### Not done
+
+- The maintainer's node is not hardened. Anyone who types its address into the settings is back where 0.2.0 put them.
+- The guard evidence for this tree is stale and must be regenerated (stated in the commit). Nothing here has been run
+  inside Obsidian or on a phone.
+
 ## [Unreleased] - guard removal: real notes are accepted (branch `mvp-07b-guard-removal`, not a release)
 
 **This is a branch, not a release.** Release v0.3.0 is not cut: `manifest.json` and `package.json` read 0.3.0

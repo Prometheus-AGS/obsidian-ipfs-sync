@@ -1,8 +1,12 @@
 # IPFS Sync for Obsidian
 
-Sync your vault over IPFS through your own kubo node (`https://ipfs.prometheusags.ai`).
+Sync your vault over IPFS through a kubo node you run or trust.
 No Obsidian Sync subscription. No third-party cloud. Content-addressed snapshots now,
 CRDT multi-writer sync and an AI layer later.
+
+**There is no default node.** You enter the RPC URL and the gateway URL of your own node before anything is sent.
+The maintainer's test node is open to anyone and is not a default; see "Security" below. If you relied on the old
+built-in node (release 0.2.0), you must now configure one.
 
 > **Pre-release. This branch accepts real notes, and its evidence is not in yet. Read "Real notes: what you accept"
 > before you use it.**
@@ -53,7 +57,7 @@ points the key at the CID of the MFS root, which holds `current/` (encrypted fil
 two-character prefix folders), `manifests/` (one encrypted history copy of the manifest per publish, named
 `<16-digit sequence>-<rootCID>.enc`; a development build wrote `<rootCID>.enc`, which still reads), `manifest.enc` and
 `keyslots.json`.
-Swap for DNSLink (`_dnslink.ipfs.prometheusags.ai` → `/ipfs/<cid>`) whenever you
+Swap for DNSLink (for example `_dnslink.ipfs.example.org` → `/ipfs/<cid>`, on a domain you control) whenever you
 want a human-readable name — same content, one DNS record.
 
 **Conflict policy (pull, CLI and plugin; both run the same engine):** pull never deletes and never loses
@@ -141,7 +145,11 @@ What the plugin does today:
 - **Read cap** (setting): the largest single file the plugin will read into memory, default 64 MB,
   whole numbers from 8 to 1024. Obsidian's file adapter has no partial read, so a file is loaded whole. A file
   above the cap is counted as failed, named in the result, and the other files continue.
-- Settings tab: RPC and gateway endpoints (URL plus optional port each), publication key name,
+- Settings tab: RPC and gateway endpoints (URL plus optional port each; both start empty and the tab shows
+  "Not configured" until both URLs are set; publish, pull, status, the key actions, the vault opener and the
+  auto-publish timer refuse with "Set your IPFS node in settings" and send no request; Abandon still works; a saved
+  0.2.0 URL that names the maintainer's retired built-in host is kept, with a one-time notice and a settings warning that
+  it is the maintainer's own node and is open to anyone), publication key name,
   MFS root, authentication scheme (none, basic, bearer, custom header), the exclusion list, the
   owned IPNS keys, and the pull name, catch-up and read cap settings above, an Encryption section (state: not set up,
   locked or unlocked; Lock, Set up and Unlock buttons), plus the last pull and last publish summaries
@@ -319,6 +327,13 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   `IPFS_SYNC_GATEWAY_URL`, `IPFS_SYNC_MFS_ROOT`, `IPFS_SYNC_KEY`, `IPFS_SYNC_AUTH_*`).
   Flags override environment, which overrides the config file. Run
   `node dist/cli/ipfs-sync.mjs --help` for the full list.
+- **The RPC URL and the gateway URL are required. There is no default node.** Set each by flag (`--rpc-url`,
+  `--gateway-url`), environment (`IPFS_SYNC_RPC_URL`, `IPFS_SYNC_GATEWAY_URL`) or config file (`rpc.url`,
+  `gateway.url`). With either one missing the command exits 2 with a configuration error (`no-rpc-url` or
+  `no-gateway-url`) and sends no request. Both are needed because every pull, publish read-back, status and key command
+  reads through the gateway, and the gateway URL is never derived from the RPC URL. A port variable alone
+  (`--rpc-port`, `IPFS_SYNC_RPC_PORT`) does not count as a URL. `abandon` is the exception: it only moves local state
+  aside, so it runs with no node configured.
 
 The CLI is a plain Node HTTP client against the kubo RPC and gateway — no local IPFS
 daemon needed.
@@ -358,9 +373,10 @@ way this goes wrong for you.
 
 - **Encrypted, and not everything.** Contents, paths, file names and the manifest are encrypted. The node operator
   still sees how many files you have, their exact sizes, when and how often you publish, which blobs change, and that
-  the vault exists. Treat the node (`ipfs.prometheusags.ai`) as shared infrastructure: it holds other projects' keys,
-  and its RPC endpoint is open to writes from the internet (see "Security" below). Whoever can reach its storage or its
-  logs sees the list above.
+  the vault exists. Whatever node you choose sees this list. The maintainer's test node is shared infrastructure that
+  holds other projects' keys, and its RPC endpoint is open to writes from the internet (see "Security" below); it is not
+  a default and you should not point a real vault at it. Whoever can reach a node's storage or its logs sees the list
+  above.
 - **Published ciphertext is permanent and public.** Every old root stays pinned, and this project never unpins one.
   Anyone with a root CID can download the ciphertext and the public `keyslots.json` and guess the passphrase offline,
   with no deadline. If the passphrase leaks, or encryption turns out to be broken, everything you ever published opens,
@@ -740,13 +756,16 @@ token is not re-checked immediately before each node write) is open. Details: `D
    reach it. The plugin sends every node request through Obsidian's `requestUrl`, which is
    not subject to CORS. The CLI uses plain `fetch` and is unaffected.
 
-## ⚠ Security: your RPC endpoint is wide open
+## ⚠ Security: an open RPC endpoint is wide open
 
-`https://ipfs.prometheusags.ai/api/v0/` currently accepts **unauthenticated
-writes from the entire internet**: anyone can `add`/`pin` garbage, create IPNS
-keys, or republish *your vault pointer* if they learn its key name. Your node also
+The maintainer's own test node (the host that releases up to 0.2.0 built in as the default) accepted
+**unauthenticated writes from the entire internet** when this was last checked, and this change does not close it.
+That is why it is no longer a default: a default would have sent every fresh install's encrypted blobs and their
+metadata to a node anyone can write to. It remains the operator's verification target only. If you configure a node
+that is open the same way, the same applies to it: anyone can `add`/`pin` garbage, create IPNS
+keys, or republish *your vault pointer* if they learn its key name. The maintainer's node also
 hosts other projects' keys (`consult-capture`, `gomark-relay-lab`, `prince-live`).
-Before this becomes your real sync backbone:
+Before any node becomes your real sync backbone:
 
 - Put auth in front of the RPC (nginx/basic-auth or a bearer token at the proxy),
   and set the same token in the plugin's settings and pass it to the CLI with

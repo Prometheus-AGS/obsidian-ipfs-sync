@@ -46,6 +46,12 @@ constraints:
     severity: blocking
     description: 'All kubo RPC args must travel in the query string (the prometheusags proxy drops form-encoded args)'
     note: 'Review every fetch/curl against the node; see README §node-quirks'
+
+  - id: no-default-node
+    severity: blocking
+    description: "No built-in default IPFS RPC or gateway URL; the maintainer's open node must not be a default"
+    check: "grep -rnE 'DEFAULT_RPC_URL|DEFAULT_GATEWAY_URL|prometheusags' src/ cli/ --exclude=retired-default-hosts.ts"
+    note: 'Prints matches when violated; no output means it holds. The retired host string may appear only in src/core/config/retired-default-hosts.ts, where it is used to warn about a saved 0.2.0 URL and never to fill one in. tests/unit/no-default-node.test.ts enforces the same rule. Added with task 46.'
 ```
 
 ---
@@ -105,6 +111,9 @@ workflow_triggers:
 # - The kubo node at ipfs.prometheusags.ai is production infra shared with other
 #   projects (existing IPNS keys: consult-capture, gomark-relay-lab, prince-live).
 #   Never key/rm, pin/rm, or name/publish to keys you did not create.
+#   That node is a verification target only. It is open to anyone and is not a
+#   default: no product code path may fill in its address (constraint
+#   no-default-node), and a real vault is never published to it.
 # - MFS path /obsidian-vault-staging holds pre-existing content from a prior
 #   attempt — do not delete it. This project uses /obsidian-vault-sync/* only.
 # - The RPC endpoint is unauthenticated as of init; treat all published content

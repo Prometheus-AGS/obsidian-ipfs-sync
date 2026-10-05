@@ -13,6 +13,16 @@ section 8). The pull in this file is covered by automated tests with fake nodes.
 a phone, or against the shared node by the operator; that run belongs to change `mvp-07b`. Where a sentence
 below says what pull does, it means "the code does this", not "this was seen working".
 
+**There is no default node.** "The shared node" in this file is the maintainer's own test node and the operator's
+verification target. It is open to anyone, so it is not a default, and a real vault does not belong on it. Every
+`ipfs-sync` command in this file except `abandon` needs the RPC URL and the gateway URL set explicitly: `--rpc-url`
+and `--gateway-url`, or `IPFS_SYNC_RPC_URL` and `IPFS_SYNC_GATEWAY_URL`, or `rpc.url` and `gateway.url` in the config
+file. Without them the command exits 2 (`no-rpc-url`, `no-gateway-url`) and sends no request. The plugin needs both URLs
+in its settings and refuses with "Set your IPFS node in settings" until they are set. A run against the shared node
+therefore means setting those variables to it yourself. The `tools/feature-op-*` scripts are the exception: they name
+the shared node in code, and the same two variables override it. Anyone who relied on the old built-in node must now
+configure one.
+
 The refusal texts below are quoted in part from the code (`src/sync/publish-refusals.ts`, `src/sync/vault-keys.ts`,
 `src/sync/pull-sequence.ts`, `src/sync/encrypted-pull.ts`, `src/core/config/node-safety.ts`). If a message on your
 screen differs, the code wins and this file is stale.
