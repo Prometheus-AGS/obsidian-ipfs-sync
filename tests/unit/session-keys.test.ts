@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { CryptoError, VCK_BYTES, formatPassphrase, toBase64, toHex, utf8 } from "../../src/crypto";
 import {
   createSessionKeys,
@@ -196,9 +196,15 @@ describe("lock", () => {
     const rig = restoreRig(fresh);
     let release: () => void = () => undefined;
     const gate = new Promise<void>((resolve) => void (release = resolve));
-    const h = harness(rig, { holdUnlock: gate });
+    const slowCheck = async (): Promise<boolean> => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return true;
+    };
+    const h = harness(rig, { holdUnlock: gate, vaultExists: slowCheck });
     const pending = h.session.unlock();
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    // The unlock is in flight once its dialog is open (the dialog is held by `gate`); wait for that, not for a fixed time.
+    // The slow existence check above is what made a fixed sleep land the lock() before the sequence began.
+    await vi.waitFor(() => expect(h.unlockRequests).toHaveLength(1));
     h.session.lock();
     h.session.lock();
     release();
