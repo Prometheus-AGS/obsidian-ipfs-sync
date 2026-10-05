@@ -99,7 +99,7 @@ What the plugin does today:
 
 - Commands (`Ctrl/Cmd+P`): **IPFS Sync: Publish vault**, **IPFS Sync: Pull vault**,
   **IPFS Sync: Restore an older version**, **IPFS Sync: Resolve fork** and **IPFS Sync: Show status**. Two ribbon icons
-  run Publish and Pull. An optional auto-publish interval (minutes, 0 = off) is set in the settings tab.
+  run Publish and Pull. An optional auto-publish interval (minutes, 0 = off, at most 35,000) is set in the settings tab.
 - **Publish is encrypted and needs the vault passphrase.** On a device with no vault, Publish opens the setup dialog;
   only its **Create vault** button creates one. The dialog shows the generated passphrase once, in five groups of
   five, asks you to save it in a password manager and type it again, and states that a lost passphrase means the data
@@ -112,7 +112,7 @@ What the plugin does today:
 - The auto-publish timer never opens a dialog. While the vault is locked it skips the publish and shows one notice per
   session. While it is unlocked, a tick on an unchanged vault does not derive the key again.
 - **The plugin cannot repair.** `--repair`, `--recover-slots` and `--break-lock` exist only in the command line tool. The plugin can clear a publish lock that is at least 15 minutes stale ("Clear stale publish lock"). It has no row or command for `keys discard`, and it cannot finish an interrupted key action or prune; use the command line for those. (It does have a "Prune history..." row; see "History growth" below.)
-- **Key management in the Encryption section** (mvp-07b, never run in Obsidian). Three rows open dialogs: **Change the passphrase**, **Increase the key-derivation cost** and **Accept changed key slots**. Each states before its confirm button works that the old passphrase and every old copy of the key-slot file keep opening the vault. The change-passphrase dialog shows the generated passphrase once, in five groups of five, and asks you to type it again; there is no field for your own. There is no clipboard control. A lower cost needs its own tick and shows both costs. After a change the dialog shows the result of a test unlock. Another device must run Accept changed key slots (or `ipfs-sync keys accept-slots`) with the new passphrase before it can pull or publish again. A row shows the cost of this device's key slot.
+- **Key management in the Encryption section** (mvp-07b, never run in Obsidian). Three rows open dialogs: **Change the passphrase**, **Increase the key-derivation cost** and **Accept changed key slots**. Each states before its confirm button works that the old passphrase and every old copy of the key-slot file keep opening the vault. The change-passphrase dialog shows the generated passphrase once, in five groups of five, and asks you to type it again; there is no field for your own. There is no clipboard control. A lower cost needs its own tick and shows both costs. After a change the dialog shows the result of a test unlock. Another device must run Accept changed key slots (or `ipfs-sync keys accept-slots`) with the new passphrase before it can pull or publish again. A row shows the cost of this device's key slot. In Accept changed key slots, Cancel keeps the focus after Check key slots; Accept is one Tab away.
 - **Prune history in the Encryption section** (mvp-07b task 2.5, never run in Obsidian). A fourth row, hidden until a vault exists, opens a dialog: a keep count (the floor of 20 is shown), the current passphrase, then a dry-run preview that shows counts only. Cancel has the focus in the review step, and files are removed only when you press the remove control. It takes the same locks as the key actions, and the cost confirmation below applies. The timer and the catch-up pull never prune. The plugin has no resume and no discard; `ipfs-sync prune-history` finishes an interrupted prune.
 - **Cost confirmation.** A key slot above the default cost (64 MiB, 3 iterations), such as the High preset (128 MiB, 4), makes the plugin ask through a dialog that shows the cost; Cancel is the default. It asks on a manual Pull, Resolve fork, Restore, manual Publish (at the unlock) and the key actions. The auto-publish timer and the catch-up pull never ask: while the vault is locked they keep refusing a High-cost vault until you unlock it by hand. A wrong passphrase on a pull asks the cost question again on each attempt. A phone may not be able to unlock High; that was not measured.
 - **A mass removal stops a manual publish** with a dialog (counts only; Cancel is the default). The timer never opens it: it shows a notice and writes nothing. See "Publishing".
@@ -122,7 +122,9 @@ What the plugin does today:
   every open editor first, so an edit that exists only in an editor counts as a local edit. It uses the unlocked
   key when the session holds one; otherwise it asks for the passphrase (an unattended catch-up pull refuses instead of
   asking). A first pull of a vault opens a dialog that shows the sequence, date and device the vault key holder chose
-  and states that nothing can confirm them; Cancel writes nothing. Progress and the result show as a notice and in the
+  and states that nothing can confirm them; Cancel writes nothing and has the focus. The same dialog opens, with its own
+  statement, when this device already holds a sequence floor for the vault but the folder has no state for it and at
+  least one local file differs from the vault (see "Pull"). Progress and the result show as a notice and in the
   status bar. The result names the fetched, unchanged, conflict, failed and remote-deletion counts and up to three
   conflict copies, and says when files are unfinished. The plugin has no setting that lets it read a plaintext root.
 - **Restore an older version** lists the newest 20 history names, reads the date and device of entries of at most 8 MiB,
@@ -179,7 +181,19 @@ What the plugin does today:
   lost its version key is therefore left alone, with defaults in use and a notice, instead of being overwritten (which
   would wipe the owned keys, the gateway credential, the device store and the sequence floor). A previous-plugin address
   with a user name or password in it is stored empty, with a notice. Status shows an address as scheme, host, port and
-  path, or "invalid address"; never a user name, query or fragment.
+  path, or "invalid address"; never a user name, query or fragment. A previous-plugin token is kept only with the
+  address it was written for; with no address carried over it is dropped.
+- **An unreadable `data.json` is copied before it is replaced.** The first save after an unreadable load would replace
+  the file with defaults. Before it does, the plugin copies the file to `data.json.unreadable-<UTC timestamp>` in the
+  plugin folder and shows a notice with the path. **The copy is plain text and holds the same secrets as the
+  original** (credentials, owned keys, the sequence floor record); delete it when you no longer need it. If the copy
+  cannot be written, the save is refused and the original stays.
+- **A credential does not follow an address change.** Changing the node URL or port to another origin blanks the stored
+  node credential. Changing the gateway origin drops the gateway credential; an explicit None is kept. A plain line
+  under the field says so. Typing the new address does not carry the old secret to the new host.
+- **Editing an address, port or credential does not ask the node about the key.** The key row then says it was not
+  checked since the settings changed; press **Check again**. Opening the tab still checks. The settings tab is emptied
+  when it closes, so a typed secret does not stay in the page.
 - **Switching nodes.** Clearing a retired host resets only the URLs and the node and gateway credentials. The owned keys,
   pull name, last publish and last pull, device store, publication key and MFS root stay. The vault's state under
   `.ipfs-sync/` is named by a hash of the MFS root, not by the node, so a new empty node meets the old local key-slot copy
@@ -221,6 +235,15 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   `.ipfs-sync/` folder). A root CID given with
   `--root-cid` is only as trustworthy as the gateway that serves it: the client does not check the returned bytes against
   the CID, so authenticity rests on the vault key.
+- **A folder with no state for this vault asks too.** The same confirmation is required whenever the folder has no state
+  for the vault's root, even if this device already holds a sequence floor for the vault, and at least one local file
+  differs from the node's copy. Without state nothing is a baseline, so every differing file takes the node's text and a
+  dated copy of the local text is kept. The question says so, in a fixed statement, and the CLI also prints the
+  destination path ("into"). An empty folder, or one whose files all match, is not asked. `--accept-first-pull` skips the
+  question; a run that cannot ask stops with `first-pull-not-confirmed` and writes nothing. The uncomfortable part: every
+  recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) puts you back here with no baseline, and
+  the baseline is what protects you from what the node serves. Abandon keeps the sequence floor; deleting the floor too
+  removes the rest.
 - **Restore adds and replaces; it never deletes** a file that exists only in later versions. The recorded highest
   sequence stays, and the next publish makes the result a new version.
 - **Fork resolution.** Two devices that publish the same sequence with different content make a fork; `--resolve-fork`
@@ -381,9 +404,33 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   gateway inherits it only when its origin (scheme, host and port) equals the RPC origin, as with one reverse proxy
   serving both. On any other origin the gateway gets auth kind `none`, so the credential never goes to a host you did not
   give it to. To authenticate the gateway on another origin, set `IPFS_SYNC_GATEWAY_AUTH_*` (the same suffixes as
-  `IPFS_SYNC_AUTH_*`); an explicit gateway auth always wins. The consequence is for the plugin: it has one auth field and
-  no gateway auth field. A plugin user whose gateway is on a different origin and needs auth sends no credential to the
-  gateway, and its requests fail. Put both endpoints behind one origin, or use the CLI for that node.
+  `IPFS_SYNC_AUTH_*`); an explicit gateway auth always wins. The plugin has the matching control, **Gateway
+  authentication** (see the settings tab above).
+- **Credentials never come from the command line.** `--auth-password`, `--auth-token` and `--auth-header-value` are
+  refused with exit 2, because the process list and the shell history show them. The message names the replacement and
+  does not echo the value: `IPFS_SYNC_AUTH_PASSWORD`, `IPFS_SYNC_AUTH_TOKEN` or `IPFS_SYNC_AUTH_HEADER_VALUE` (per
+  endpoint, `IPFS_SYNC_RPC_AUTH_*` or `IPFS_SYNC_GATEWAY_AUTH_*`). `--auth`, `--auth-user` and `--auth-header-name`
+  remain.
+- **A config file found in the working directory cannot steer a credential.** When no `--config` is given, the CLI reads
+  `./ipfs-sync.config.json` if it exists. While a credential is configured by environment or flags, such a file that
+  sets `rpc.url` or `gateway.url` is refused (exit 2) unless the same address is set by flag or environment. Pass
+  `--config <path>` to use that file on purpose. A file you name is not judged.
+- **A plain `http:` address with a credential gives a warning** when the host is not loopback (`localhost`,
+  `*.localhost`, `127.x.x.x`, `[::1]`). It is a warning, not a refusal: anyone on the network path can read the
+  credential.
+- **The state folder must not be a symbolic link.** `publish`, `init`, `keys`, `prune-history`, `pull --list-versions`
+  and `abandon` refuse a symlinked `<vault>/.ipfs-sync` (exit 2) before any lock, state or request. `pull` already did.
+  The folder is created with mode 0700.
+- **Without a terminal the CLI offers no prompt.** `keys change-passphrase` and `keys increase-cost` without
+  `--accept-no-revocation`, and `prune-history` without `--yes-prune` or `--dry-run`, exit 2 before they send anything.
+- **A passphrase file inside the vault is refused** (exit 2): the next publish would upload it with the notes it
+  protects. The check uses real paths, so a link into the vault counts. It covers `--passphrase-file` and
+  `IPFS_SYNC_PASSPHRASE_FILE`, except that `init` and `abandon` ignore the variable.
+- **Text from the node is escaped before it is printed.** `status` prints node-supplied names, versions and key IDs
+  escaped, and standard output has control characters stripped per line. The escape now also covers zero-width and other
+  invisible characters (soft hyphen, zero-width space and joiners, word joiner, byte order mark, the tag block).
+  `--show-request` redacts the credential header names of both endpoints. An address that cannot be parsed prints as
+  "invalid address". A root CID longer than 128 characters from the node is refused with fixed text.
 
 The CLI is a plain Node HTTP client against the kubo RPC and gateway — no local IPFS
 daemon needed.
@@ -646,7 +693,8 @@ the delta check and by the idle check that skips unlocking, until the size or th
   "Abandon this vault" (also a button in the Encryption section of the settings tab). It moves this device's key-slot
   copy, sync state, journal and any key-management journal for that root into `.ipfs-sync/abandoned-<h>-<ms>/`. It never
   contacts the node and deletes nothing. It records no latch (there is none any more) and prints the sequence floor it
-  keeps. On a terminal you must type `abandon`; without one it does nothing unless you pass `--yes-abandon`.
+  keeps. On a terminal you must type `abandon`; without one it does nothing unless you pass `--yes-abandon`. In the plugin, pressing Escape while the abandon (or
+Clear stale publish lock) is running does not stop it; the real result is reported when it ends, not a cancel.
 
 ### History growth
 

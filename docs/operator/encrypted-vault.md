@@ -103,8 +103,8 @@ In order, and what each step may write:
    iterations) has its cost shown and asked first (no terminal: refused). `--expect-vault-id` and the record's vault are compared with the slot file before any derivation.
 5. `manifest.enc` is authenticated under the key. No file is requested before this succeeds.
 6. The verdict is decided against the record (below).
-7. First pull only: the sequence, date and device are shown and you answer. Only after a yes are the key-slot copy and
-   the floor written.
+7. First pull, or a pull into a folder with no state for this vault: the sequence, date and device are shown and you
+   answer (below). Only after a yes are the key-slot copy and the floor written.
 8. Files. Each path is compared on plaintext sha256 (this device, the last baseline, the node). Blobs are read from the
    immutable tree the authenticated manifest names (`/ipfs/<manifest rootCID>/...`), never from the root's mutable
    `current/`. Each file is decrypted and hashed into `.ipfs-sync/tmp/<id>.part` and renamed over its path only if its
@@ -123,7 +123,7 @@ In order, and what each step may write:
 | `--resolve-fork` | Another device published the same sequence with other content (encrypted only). Needs a terminal and a yes. Name target only |
 | `--expect-min-sequence <n>` | Refuse a manifest whose sequence is below `n` (encrypted only) |
 | `--expect-vault-id <id>` | Refuse unless the vault id (32 lowercase hex characters) matches; checked before any key derivation (encrypted only). `init` prints it on the `vault created` line |
-| `--accept-first-pull` | The non-interactive yes to the first-pull question. It skips the question on a terminal too. Without a terminal a first pull is refused without it |
+| `--accept-first-pull` | The non-interactive yes to the first-pull question, and to the same question for a folder with no state for this vault (below). It skips the question on a terminal too. Without a terminal such a pull is refused without it |
 | `--max-bytes <n>` | Ask before fetching more than `n` bytes of file content. Default 536870912 (512 MiB) |
 | `--accept-large` | The non-interactive yes to that question. Without a terminal a larger pull fetches nothing and exits 1 |
 | `--list-versions` | Print the newest 20 history entries by name, with date and device for each file of at most 8 MiB after unlocking. Reads only |
@@ -189,6 +189,17 @@ fixed statements (three for `--root-cid` or `--manifest`), then asks "Pull this 
 (the lock may leave an empty `.ipfs-sync/` folder). Use `--expect-vault-id` (the id `init` printed) and
 `--expect-min-sequence` (the `sequence` that `publish` printed) when you have them: they are checked without trusting the
 shown values.
+
+**A folder with no state for this vault asks the same question.** This happens when the device already holds a sequence
+floor for the vault (an earlier pull, or a publish) but the folder has no state file for the root: you deleted
+`.ipfs-sync/`, ran Abandon, or pulled into a new folder. Nothing in the folder is a baseline, so every file that differs
+from the node's copy is replaced by the node's text, and a dated copy of the local text is kept. The question is asked
+only when at least one local file would be replaced; an empty folder, or one whose files all match, is not asked. On a
+terminal it prints "into" and the destination path, "at least N" files to be replaced, a fixed statement that the
+directory has no state for this vault, and asks "Pull this vault into this directory?". Without a terminal the run stops
+with `first-pull-not-confirmed` and writes nothing; `--accept-first-pull` is the yes. The uncomfortable part: Abandon, a
+deleted `.ipfs-sync/` and a new folder each leave you here with no baseline, and the baseline is what protects you from
+what the node serves. The plugin shows the same dialog (Cancel has the focus; it names the vault it pulls into, not a file-system path).
 
 ### Restore an older version
 
@@ -286,7 +297,19 @@ file claims nothing about Smart Connections beyond that; its behaviour on a runn
   more than (MB)" takes 64 to 8192 and defaults to 512. If you decline, nothing is fetched and those files stay unfinished.
 - The Encryption section of the settings tab has a "Pull record" row: the highest sequence recorded, whether the last pull
   was complete, how many files are unfinished, and the sequence a restore took.
-- The catch-up pull never opens a dialog: a locked vault or a first pull makes it refuse instead of asking.
+- The catch-up pull never opens a dialog: a locked vault, a first pull or a pull into a folder with no state for the
+  vault makes it refuse instead of asking.
+- Settings tab, node and gateway. Changing the node URL or port to another origin blanks the stored node credential;
+  changing the gateway origin drops the gateway credential (an explicit None stays). A plain line under the field says so,
+  and you enter the credential again for the new host. Editing an address, port or credential no longer asks the node
+  about the key; the key row says it was not checked and **Check again** asks. Opening the tab still checks. The
+  auto-publish interval accepts at most 35,000 minutes. The tab is emptied when it closes.
+- An unreadable `data.json` is copied to `data.json.unreadable-<UTC timestamp>` in the plugin folder before the first
+  save replaces it with defaults, and a notice gives the path. The copy is plain text and holds the same secrets as the
+  original (credentials, owned keys, the floor record). Delete it when you no longer need it. If the copy cannot be
+  written, the save is refused and the original stays.
+- In Accept changed key slots, Cancel keeps the focus after Check key slots. Pressing Escape during Abandon or Clear stale
+  publish lock does not stop the action; the real result is reported when it ends.
 - A key slot above the default Argon2id cost (64 MiB, 3 iterations) makes a manual Pull, Resolve fork, Restore, Publish (at
   the unlock) and the key actions ask through a cost dialog (Cancel is the default). The catch-up pull and the timer never
   ask and keep refusing with `kdf-cost-refused` until you unlock by hand. A wrong passphrase on a pull asks again each
@@ -349,6 +372,7 @@ Every stop below writes nothing in the vault unless it says otherwise. Pull stop
 | `an unfinished publish of sequence N is pending; run publish` | This device's own publish was cut short | Run `publish` |
 | `sequence N exists here with different content than this device recorded` | A fork | `pull --resolve-fork` for the name |
 | `this directory has no record of this vault and this run cannot ask` | First pull without a terminal | Confirm at a prompt, or pass `--accept-first-pull` |
+| `this directory has no state for this vault and holds files that differ from the node's copy, and this run cannot ask` (`first-pull-not-confirmed`) | The device has a floor, the folder has no state, and a run without a terminal would replace files | Confirm at a prompt, or pass `--accept-first-pull`. Nothing was written |
 | `the first pull was declined` | You answered no | Nothing was written (the lock may have created `.ipfs-sync/`) |
 | `manifest.enc on the node does not authenticate under this vault's key` | Forged, damaged or another vault's file | Do not retry blindly; check the node. No file was requested |
 | `manifest.enc authenticated but holds something this build does not read` | A newer format, or limits above this build's | Update `ipfs-sync` |
@@ -518,6 +542,12 @@ Every refusal below sends nothing to the node or stops before anything is writte
 | `publish refused: this vault has no .ipfs-sync-fixture marker` (or `marker is empty`, `marker says "pulled-fixture"`, `marker does not hold the text "fixture"`) | History: the old guard of `main` and earlier trees. This branch does not send it | On `main`, write `fixture` into the marker (your statement that the directory holds no real notes). On this branch there is nothing to do; if you see the text, you are running an older build |
 | `publishing needs the vault passphrase and none was supplied` | No file, no variable, and no terminal | Set `IPFS_SYNC_PASSPHRASE_FILE`, or run on a terminal |
 | `both IPFS_SYNC_PASSPHRASE and IPFS_SYNC_PASSPHRASE_FILE are set` | Two sources | Unset one |
+| `the passphrase file is inside the vault folder` | `--passphrase-file`, or the file `IPFS_SYNC_PASSPHRASE_FILE` names, lies inside the vault by real path (a link into the vault counts). The next publish would upload it. Exit 2, nothing sent. `init` and `abandon` ignore the variable | Keep the file outside the vault |
+| `unknown option --auth-password` (also `--auth-token`, `--auth-header-value`) | Credentials are never taken from the command line, where the process list and shell history show them. Exit 2; the value is not echoed | Set `IPFS_SYNC_AUTH_PASSWORD`, `IPFS_SYNC_AUTH_TOKEN` or `IPFS_SYNC_AUTH_HEADER_VALUE` (per endpoint: `IPFS_SYNC_RPC_AUTH_*`, `IPFS_SYNC_GATEWAY_AUTH_*`) |
+| `ipfs-sync.config.json in the working directory sets a node address while a credential is configured` | The file was found, not asked for, and sets `rpc.url` or `gateway.url` while a credential comes from the environment or flags. Exit 2 | Pass `--config <path>` if you mean to use it, or set the address by flag or environment |
+| `the state folder is a symbolic link` | `<vault>/.ipfs-sync` is a link. `publish`, `init`, `keys`, `prune-history`, `pull --list-versions` and `abandon` refuse it before any lock, state or request (`pull` already did). Exit 2 | Replace the link with a real folder |
+| `<command> needs a terminal to confirm` / `needs a terminal to show the new passphrase` | Standard input is not a terminal, so the CLI offers no prompt. `keys change-passphrase` and `increase-cost` need `--accept-no-revocation`, `prune-history` needs `--yes-prune` or `--dry-run`, `abandon` needs `--yes-abandon`. Exit 2, nothing sent | Run on a terminal, or pass the flag |
+| `credential is sent over plain http` | A warning, not a refusal: a credential is set for an `http:` endpoint whose host is not loopback | Use an `https:` address |
 | `not a valid generated passphrase` (`passphrase-format`) | Wrong length, characters outside `A-Z2-7`, or the check symbols do not match (a probable typo). The check catches about 99.9% of single mistyped body symbols; about 1 in 1,024 wrong strings still passes and then fails as a wrong passphrase | Copy the passphrase; letters are not case-sensitive and hyphens are optional |
 | `wrong passphrase or damaged key slot` | The commitment or the wrap did not verify. One outcome by design. With a local copy the unlock happens locally, but `publish` sends two read-only requests (`files/stat`, `key/list`) before it unlocks; none mutates | Retry with the right passphrase. A node file that differs from this device's copy is reported separately, as a key-slot mismatch |
 | `this MFS root holds no encrypted vault yet, and publish never creates one` | Empty root, no local copy | Run `ipfs-sync init` |
@@ -710,6 +740,11 @@ real vault.
   only against the sequence this device already accepted (the floor and the state; see "The record and the sequence
   floor"), cannot detect a freeze, and has no baseline on a first pull.
 - `requestUrl` in the plugin buffers whole response bodies; size caps do not protect its memory.
+- Every recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) leaves a folder with no baseline, and the
+  baseline is what protects you from the node. The confirmation for that case shows a lower bound ("at least N"), and
+  the stage plans again.
+- A passphrase file in the vault is refused only by the CLI, and only when it is named by `--passphrase-file` or
+  `IPFS_SYNC_PASSPHRASE_FILE`. A passphrase stored elsewhere in the vault by hand is not found.
 - A file restored with its old modification time and the same size is missed by the delta and idle checks. A pull trusts
   the same pair too: it can replace such a file without a conflict copy.
 - Node has no `openat`: a swap of the passphrase file's parent directory between check and open can misplace the file.

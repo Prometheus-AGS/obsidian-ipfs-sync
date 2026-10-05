@@ -62,6 +62,44 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   key-slot copy and a publish is refused with `lost-slots` until the user runs Abandon. Clear the pull name too. Status
   shows the old publish's root CID and time until the next publish (`src/plugin/sync-status.ts`). Abandon is the way out
   and moves files aside rather than deleting them; it also teaches users to click past refusals.
+- **Third independent review round: pull, CLI and plugin settings.** The review read the code and executed nothing.
+  Unit tests with fakes were added for the fixes (`tests/unit/cli-review-round3.test.ts`,
+  `config-review-round3.test.ts`, `node-root-cid-bound.test.ts`, `plugin-settings-review3.test.ts`,
+  `plugin-unreadable-backup.test.ts`). None ran inside Obsidian or on a phone.
+  - **A folder with no state for the vault asks before a pull replaces files.** The first-pull confirmation is now also
+    required when the device holds a sequence floor for the vault but the directory has no state for it, and at least one
+    local file differs from the node's copy. It states the destination path (the CLI passes it), "at least N existing
+    files will be replaced" and that a dated copy of each is kept, with a fixed statement (`NO_STATE_PULL_STATEMENT`).
+    An empty or identical directory is not asked. `--accept-first-pull` skips it; a run that cannot ask stops with
+    `first-pull-not-confirmed` and writes nothing (`src/sync/encrypted-pull.ts`, `cli/pull-encrypted-command.ts`,
+    `src/plugin/first-pull-dialog-model.ts`). Before this, only a pull with no record at all asked. **Every recovery
+    path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) leaves a folder with no baseline, and the baseline
+    is what protects you from the node.**
+  - **Root CIDs from the node are bounded to 128 characters.** A longer one is refused with fixed text that does not echo
+    it, where it enters (`src/sync/target-resolution.ts`, `src/sync/commit-node.ts`, `src/kubo/ipns.ts`). The local
+    record would have written it and then refused to read it back.
+  - **CLI.** `--auth-password`, `--auth-token` and `--auth-header-value` are refused (exit 2); use `IPFS_SYNC_AUTH_*`.
+    An implicitly loaded `./ipfs-sync.config.json` that sets `rpc.url` or `gateway.url` is refused while a credential is
+    configured by environment or flags, unless `--config` is passed or the URL is set by flag or environment. A symlinked
+    `.ipfs-sync` is refused by publish, init, keys, prune-history, `pull --list-versions` and abandon, and the state
+    folder is created 0700. `status` escapes node-supplied text, and `escapeNodeText` now also escapes zero-width and
+    invisible characters. Without a terminal the CLI offers no prompt, so `keys change-passphrase`, `keys increase-cost`
+    and `prune-history` without their explicit flag exit 2 before sending anything. `--show-request` redacts the
+    credential header names of both endpoints. A passphrase file inside the vault is refused. A credential configured
+    for a non-loopback `http:` endpoint produces a warning. Unparsable URLs print "invalid address"
+    (`cli/args.ts`, `cli/load-config.ts`, `cli/state-folder-link.ts`, `cli/io.ts`, `cli/run.ts`,
+    `cli/passphrase-file.ts`, `cli/request-trace.ts`, `cli/status-command.ts`, `src/core/config/build-config.ts`,
+    `src/core/config/endpoint.ts`, `src/kubo/errors.ts`).
+  - **Plugin settings.** Changing the node URL origin blanks the stored node credential; changing the gateway origin
+    drops the gateway credential (an explicit None is kept); a plain line under each field says so. Editing a URL, port
+    or credential no longer triggers a key check (press Check again; the check on opening the tab remains). An unreadable
+    `data.json` is copied to `data.json.unreadable-<UTC timestamp>` (plain text, same secrets) before the first save
+    replaces it, and the save is refused if the copy fails. The auto-publish interval is capped at 35,000 minutes. Cancel
+    is focused after Check key slots and on the first-pull dialog. Escape during Abandon or Clear stale lock reports the
+    real result. The legacy token is dropped when its URL is not carried over. The settings tab is emptied on close
+    (`src/plugin/settings-fields.ts`, `settings-view-model.ts`, `settings-tab.ts`, `settings-store.ts`,
+    `unreadable-backup.ts`, `settings-migration.ts`, `settings-model.ts`, `settings-to-config.ts`, `index.ts`, and the
+    dialogs).
 
 ### Added
 
@@ -105,18 +143,45 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   must not redirect.
 - **LOW findings L4 and L5, not fixed.** L4 is the dead retired-notice code listed above. L5: re-pointing a URL keeps its
   credential, so a credential written for one host goes to the next one typed.
-- M4 below (plain `http` accepted with credentials, no warning) and the plain-text credential in `data.json` stand.
+- M4 below (plain `http` accepted with credentials) is superseded in part: a non-loopback `http:` endpoint with a
+  credential now produces a warning (see Changed), and is still accepted. The plain-text credential in `data.json` stands.
 - The credential in `data.json` is plain text, as is the node credential. Anyone who can read the vault folder on that
   device can read both.
 - **Open findings from an independent code-reading review.** The reviewer read the code and executed nothing. The labels
   are the review's own, not released facts. None is fixed on this branch.
   - M2: the CLI does not know a renamed Obsidian configuration folder, so it can sync a folder the plugin would exclude.
-  - M4: plain `http` is accepted for an endpoint that carries credentials, with no warning.
+  - M4: plain `http` is accepted for an endpoint that carries credentials. A warning is printed for a non-loopback host
+    since the third review round; it is not refused.
   - M5: the plugin transport buffers whole response bodies without a bound, and some CLI reads do too.
   - M6: the Obsidian adapter cannot see symbolic links, and its rename is not atomic.
   - M7: `change-passphrase` and rewrap do not revoke an old passphrase, and there is no key rotation command. A leaked
     old passphrase opens the vault forever, for every copy of the vault data that anyone kept.
   - M8: the device-local rollback floor is easy to reset, which removes the rollback protection on that device.
+- **Findings left open from the third review round.** It was an independent code-reading review that executed nothing.
+  The ratings are the reviewers' own. None is fixed on this branch.
+  - `requestUrl` follows redirects and may forward headers, on mobile and on desktop non-ranged requests. One reviewer
+    rated it HIGH, another MEDIUM. Untested; to be probed on the phone.
+  - The plugin transports have no request timeout.
+  - The mobile transport buffers whole bodies (memory).
+  - "Not found" is taken from unauthenticated node text.
+  - Credentials are stored in plain text in `data.json`, and other plugins can read them through the plugin object (the
+    session and the store are runtime properties).
+  - `net.fetch` in the host bridge is unscoped. It is dormant: nothing calls it today.
+  - The unlocked session has no idle timeout.
+  - The mass-removal guard ignores removals caused by exclusions.
+  - A stale-lock takeover compares the token only.
+  - The sequence floor evicts the oldest of 64 vaults silently.
+  - Plaintext paths and sha256 sit in the vault's `.ipfs-sync` state folder, and cloud sync tools may copy them.
+  - The node sees exact sizes and per-file edit timing.
+  - A key holder can write arbitrary relative paths (`.zshrc`, `.vscode/tasks.json`) into a destination you chose.
+  - `publish` has no secrets deny-list. Publishing a home directory would upload `.ssh`.
+  - **The release gate is an attestation chain, not a proof.** Its records are written by the party being checked.
+    Unread files do not fail it. The checker file is not pinned outside itself. Test helpers and the runner config are
+    not hashed. The reader children in the operator run execute unhashed helpers with node credentials in their
+    environment.
+  - The repository lives inside the operator's vault folder (`.ipfs-sync`). A CLI run against the vault root would write
+    into the git working tree.
+  - The earlier M2 and M4 to M8 items above still apply.
 
 ## [Unreleased] - guard removal: real notes are accepted (branch `mvp-07b-guard-removal`, not a release)
 

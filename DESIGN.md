@@ -524,6 +524,23 @@ uncomfortable part: a refusal that has a one-click exit teaches users to click p
 by the reset, so the user should clear it when switching nodes. Status keeps the old publish's root CID and time until
 the next publish (`lastPublished` in `src/plugin/sync-status.ts`, which reads the per-root record).
 
+**Credentials follow an origin, not a field.** `clearCredentialOnOriginChange` (`src/plugin/settings-fields.ts`) runs in the
+same write as an address edit. When the RPC origin (scheme, host, port) changes, `auth` becomes `none`. When the gateway
+origin changes, `gatewayAuth` is removed, unless it is an explicit `none`. The view model blanks the matching typed fields
+and sets a plain notice under the field (`RPC_CREDENTIAL_CLEARED`, `GATEWAY_CREDENTIAL_CLEARED`). Two addresses with the
+same origin and different paths are the same place. A previous-plugin `authToken` is kept only with the `rpcUrl` it was
+written for (`migrateLegacy`). An address, port or credential edit no longer calls the key check: the key section marks its
+answer stale ("Press Check again") and the check on opening the tab remains. Closing the tab empties its container.
+
+**An unreadable `data.json` is copied first.** The unreadable path leaves the data untouched until a save. The settings
+store (`createSettingsStore`) calls `UnreadableBackup.save` before that first save; the copy is
+`data.json.unreadable-<UTC stamp>` beside the file (`src/plugin/unreadable-backup.ts`), plain text with the same secrets,
+named to a free name if one exists. A copy that fails fails the save, so the original stays and memory does not run ahead
+of disk. This is a copy of a secret store with no encryption and no expiry; the notice tells the user to delete it.
+`MAX_PUBLISH_INTERVAL_MINUTES` is 35,000 (a timer holds about 35,791 minutes), applied by validation and, for an older
+stored value, by `rearmAutoPublish`. The abandon and clear-stale-lock dialogs no longer report a cancel when Escape closes
+them mid-run: they report the real result.
+
 Which endpoint gets the credential is decided in `src/core/config/build-config.ts`. The global auth is the RPC credential.
 The gateway inherits it only when the gateway origin (scheme, host and port) equals the RPC origin; on any other origin it
 gets auth kind `none` unless an explicit gateway auth is set, so the credential never goes to a host the operator did not
@@ -801,12 +818,27 @@ the user, not a symbolic link, not a pipe), `IPFS_SYNC_PASSPHRASE`, or, with sta
 prompt that does not echo (256-byte limit). In tests with injected streams the terminal is restored after
 Ctrl-C, Ctrl-D, a 257th byte, end of input and a failure to enter raw mode; restore on `SIGTERM`, `SIGHUP` and
 `SIGTSTP` is unverified. Both variables set is an error. There is no
-`--passphrase` flag and none is read from a configuration file. Every source passes the canonical passphrase function
+`--passphrase` flag and none is read from a configuration file. A passphrase file whose real path lies inside the vault
+folder is refused with exit 2 before any request (`passphraseFileInsideVault`, `cli/run.ts`), because the next publish
+would upload it; `init` and `abandon` do not read the variable and are not judged on it. Every source passes the canonical passphrase function
 before any request. `ipfs-sync init` is the only command that creates a vault; it generates the passphrase, ignores any
 passphrase in the environment, and either shows it once on a terminal and requires it to be typed again, or writes it to
 a new 0600 file created exclusively (`--passphrase-file`) and prints only the path. The plugin asks for the passphrase
 once per session, keeps only the non-extractable key set in memory, never writes a passphrase or key to `data.json`, and
 never opens a dialog from the timer.
+
+The CLI's other input boundaries, from the third review round. Credentials come from the environment only:
+`--auth-password`, `--auth-token` and `--auth-header-value` are refused by name (`rejectCredentialFlags`, `cli/args.ts`) and
+the value is never echoed. A `./ipfs-sync.config.json` that was found, not asked for, may not set `rpc.url` or
+`gateway.url` while a credential comes from the environment or flags and the same address is not set there
+(`assertImplicitFileDoesNotSteerCredential`, `cli/load-config.ts`); `--config` lifts the check. A credential on a
+non-loopback `http:` endpoint gives a warning (`plainHttpWarnings`, `src/core/config/build-config.ts`). The state folder
+must not be a symbolic link for any command that takes a vault (`cli/state-folder-link.ts`, called from `assertDirectory`
+and from the key-value store and lock file on every operation), and `.ipfs-sync/` is created 0700. Standard input that is
+not a terminal gives `CliIo` no `confirm` or `prompt`, so the commands that need a yes refuse before sending anything.
+Node-supplied text is escaped in `status`, `escapeNodeText` covers zero-width and invisible code points, and a root CID
+over 128 characters is refused where it enters (`src/sync/target-resolution.ts`, `commit-node.ts`, `src/kubo/ipns.ts`),
+because the local record would write it and then refuse to read it back.
 
 ### 8.9 The publish guard, its removal and the release gate
 
@@ -909,7 +941,12 @@ In order, and what each step may write:
    will be replaced ("at least N"), with a dated copy of each kept, and only when that count is above zero
    (`countReplacedLocalFiles` in `src/sync/encrypted-pull.ts`, shown by `cli/pull-encrypted-command.ts` and
    `src/plugin/first-pull-dialog-model.ts`). The count is a read-only preview: a first pull has no baseline, so it counts
-   every local file that differs from the manifest at a manifest path, and the stage plans again. Only then are the key-slot copy and, for a first pull or a
+   every local file that differs from the manifest at a manifest path, and the stage plans again. The same confirmation is
+   required when the verdict is not `first-pull` but the directory has no state for this root (`run.state === undefined`
+   in `authorize`): the device holds a floor, the folder holds no baseline, and every differing file is a conflict. It asks
+   only when the preview count is above zero, and it shows `NO_STATE_PULL_STATEMENT` in place of the no-baseline statement.
+   `--accept-first-pull` skips it; a run with no way to ask stops with `first-pull-not-confirmed`. The CLI passes the vault
+   path as `destination` and prints it; the plugin does not pass one. Only then are the key-slot copy and, for a first pull or a
    newer manifest, the floor written. Nothing is written before this step except the lock and the sweep.
 7. Plan: for every manifest path, the path policy first, then the symbolic-link prefix walk, then the three-way rule on
    plaintext sha256 (L missing: fetch; L = R: unchanged; L = B: replace; B = R: locally modified, left alone; otherwise
