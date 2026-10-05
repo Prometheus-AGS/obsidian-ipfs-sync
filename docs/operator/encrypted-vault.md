@@ -61,7 +61,8 @@ On this branch nothing stops you from publishing a real vault. Accept each line 
    the cost question, so a key slot above the default cost (64 MiB, 3 iterations) keeps the timer and the catch-up pull
    refused until you unlock by hand.
 8. **Mobile.** `requestUrl` buffers whole response bodies and follows redirects. Desktop sends every request through
-   Node's `http` and `https`, which streams and refuses a redirect; mobile cannot. Phone behaviour with a real vault is unmeasured. Android is untested.
+   Node's `http` and `https`, which streams and refuses a redirect; mobile cannot, and that is the uncomfortable part: the
+   redirect guarantee exists only where Node's `http` is reachable. `requestUrl` is used only on mobile. Phone behaviour with a real vault is unmeasured. Android is untested.
 9. **Mass-removal limits.** The guard stops removing every remaining entry or more than half. It does not stop the removal
    of 49 percent of the entries, does not check a vault's first publish, and does not see a half-mounted folder that is
    missing less than half the files.
@@ -523,6 +524,14 @@ operator run.
   than B (operator run, expected missing) is to be fixed first. (3) The operator run, manual, on throwaway vaults. (4) Phone
   timing. (5) `node tools/release-mvp-07.mjs plan`, then `record`. The release tool never runs git, tags, pushes or
   publishes; merge (fast-forward only), tag, push and the GitHub pre-release each need your explicit yes for that action.
+- Which Node builds the release. The CLI tarball is a gzip, and the deflate bytes depend on the zlib inside the Node build:
+  Node 22 and 24 write 195 bytes for the Release 1 golden archive, Homebrew Node 26.8.2 (zlib 1.2.12) writes 193. So a
+  Release 1 CLI tarball built with a different Node build has a different sha256. Build release tarballs on the same Node
+  build every time; Node 24 produced the goldens. The release tool also assembles `ipfs-sync-cli-0.3.0.tgz` for Release 2
+  (`tools/release/assemble.mjs`), so the rule covers it; a Release 2 tarball has not been compared across Node builds.
+  Release 2 also ships `main.js` and `manifest.json`, which are not gzip output. The checker's clean-export build ran on
+  Node 26.8.2 here. nvm's 24.21.0 failed with an esbuild platform-package error inside the clean export; that was not
+  investigated, so the Node that runs `--build` is the one that works on this machine, not a chosen one.
 - Review record (item A). `review-final-<T8>.md` under `openspec/changes/mvp-07b-keys-history-guard-release-2/`. Release 2
   uses the git-history form: the checker prints the commit that last touched the file and how many commits touched it, and
   `record` requires you to type `I accept an unsigned review record for <T8>` on a terminal (exit 2 without one, and exit 2
@@ -819,7 +828,15 @@ real vault.
   On iOS a redirect to another origin is followed, `Authorization` is stripped on that hop, and a custom header such as
   `X-Api-Key` is forwarded: the plugin cannot stop it, so use Bearer or Basic on a phone and a node that does not
   redirect. Desktop cost: Node uses its own CA list (set `NODE_EXTRA_CA_CERTS` for a private CA) and ignores the system
-  proxy, so a node behind either fails on desktop. Not probed: Android, mobile multipart bodies, an https-to-http
+  proxy, so a node behind either fails on desktop. If a desktop app cannot load Node's `http` or `https`, the plugin
+  refuses every request ("the desktop network layer is unavailable, so the plugin will not send requests through the
+  redirect-following fallback; reload the plugin or report this"): reload the plugin, and report it if it persists. It
+  does not fall back to `requestUrl`. A node that answers with a status outside 200-599, or with headers the plugin cannot
+  read, is refused ("the node answered with a response this plugin cannot read"); both sockets are destroyed and the sync
+  lock is released. Before `7a9ce77` such an answer could hang the run and hold the lock until the plugin reloaded. A 1xx
+  interim response that never gets a final answer still hangs, because there is no timeout. None of this has run in
+  Obsidian. A custom auth header cannot be named Host, Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE,
+  Keep-Alive, Proxy-Connection or Trailer. Not probed: Android, mobile multipart bodies, an https-to-http
   downgrade, Windows and Linux. The probe is `node tools/probe-redirect-forwarding.mjs --host <LAN address>` (or
   `--loopback`); it prints a VERDICT line per request and never a credential value.
 - Every recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) leaves a folder with no baseline, and the

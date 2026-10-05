@@ -282,6 +282,41 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     truncated.
   - Tests: `tests/unit/node-transport.test.ts` (new), `tests/unit/hostile-gateway-bounds.test.ts`. They run outside
     Obsidian; the probes above are the only runs on real devices.
+- **Tenth round / the desktop transport fails closed (commits `7a9ce77` and `c40f76f`; they fix the ninth round, `9276e34`).**
+  An independent read of the ninth round's transport found two defects in it. Both are fixed; the tests were written
+  first and failed before the code. Sixteen touched files passed one at a time and typecheck was clean on `7a9ce77`; the
+  full suite had not run on that commit. Nothing has run in Obsidian with this build.
+  - **A malformed response no longer hangs the run.** A node answering with a status outside 200-599 (Node's parser
+    accepts any three digits) or with headers that `Headers` or `Response` refuse made the handler throw inside an event
+    callback. The promise never settled, the sockets stayed open, and with no timeout by design the publish or pull never
+    reached its `finally`, so the sync lock stayed held until the plugin reloaded. The handler now accepts 200-599 only,
+    builds the headers and the `Response` inside a `try`, and on failure destroys both sockets and rejects with the fixed
+    message "the node answered with a response this plugin cannot read". Nothing the node sent is echoed. 101 and 103 are
+    no longer treated as bodyless (`src/plugin/node-transport.ts`).
+  - **No silent fallback to `requestUrl` on desktop.** When `globalThis.require` was missing or threw on a desktop app,
+    the transport used to fall back to `requestUrl`, which follows redirects, and undid the ninth round without a sign.
+    It now refuses every request with the fixed message "the desktop network layer is unavailable, so the plugin will not
+    send requests through the redirect-following fallback; reload the plugin or report this". `requestUrl` is used only
+    when the app is not a desktop app, that is on mobile (`pluginTransport`, `src/plugin/request-url-transport.ts`). Entry
+    tests that relied on the silent fallback now run as mobile.
+  - **Custom auth header names.** The name cannot be Host, Transfer-Encoding, Connection, Content-Length, Upgrade, Expect,
+    TE, Keep-Alive, Proxy-Connection or Trailer. Node honours those; `fetch` ignored them (`src/core/config/auth.ts`).
+  - **The CORS hint** now ends "desktop uses Node's http and is not subject to CORS, mobile uses requestUrl"
+    (`src/kubo/errors.ts`). Three code comments that said desktop uses `requestUrl` were corrected.
+  - **Three gate failures fixed in the tests; no source change (`c40f76f`).** The phone-timing pty test no longer hangs
+    when `dist/.guard-build.json` is current (the state right after `--build`): `spawnSync` blocked the event loop, so the
+    test timeout could not fire. The Release 1 tarball golden no longer compares gzip bytes, because the zlib in the Node
+    build changes them: Homebrew Node 26.8.2 ships zlib 1.2.12 and writes 193 bytes, Node 22 and 24 write 195. It compares
+    the gzip header and the decompressed tar bytes and adds a within-run reproducibility test. The lock-during-unlock test
+    no longer races `vaultExists()`: it waits for the passphrase dialog request instead of sleeping 5 ms.
+  - **The uncomfortable part.** The redirect guarantee exists only where Node's `http` is reachable. On mobile it does
+    not exist, and this round did not change that.
+  - **Release tarballs depend on the Node build.** A Release 1 CLI tarball built with a different Node build has a
+    different sha256 than the golden; build release tarballs on the same Node build every time. Node 24 produced the
+    goldens. The release tool also assembles `ipfs-sync-cli-0.3.0.tgz` for Release 2 (`tools/release/assemble.mjs`, and the
+    file list in `tests/unit/release-mvp-07.test.ts`), so the same rule applies to it; nobody has compared a Release 2
+    tarball across Node builds. The checker's clean-export build ran on Node 26.8.2 here: nvm's 24.21.0 failed with an
+    esbuild platform-package error inside the clean export. That failure was not investigated.
 
 ### Added
 
@@ -366,6 +401,17 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   - The unreadable-file backup is compared as decoded text, not raw bytes.
   - The redirect sentence sits in the Authentication section, not beside the gateway fields.
   - The `NOTHING_TO_ABANDON` wording does not name the key-management journal. The CLI message does.
+- **What the last read of the transport left as accepted backlog (tenth round).** These came from a code-reading review.
+  Nothing was executed. None is fixed on this branch.
+  - `files/write` responses and `fetchGatewayBytes` read the body with no cap. This predates the transport change.
+  - The TLS error classification is incomplete. Some certificate verification codes pass Node's text through. An
+    `ERR_SSL_*` code such as `WRONG_VERSION_NUMBER` is reported as a verification failure and points to
+    `NODE_EXTRA_CA_CERTS`, which is the wrong remedy for it (`isTlsFailure`).
+  - The host bridge's `net.fetch` still defaults to the WebView `fetch` and bypasses `requestEndpoint`. No caller uses it
+    today.
+  - A truncated body that ends in `close` or `aborted` without `error` might leave a response stream hanging. This is
+    unverified.
+  - A 1xx interim response that never gets a final answer hangs, because the desktop transport has no timeout by design.
 - **Dead code left in place.** `warnAboutRetiredDefault` in `src/plugin/index.ts` and the `retiredDefaultNoticeShown`
   field remain. Load now clears the retired host, so the one-time notice they gate cannot fire from stored data.
 - **Redirect probe coverage (the item "`requestUrl` redirect behaviour is untested" is replaced by this list).**

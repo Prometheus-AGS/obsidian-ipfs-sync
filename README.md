@@ -160,7 +160,9 @@ What the plugin does today:
   credentials again, and the cleared data is written back. **If you really used that node, you must now enter it and
   its credentials yourself.** If you type that host into the URL fields during a session, the tab warns; the value is
   cleared at the next load. The tab also holds the publication key name,
-  MFS root, authentication scheme (none, basic, bearer, custom header), **Gateway authentication** (below), the exclusion list, the
+  MFS root, authentication scheme (none, basic, bearer, custom header; a custom header name cannot be Host,
+  Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE, Keep-Alive, Proxy-Connection or Trailer, because
+  Node's `http` honours those as connection framing, `src/core/config/auth.ts`), **Gateway authentication** (below), the exclusion list, the
   owned IPNS keys, and the pull name, catch-up and read cap settings above, an Encryption section (state: not set up,
   locked or unlocked; Lock, Set up and Unlock buttons), plus the last pull and last publish summaries
   (counts, CIDs and timestamps only, no file names or secrets).
@@ -218,7 +220,8 @@ What the plugin does today:
   old publish's root CID and time until the next publish.
 - Node requests do not use the WebView's `fetch`, because the node's CORS rules block it (quirk 4 below). On desktop
   every request goes through Node's `http` and `https` (`src/plugin/node-transport.ts`). On mobile, which has no Node,
-  requests go through Obsidian's `requestUrl`.
+  requests go through Obsidian's `requestUrl`. `requestUrl` is used only on mobile: a desktop app whose Node modules
+  cannot be loaded refuses every request (see "Desktop streams every response" below).
 - The whole `.obsidian/` folder is never published and never pulled (before `mvp-07a` only `.obsidian/plugins/` was):
   plugin code and plugin data, including this plugin's own `data.json` with your credentials, stay on the device. Those
   credentials are stored in plain text, and so is the sequence floor, which lives in the same plugin data.
@@ -323,7 +326,15 @@ code path reads a plaintext manifest.
   body, through Node's `http` and `https` (`src/plugin/node-transport.ts`), found with `globalThis.require`. The response
   body streams, so the size caps apply before the body is buffered, and a hostile gateway cannot make the plugin buffer a
   multi-GB body for a 22-byte header read. On mobile, which has no Node, Obsidian's `requestUrl` buffers each whole
-  response body in memory. The desktop path has no timeout. Desktop costs you Chromium's network stack. Node trusts its
+  response body in memory. **If a desktop app cannot load Node's `http` or `https`, the plugin refuses every request** with
+  a fixed message ("the desktop network layer is unavailable, so the plugin will not send requests through the
+  redirect-following fallback; reload the plugin or report this") and sends nothing. It does not fall back to
+  `requestUrl`, because `requestUrl` follows redirects. **A node that answers with a status outside 200-599, or with
+  headers that cannot be read, is refused** with the fixed message "the node answered with a response this plugin cannot
+  read"; the plugin destroys both sockets and releases the sync lock. Before this fix such an answer left the run hanging
+  with the lock held until the plugin was reloaded (`7a9ce77`). Both behaviours are covered by unit tests only; neither
+  has run in Obsidian. The desktop path has no timeout, so a 1xx interim response that never gets a final answer still
+  hangs. Desktop costs you Chromium's network stack. Node trusts its
   own certificate list, so a private CA needs `NODE_EXTRA_CA_CERTS` (the TLS failure message says so). Node ignores the
   system proxy and the Chromium trust store, so a node reached through a system proxy, or through a private CA that Node
   does not trust, fails on desktop.
@@ -344,6 +355,8 @@ code path reads a plaintext manifest.
     (`X-Api-Key`) was forwarded.
   - **Not probed:** Android; a body-carrying call on mobile (the multipart upload); an https-to-http downgrade; Windows
     and Linux desktops.
+  The uncomfortable part: the redirect guarantee exists only where Node's `http` is reachable. On mobile it does not
+  exist, and no setting adds it.
   Point the plugin only at an endpoint you control and trust not to redirect.
 - Obsidian's `requestUrl` transport, which mobile uses, buffers each whole response body in memory. The one-segment
   memory bound and the size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and
@@ -908,7 +921,8 @@ commands are in the operator runbook. The checker and the release tool bind to t
 
 Nothing in this list has been checked, and none of it should be assumed to work: any part of the plugin's encryption
 flow inside Obsidian, including Pull, Restore, Resolve fork, the key-management, mass-removal and cost dialogs, the
-measure command and the desktop Node transport beyond the redirect probe (the probe ran on one macOS desktop only; see
+measure command and the desktop Node transport beyond the redirect probe (the probe ran on one macOS desktop only, and
+before the fail-closed fixes of `7a9ce77`; nothing has run in Obsidian with the current transport; see
 "Plugin limitations"); the `keys` commands and `prune-history`
 against the shared node or a real kubo; a High-cost key slot on a phone; the encrypted pull against the shared node
 and with a real second device; an encrypted publish or pull on a phone; Android; HKDF, HMAC and AES-GCM under Obsidian's
@@ -955,7 +969,9 @@ token is not re-checked immediately before each node write) is open. Details: `D
 4. **CORS blocks the Obsidian WebView.** The node answers requests with the origin
    `app://obsidian.md` with 403 and sends no CORS headers, so the WebView's `fetch` cannot
    reach it. The plugin sends node requests through Node's `http` and `https` on desktop and through
-   Obsidian's `requestUrl` on mobile; neither is subject to CORS. The CLI uses plain `fetch` and is unaffected.
+   Obsidian's `requestUrl` on mobile; neither is subject to CORS. The CLI uses plain `fetch` and is unaffected. If a
+   browser `fetch` is blocked anyway, the error ends: "the browser blocked the request (CORS); desktop uses Node's http
+   and is not subject to CORS, mobile uses requestUrl" (`src/kubo/errors.ts`).
 
 ## ⚠ Security: an open RPC endpoint is wide open
 

@@ -507,7 +507,9 @@ would wipe `ownedKeys`, `gatewayAuth`, the device store and the sequence floor. 
 `rpcUrl` with userinfo (`hasUserinfo`) is stored empty and `LEGACY_CREDENTIALS_NOTICE` is shown. The legacy
 `authToken` is dropped in that case too, as it is for the retired host; the user enters credentials again. Status shows addresses through `displayAddress` (`src/core/config/endpoint.ts`): scheme, host, port and
 path, or "invalid address", never userinfo, query or fragment. `redactUserinfo` covers everything between `//` and the
-last `@` before whitespace. An invalid auth header name is not echoed in the error. The 401 or 403 gateway hint is
+last `@` before whitespace. An invalid auth header name is not echoed in the error. A custom auth header name cannot be
+Host, Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE, Keep-Alive, Proxy-Connection or Trailer
+(`CONNECTION_HEADERS` in `src/core/config/auth.ts`): Node honours them as framing or routing, `fetch` ignored them. The 401 or 403 gateway hint is
 added only when the resolved gateway endpoint has `credentialWithheld` (`src/core/config/build-config.ts`,
 `src/kubo/http.ts`): its origin differs from the RPC's, the RPC has a credential, and the gateway has none. A JWT
 whose `exp` is a finite number beyond the date range gives the fixed warning "expiry could not be read" in
@@ -585,7 +587,15 @@ is shared by every path of one host. This control was not rendered in Obsidian o
   `src/plugin/request-url-transport.ts`). The response body streams with one chunk of look-ahead and the socket is paused
   while nothing reads, so the bounded readers cut a hostile body off before it is buffered. Cancelling destroys the
   socket, so a hostile gateway cannot make the plugin buffer a large body for a header read. Mobile has no `require` and
-  keeps `requestUrl`, which buffers whole bodies. This path has no timeout. "Abort" means the plugin stops probing
+  keeps `requestUrl`, which buffers whole bodies; `requestUrl` is used only there. A desktop app whose `require` is missing
+  or throws gets `nodeUnavailableTransport`, which refuses every request with `NODE_UNAVAILABLE_MESSAGE` ("the desktop
+  network layer is unavailable, so the plugin will not send requests through the redirect-following fallback; reload the
+  plugin or report this") and sends nothing (`pluginTransport`). A response with a status outside 200-599 or headers that
+  `Headers` refuses is rejected with `NODE_RESPONSE_UNREADABLE_MESSAGE` ("the node answered with a response this plugin
+  cannot read"), both sockets are destroyed, and the promise settles, so the sync lock is released; before `7a9ce77` the
+  handler threw inside an event callback and the run hung with the lock held until reload. 204, 205 and 304 are bodyless;
+  101 and 103 no longer are. The fixes are unit-tested; nothing has run in Obsidian with this build. This path has no
+  timeout, so a 1xx interim response that never gets a final answer hangs. "Abort" means the plugin stops probing
   further size classes; it does not fail the pull. The cost: Node's TLS uses its own CA list, so a private CA needs
   `NODE_EXTRA_CA_CERTS` (a TLS failure is reported with fixed text that says so, `TLS_FAILURE_MESSAGE`), and Node ignores
   the system proxy and the Chromium trust store. A node reached through a system proxy, or through a private CA that Node
@@ -596,7 +606,8 @@ is shared by every path of one host. This control was not rendered in Obsidian o
   (`tests/unit/kubo-redirect.test.ts`). The CLI's `fetch` and the desktop Node transport hand the 3xx back, so it reaches
   that check; the request, its method and its credential go to the configured URL only. Obsidian's `requestUrl`, which
   mobile uses, follows redirects itself, has no option to stop it and exposes no final URL, so on mobile a followed
-  redirect is neither prevented nor detected. Evidence, stated exactly:
+  redirect is neither prevented nor detected. The guarantee exists only where Node's `http` is reachable; on mobile it
+  does not exist. Evidence, stated exactly:
   - **Probed on a real desktop** (Obsidian installer 1.8.4, app 1.14.4, Electron 33.3.2, macOS), by the operator and by the
     lead using computer control, with `tools/probe-redirect-forwarding.mjs`. With the old `requestUrl` path a node's
     cross-origin 307 to `127.0.0.1` was followed and the POST replayed (method kept, no `Origin` header). With the current
@@ -826,7 +837,7 @@ Unverified, or unenforced, at the time of writing:
 1. Anything inside Obsidian: the setup, unlock and abandon dialogs, an encrypted publish from the plugin, HKDF, HMAC and
    AES-GCM under Obsidian's WebView (only a SHA-256 digest is recorded as having run in Obsidian 1.13.7), and
    `requestUrl` with multi-megabyte binary bodies and Range requests, and the desktop Node transport beyond the redirect
-   probe (one macOS desktop; Windows and Linux are untested).
+   probe (one macOS desktop, run before the fail-closed fixes of `7a9ce77`; Windows and Linux are untested).
 2. Encrypted publish and pull on a phone (Argon2id alone was timed on an iPhone; see "Mobile"), and Android.
 3. Zeroization beyond the arrays the core owns.
 4. Rollback and freeze prevention: a pull refuses a sequence below this device's record, and nothing detects a freeze or a
