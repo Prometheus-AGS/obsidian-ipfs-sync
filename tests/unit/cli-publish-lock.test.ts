@@ -211,4 +211,14 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     expect((await readdir(join(vault, ".ipfs-sync"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
     if (process.platform !== "win32") expect((await stat(lockPath())).mode & 0o077).toBe(0);
   });
+
+  it("R8-L1: a writeIfToken whose caller has stopped does not rename, returns false and leaves no temporary file", async () => {
+    const file = createNodeLockFile(vault);
+    const mine = encodeLock({ token: "mine", pid: process.pid, host: hostname(), time: NOW.getTime() });
+    const refreshed = encodeLock({ token: "mine", pid: process.pid, host: hostname(), time: NOW.getTime() + 60_000 });
+    expect(await file.createExclusive(mine)).toBe(true);
+    expect(await file.writeIfToken?.("mine", refreshed, () => true)).toBe(false);
+    expect(decodeLock(new Uint8Array(await readFile(lockPath())))?.time).toBe(NOW.getTime());
+    expect((await readdir(join(vault, ".ipfs-sync"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
 });

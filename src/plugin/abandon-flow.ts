@@ -72,6 +72,14 @@ function backupNote(backupDir: string, count: number, floor: AbandonFloor): stri
   return `${count} file${count === 1 ? "" : "s"} moved to ${backupDir} in the vault folder. Nothing on the node was changed. ${describeAbandonFloor(floor)}. To start a new vault, choose an empty MFS root in the settings, then run Publish.`;
 }
 
+/** Added to a result when the session could not be locked or looked at again after the move. */
+const RELOAD_SUFFIX = " The vault status could not be re-read; reload the plugin.";
+
+/** What the move came to; `ranWithoutLock` is true when the publish lock file could not be used. */
+type MoveOutcome =
+  | { readonly kind: "moved"; readonly result: Awaited<ReturnType<typeof abandonVault>>; readonly ranWithoutLock: boolean }
+  | { readonly kind: "partial"; readonly error: AbandonPartialMoveError; readonly ranWithoutLock: boolean };
+
 /** One open dialog: its handle is set after `openDialog` returns, and a dialog that finished before that is never recorded as open. */
 interface OpenDialog {
   handle: AbandonDialogHandle | undefined;
@@ -84,15 +92,18 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
   /** The action behind the dialog's button. Never throws: a failure is returned as text for the dialog. */
   /** The vault state changed: lock the key session and look again. Returns the sentence to append when the look failed. */
   async function settleSession(): Promise<string> {
-    deps.session.lock();
-    return deps.session.refresh().then(
-      () => "",
-      () => " The vault status could not be re-read; reload the plugin.",
-    );
+    try {
+      deps.session.lock();
+      await deps.session.refresh();
+      return "";
+    } catch {
+      // The move is done: a session that cannot be locked or looked at again never changes its outcome, it only adds the reload advice.
+      return RELOAD_SUFFIX;
+    }
   }
 
-  /** The move itself, under the cross-process publish lock (released in `finally`). A held lock file is `lock-held`. */
-  async function moveUnderLock(mfsRoot: string): Promise<{ readonly result: Awaited<ReturnType<typeof abandonVault>>; readonly ranWithoutLock: boolean }> {
+  /** The move itself, under the cross-process publish lock (released in `finally`). A held lock file is `lock-held`. A partial move comes back as a value so the lock facts travel with it. */
+  async function moveUnderLock(mfsRoot: string): Promise<MoveOutcome> {
     const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
     const { lock, ranWithoutLock } = await acquireAbandonLock(
       deps.lockFile ?? createAdapterLockFile(deps.adapter),
@@ -100,7 +111,10 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
     );
     try {
       const result = await abandonVault({ fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: deps.now().getTime(), deviceStore: createPluginDeviceStore(deps.store) });
-      return { result, ranWithoutLock };
+      return { kind: "moved", result, ranWithoutLock };
+    } catch (error) {
+      if (error instanceof AbandonPartialMoveError) return { kind: "partial", error, ranWithoutLock };
+      throw error;
     } finally {
       // The outcome (a result or a partial-move error) is decided; a lock that cannot be released must not replace it.
       await releaseQuietly(lock);
@@ -112,15 +126,16 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
     if (release === undefined) return { ok: false, reason: busyNotice(deps.lock.holder()) };
     try {
       const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToLocalConfig(deps.store.get()).mfsRoot));
-      const { result, ranWithoutLock } = await moveUnderLock(mfsRoot);
-      const { backupDir, moved, floor } = result;
+      const outcome = await moveUnderLock(mfsRoot);
+      const withoutLock = outcome.ranWithoutLock ? ` Note: ${ABANDON_WITHOUT_LOCK_LINE}.` : "";
+      // Some files moved and some did not: the vault state changed, so the session is locked and looked at again here too.
+      if (outcome.kind === "partial") return { ok: false, reason: partialMoveLine(outcome.error.moved, outcome.error.total) + withoutLock + (await settleSession()) };
+      const { backupDir, moved, floor } = outcome.result;
       if (moved.length === 0) return { ok: false, reason: NOTHING_TO_ABANDON };
       const reread = await settleSession();
-      return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + (ranWithoutLock ? ` Note: ${ABANDON_WITHOUT_LOCK_LINE}.` : "") + reread };
+      return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + withoutLock + reread };
     } catch (error) {
       if (error instanceof PublishRefusedError && error.code === "lock-held") return { ok: false, reason: busyNotice(undefined) };
-      // Some files moved and some did not: the vault state changed, so the session is locked and looked at again here too.
-      if (error instanceof AbandonPartialMoveError) return { ok: false, reason: partialMoveLine(error.moved, error.total) + (await settleSession()) };
       return { ok: false, reason: failureLine(error) };
     } finally {
       release();

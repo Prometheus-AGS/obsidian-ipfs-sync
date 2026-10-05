@@ -4,6 +4,7 @@ import {
   LOCK_HOST_MAX,
   LOCK_MAX_BYTES,
   LOCK_STALE_MS,
+  acquireAbandonLock,
   acquirePublishLock,
   breakPublishLock,
   decodeLock,
@@ -15,6 +16,7 @@ import {
   type LockRecord,
 } from "../../src/sync/publish-lock";
 import { guardKv } from "../../src/sync/guarded-kv";
+import { lockUnsupported } from "../../src/sync/publish-refusals";
 
 interface Rig {
   readonly file: LockFile & { bytes: Uint8Array<ArrayBuffer> | undefined };
@@ -532,5 +534,151 @@ describe("publish lock races (N3-03)", () => {
     expect(error).toMatchObject({ code: "lock-held" });
     expect(discarded).toBe(1);
     expect(decodeLock(r.file.bytes ?? new Uint8Array())?.token).toBe("live-token");
+  });
+});
+
+describe("R8-M1, R8-L3: the abandon lock never goes on past a live foreign lock", () => {
+  const unsupported = (r: Rig): void => {
+    r.file.createExclusive = async () => {
+      throw lockUnsupported("EPERM");
+    };
+  };
+  const live = (r: Rig): Uint8Array<ArrayBuffer> => encodeLock(other({ host: "host-b", pid: 77, time: r.ctx.time }));
+
+  it("link() unsupported and a fresh live record present: busy, and nothing is moved or written", async () => {
+    const r = rig();
+    unsupported(r);
+    r.file.bytes = live(r);
+    const before = r.file.bytes;
+    const moveAside = vi.spyOn(r.file, "moveAside");
+    const error = await acquireAbandonLock(r.file, r.ctx).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "lock-held" });
+    expect((error as Error).message).toContain('process 77 on "host-b"');
+    expect(moveAside).not.toHaveBeenCalled();
+    expect(r.file.bytes).toBe(before);
+  });
+
+  it("link() unsupported and a stale record: abandon goes on without the lock and leaves the file alone", async () => {
+    const r = rig();
+    unsupported(r);
+    r.file.bytes = encodeLock(other({ host: "host-b", time: r.ctx.time - LOCK_STALE_MS - 1 }));
+    const before = r.file.bytes;
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+    expect(r.file.bytes).toBe(before);
+  });
+
+  it("link() unsupported and a junk file: abandon goes on without the lock", async () => {
+    const r = rig();
+    unsupported(r);
+    r.file.bytes = new TextEncoder().encode("this is not a lock record\n");
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+  });
+
+  it("link() unsupported and no file: abandon goes on without the lock", async () => {
+    const r = rig();
+    unsupported(r);
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+  });
+
+  it("an unreadable file that a live holder replaced by the second look: busy", async () => {
+    const r = rig();
+    r.file.bytes = new TextEncoder().encode("junk\n");
+    const read = r.file.read;
+    let reads = 0;
+    r.file.read = async () => {
+      reads += 1;
+      if (reads === 2) r.file.bytes = live(r);
+      return read();
+    };
+    const error = await acquireAbandonLock(r.file, r.ctx).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "lock-held" });
+    expect(reads).toBe(2);
+  });
+
+  it("a takeover whose put-back is unsupported after it moved a live lock aside is lock-held, the moved file is kept, and abandon is busy too", async () => {
+    const make = (): { r: Rig; discarded: () => number } => {
+      const r = rig();
+      r.file.bytes = encodeLock(other({ token: "stale-token", time: r.ctx.time - LOCK_STALE_MS - 1, pid: 1 }));
+      let discards = 0;
+      let calls = 0;
+      r.file.createExclusive = async () => {
+        calls += 1;
+        if (calls === 1) return false;
+        throw lockUnsupported("EPERM");
+      };
+      r.file.moveAside = async () => {
+        const moved = encodeLock(other({ token: "live-token", time: r.ctx.time }));
+        r.file.bytes = undefined;
+        return { bytes: moved, discard: async () => void (discards += 1) };
+      };
+      return { r, discarded: () => discards };
+    };
+    const publish = make();
+    expect(await acquirePublishLock(publish.r.file, publish.r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "lock-held" });
+    expect(publish.discarded()).toBe(0);
+    const abandon = make();
+    expect(await acquireAbandonLock(abandon.r.file, abandon.r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "lock-held" });
+    expect(abandon.discarded()).toBe(0);
+  });
+
+  it("R8-L3: a read that throws after the file exists is lock-unreadable for abandon (it goes on), and stays the raw error for publish", async () => {
+    const r = rig();
+    r.file.bytes = new TextEncoder().encode("x");
+    r.file.read = async () => {
+      throw Object.assign(new Error("EISDIR: illegal operation on a directory"), { code: "EISDIR" });
+    };
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+    expect(await acquirePublishLock(r.file, r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "EISDIR" });
+  });
+
+  it("R8-L3: other acquisition errors still pass through abandon unchanged", async () => {
+    const r = rig();
+    r.file.createExclusive = async () => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    };
+    expect(await acquireAbandonLock(r.file, r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "EACCES" });
+  });
+});
+
+describe("R8-L1: a beat in flight cannot write after release", () => {
+  function gated(r: Rig, honorStop: boolean): { open: () => void; stoppedSeen: boolean[] } {
+    let open = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const stoppedSeen: boolean[] = [];
+    r.file.writeIfToken = async (_expected, bytes, isStopped) => {
+      await gate;
+      stoppedSeen.push(isStopped?.() ?? false);
+      if (honorStop && isStopped?.() === true) return false;
+      r.file.bytes = bytes;
+      return true;
+    };
+    return { open: () => open(), stoppedSeen };
+  }
+
+  it("the beat is told it is stopped and writes nothing; the lock file is removed", async () => {
+    const r = rig();
+    const g = gated(r, true);
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    r.ctx.time += LOCK_HEARTBEAT_MS;
+    r.ctx.ticks[0]?.();
+    const released = lock.release();
+    g.open();
+    await released;
+    expect(g.stoppedSeen).toEqual([true]);
+    expect(r.file.bytes).toBeUndefined();
+  });
+
+  it("a file that ignores the stop signal still cannot resurrect the lock: release waits for the beat, then removes", async () => {
+    const r = rig();
+    const g = gated(r, false);
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    r.ctx.time += LOCK_HEARTBEAT_MS;
+    r.ctx.ticks[0]?.();
+    const released = lock.release();
+    g.open();
+    await released;
+    expect(r.file.bytes).toBeUndefined();
   });
 });

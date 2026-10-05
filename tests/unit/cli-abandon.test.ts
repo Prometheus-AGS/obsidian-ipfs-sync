@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -402,6 +402,81 @@ describe("ipfs-sync abandon", () => {
       const s = sink(["abandon"]);
       expect(await abandon(s)).toBe(0);
       expect(s.out.join("\n")).not.toContain(WITHOUT_LOCK);
+    });
+
+    it("R8-M1: no hard links with a fresh live lock present stays busy and moves nothing", async () => {
+      const foreign = encodeLock({ token: "other-token", pid: 4242, host: "other-host", time: NOW.getTime() });
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock(
+        {
+          createExclusive: async () => {
+            throw lockUnsupported("EPERM");
+          },
+        },
+        foreign,
+      );
+      expect(await run(s, { lockFile })).toBe(1);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(true);
+      expect(await backupDirs()).toEqual([]);
+      expect(s.err.join("\n")).toContain("another publish is running");
+      expect(s.out.join("\n")).not.toContain(WITHOUT_LOCK);
+    });
+
+    it("R8-M1: no hard links with a stale lock present goes on without the lock", async () => {
+      const stale = encodeLock({ token: "other-token", pid: 4242, host: "other-host", time: NOW.getTime() - 16 * 60_000 });
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock(
+        {
+          createExclusive: async () => {
+            throw lockUnsupported("EPERM");
+          },
+        },
+        stale,
+      );
+      expect(await run(s, { lockFile })).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+    });
+
+    it("R8-L3: a directory at publish.lock does not block abandon", async () => {
+      const lockPath = join(vault, ".ipfs-sync", "publish.lock");
+      await mkdir(lockPath);
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+      expect(s.err).toEqual([]);
+      expect((await stat(lockPath)).isDirectory()).toBe(true);
+    });
+
+    it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("R8-L3: a lock file with no read permission does not block abandon", async () => {
+      const lockPath = join(vault, ".ipfs-sync", "publish.lock");
+      await writeFile(lockPath, "x");
+      await chmod(lockPath, 0o000);
+      const s = sink(["abandon"]);
+      try {
+        expect(await abandon(s)).toBe(0);
+      } finally {
+        await chmod(lockPath, 0o600);
+      }
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+      expect(s.err).toEqual([]);
+    });
+
+    it("R8-L7: when the files vanish before the move (moved: 0) it reports nothing to abandon, exit 1, not 'abandoned 0 files moved'", async () => {
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock({
+        createExclusive: async () => {
+          for (const kind of KINDS3) await rm(stateFile(kind));
+          return true;
+        },
+      });
+      expect(await run(s, { lockFile })).toBe(1);
+      expect(s.out.join("\n")).not.toContain("abandoned");
+      expect(s.out.join("\n")).not.toContain("0 files moved");
+      expect(s.err.join("\n")).toContain("holds no key-slot copy, state, journal or key-management journal for this MFS root (check --mfs-root); nothing was moved");
+      expect(await backupDirs()).toEqual([]);
     });
   });
 

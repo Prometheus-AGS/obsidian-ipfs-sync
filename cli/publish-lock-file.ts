@@ -72,7 +72,7 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
     // POSIX has no compare-and-rename. The temporary file is written first, then the token is re-read and the rename
     // follows at once: the window is one read and one rename, not a whole heartbeat. It is narrowed, not closed; the
     // re-read after the write in the heartbeat still detects a lost race.
-    writeIfToken: async (expectedToken, bytes) => {
+    writeIfToken: async (expectedToken, bytes, isStopped) => {
       await guard();
       const temp = tempPath();
       await writeFile(temp, bytes, { flag: "wx", mode: 0o600 });
@@ -83,7 +83,8 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
         } catch (error) {
           if (!isCode(error, "ENOENT")) throw error;
         }
-        if (current === undefined || decodeLock(current)?.token !== expectedToken) {
+        // The holder released while this beat was in flight: renaming now would put a lock back that nobody owns.
+        if (isStopped?.() === true || current === undefined || decodeLock(current)?.token !== expectedToken) {
           await rm(temp, { force: true });
           return false;
         }

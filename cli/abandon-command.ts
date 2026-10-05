@@ -32,6 +32,8 @@ export const ABANDON_WORD = "abandon";
 /** The local files `abandon` moves, in the order `abandonVault` moves them: all four kinds it looks for (`maintenance` is a pending rewrap or prune). */
 const LOCAL_KINDS = ["keyslots", "state", "journal", "maintenance"] as const;
 
+const NOTHING_TO_MOVE = "ipfs-sync: abandon: this device holds no key-slot copy, state, journal or key-management journal for this MFS root (check --mfs-root); nothing was moved";
+
 /** Failures `abandon` reports as a plain message with exit code 1. */
 const REPORTED_FAILURES = [VaultKeysError, PublishRefusedError, HostPathError, DeviceStoreError, AbandonPartialMoveError] as const;
 
@@ -91,7 +93,7 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
     ctx.io.out(`  mfs root  ${mfsRoot}`);
     if (found.length === 0) {
       assertCanConfirm(ctx);
-      ctx.io.err("ipfs-sync: abandon: this device holds no key-slot copy, state, journal or key-management journal for this MFS root (check --mfs-root); nothing was moved");
+      ctx.io.err(NOTHING_TO_MOVE);
       return EXIT_CHECK_FAILED;
     }
     for (const line of CONSEQUENCES) ctx.io.out(`  - ${line}`);
@@ -109,6 +111,11 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
       // The per-user directory is located only when the floor is read, so a root with no resolvable vault never needs it.
       const deviceStore: DeviceStore = ctx.deviceStore ?? createLazyDeviceStore(ctx.env);
       const { backupDir, moved, floor } = await abandonVault({ fs: host.fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: ctx.now().getTime(), deviceStore });
+      if (moved.length === 0) {
+        // The files were gone by the time the lock was held: the same answer as when none were found at the start.
+        ctx.io.err(NOTHING_TO_MOVE);
+        return EXIT_CHECK_FAILED;
+      }
       ctx.io.out(`abandoned        ${moved.length} file${moved.length === 1 ? "" : "s"} moved to ${backupDir}`);
       ctx.io.out("node             not contacted; nothing on it was changed");
       ctx.io.out(describeAbandonFloor(floor));

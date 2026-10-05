@@ -471,6 +471,66 @@ describe("abandon flow", () => {
       const result = await d.request()?.abandon();
       expect((result as { backupNote: string }).backupNote).not.toContain(WITHOUT_LOCK);
     });
+
+    const RELOAD = "The vault status could not be re-read; reload the plugin.";
+    const lockThrows = (): Pick<AbandonFlowDeps["session"], "lock" | "refresh"> => ({
+      lock: vi.fn(() => {
+        throw new Error("secret-session-path");
+      }),
+      refresh: vi.fn(async () => "not-set-up" as const),
+    });
+    const failSecondRename = (adapter: MemoryAdapter): void => {
+      let count = 0;
+      const rename = adapter.rename.bind(adapter);
+      adapter.rename = async (from: string, to: string) => {
+        if (to.includes("abandoned-") && ++count === 2) throw new Error("EIO");
+        return rename(from, to);
+      };
+    };
+
+    it("R8-M2: a session lock() that throws after a full success is still the success result, with the reload suffix", async () => {
+      const d = deps({ session: lockThrows() });
+      await seedState(d.adapter);
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toMatchObject({ ok: true });
+      const note = (result as { backupNote: string }).backupNote;
+      expect(note).toContain("3 files moved");
+      expect(note).toContain(RELOAD);
+      expect(note).not.toContain("secret-session-path");
+    });
+
+    it("R8-M2: a session lock() that throws after a partial move is the partial-move reason with the suffix, and does not reject", async () => {
+      const d = deps({ session: lockThrows() });
+      await seedFour(d.adapter);
+      failSecondRename(d.adapter);
+      void createAbandonFlow(d.all).open();
+      const result = (await d.request()?.abandon()) as { ok: false; reason: string };
+      expect(result.ok).toBe(false);
+      expect(result.reason.startsWith(PARTIAL)).toBe(true);
+      expect(result.reason).toContain(RELOAD);
+      expect(result.reason).not.toContain("secret-session-path");
+    });
+
+    it("R8-L8: a partial move that ran without the lock carries the without-lock note, before the re-read suffix", async () => {
+      const d = deps({ session: { lock: vi.fn(), refresh: vi.fn(async () => Promise.reject(new Error("x"))) } });
+      await seedFour(d.adapter);
+      d.adapter.put(LOCK_PATH, "this is not a lock record\n");
+      failSecondRename(d.adapter);
+      void createAbandonFlow(d.all).open();
+      const result = (await d.request()?.abandon()) as { ok: false; reason: string };
+      expect(result.reason.startsWith(PARTIAL)).toBe(true);
+      expect(result.reason).toContain(`Note: ${WITHOUT_LOCK}.`);
+      expect(result.reason.indexOf(WITHOUT_LOCK)).toBeLessThan(result.reason.indexOf("could not be re-read"));
+    });
+
+    it("R8-L8: a partial move under the lock has no without-lock note", async () => {
+      const d = deps();
+      await seedFour(d.adapter);
+      failSecondRename(d.adapter);
+      void createAbandonFlow(d.all).open();
+      expect(await d.request()?.abandon()).toEqual({ ok: false, reason: PARTIAL });
+    });
   });
 
   describe("R6-M3: a failing device store never blocks the move", () => {
