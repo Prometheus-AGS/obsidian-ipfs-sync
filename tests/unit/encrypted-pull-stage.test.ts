@@ -205,6 +205,32 @@ describe("hostile manifest paths", () => {
     expect(b.host.files.has(".obsidian/plugins/x/main.js")).toBe(false);
   });
 
+  it("bidirectional overrides and isolates: all nine code points are skipped as unsafe/shape, no blob is requested and nothing is written for them (mvp-07b 7.6)", async () => {
+    const rig = await publishedOnce();
+    const codePoints = [0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069];
+    const spoof = `invoice${String.fromCodePoint(0x202e)}txt.exe`;
+    const hostile = [spoof, ...codePoints.map((codePoint) => `note${String.fromCodePoint(codePoint)}.md`)];
+    const implicit = `Notes/a${String.fromCodePoint(0x200f)}b.md`;
+    await forgeWithPaths(rig, [...hostile, implicit]);
+    const b = newPuller();
+    const { result } = pulledOf(await runVaultPull(rig, b));
+
+    const skipped = Object.fromEntries(result.settlement.skipped.map((skip) => [skip.path, skip.severity === "unsafe" ? `unsafe/${skip.class}` : skip.severity]));
+    expect(Object.keys(skipped).sort()).toEqual([...new Set(hostile)].sort());
+    for (const path of hostile) expect(skipped[path], path).toBe("unsafe/shape");
+    expect(result.settlement.needsAttention).toBe(true);
+    for (const path of hostile) expect(b.host.files.has(path), path).toBe(false);
+    // The implicit-mark name passes the policy (it is not skipped); its forged blob does not exist on the node, so it is not restored here.
+    expect(skipped[implicit]).toBeUndefined();
+    expect(Object.keys(vaultTexts(b.host)).sort()).toEqual([BINARY, DAILY, PLAN].sort());
+    // Shape skips are not carried: the hostile paths are in neither the baseline nor `unmaterialized`.
+    const state = await stateOf(b.host);
+    for (const path of hostile) expect(state?.manifest.files[path], path).toBeUndefined();
+    expect(state?.unmaterialized ?? []).not.toEqual(expect.arrayContaining(hostile));
+    // Blobs were requested for the 3 real files and the implicit-mark name only; none for the bidi paths.
+    expect(blobGets(rig.node).length).toBeLessThanOrEqual(4);
+  });
+
   it("a traversal path never reaches the plan: the authenticated manifest is refused as unreadable and nothing is requested or written", async () => {
     const rig = await publishedOnce();
     const keys = await rig.keys();

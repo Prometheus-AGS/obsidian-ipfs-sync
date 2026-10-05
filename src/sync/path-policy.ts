@@ -8,8 +8,8 @@
  *
  * Every refusal carries a severity and, for `unsafe`, a class:
  * - `expected`: the configuration folder, or a match of the effective exclusion list (what an older build's manifest holds);
- * - `unsafe`/`shape`: a shape an honest publisher never produces (empty, absolute, backslash, control character, empty or
- *   dot segment, a protected folder name by fold key including the plugins folder, the state folder);
+ * - `unsafe`/`shape`: a shape an honest publisher never produces (empty, absolute, backslash, control character, a
+ *   bidirectional override or isolate (U+202A to U+202E, U+2066 to U+2069; mvp-07b 7.6), empty or dot segment, a protected folder name by fold key including the plugins folder, the state folder);
  * - `unsafe`/`platform`: a path an honest publisher on another platform can produce (Windows forms, reserved names, 8.3
  *   shapes, collision groups, file and directory prefix groups).
  *
@@ -27,6 +27,7 @@ export type PolicyCode =
   | "absolute-path"
   | "backslash"
   | "control-character"
+  | "bidi-control"
   | PathLimitViolation
   | "dot-segment"
   | "state-folder"
@@ -74,6 +75,12 @@ const VCS_FOLDER = ".git";
 const OBSIDIAN_FOLDER = ".obsidian";
 const PLUGINS_SEGMENT = "plugins";
 const C0_C1_CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
+/**
+ * Bidirectional embeddings, overrides and isolates. They rewrite how a name reads (`invoice<U+202E>txt.exe` shows as `invoiceexe.txt`), and
+ * an honest Hebrew or Arabic name needs none of them: it uses letters and the implicit marks U+200E and U+200F, which are NOT in this set.
+ * Written as escapes so no invisible character sits in the source.
+ */
+const BIDI_CONTROL = /[\u202a-\u202e\u2066-\u2069]/;
 const DRIVE_LETTER = /^[A-Za-z]:/;
 const RESERVED_DEVICE_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/;
 /** Design decision 11 (Q-09): a short name of at most six characters, `~`, digits, an optional extension of at most three. */
@@ -196,6 +203,11 @@ const LIMIT_REASONS: Readonly<Record<PathLimitViolation, string>> = {
   "too-many-segments": `path has more than ${PATH_LIMITS.maxSegments} segments`,
 };
 
+/** True when `path` holds a bidirectional embedding, override or isolate. The publisher uses it to refuse such a local name. */
+export function hasBidiControl(path: string): boolean {
+  return BIDI_CONTROL.test(path);
+}
+
 function shapeRefusal(path: string): PolicyRefusal | undefined {
   // First, before any scan or split: a path of a million segments must cost O(1) here (mvp-07a final review B1-01).
   const limit = pathLimitViolation(path);
@@ -204,6 +216,7 @@ function shapeRefusal(path: string): PolicyRefusal | undefined {
   if (path.startsWith("/") || DRIVE_LETTER.test(path)) return unsafe(path, "shape", "absolute-path", "absolute path");
   if (path.includes("\\")) return unsafe(path, "shape", "backslash", "backslash in path");
   if (C0_C1_CONTROL.test(path)) return unsafe(path, "shape", "control-character", "control character in path");
+  if (BIDI_CONTROL.test(path)) return unsafe(path, "shape", "bidi-control", "bidirectional override or isolate character in path");
   if (path.split("/").some((segment) => segment === "" || segment === "." || segment === "..")) {
     return unsafe(path, "shape", "dot-segment", "empty, . or .. path segment");
   }

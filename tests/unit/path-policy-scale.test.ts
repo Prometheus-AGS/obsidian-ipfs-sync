@@ -200,7 +200,8 @@ describe("display escape of default-ignorable and format characters (B1-05)", ()
     expect(escapeForDisplay(`x${cp(0x202e)}${cp(0x9b)}${cp(0x0a)}`)).toBe("x\\u202e\\u009b\\u000a");
   });
 
-  it("does not change which paths are refused: a bidi override stays accepted", () => {
-    expect(refusePath(`invoice${cp(0x202e)}txt.exe`)).toBeUndefined();
+  it("a bidi override is refused as unsafe/shape since mvp-07b 7.6 (it was accepted and only escaped in 07a); the marks U+200E and U+200F stay accepted", () => {
+    expect(refusePath(`invoice${cp(0x202e)}txt.exe`)).toMatchObject({ severity: "unsafe", class: "shape", code: "bidi-control" });
+    expect(refusePath(`invoice${cp(0x200e)}txt${cp(0x200f)}.exe`)).toBeUndefined();
   });
 });

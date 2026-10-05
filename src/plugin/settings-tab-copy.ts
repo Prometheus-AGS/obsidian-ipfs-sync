@@ -1,3 +1,4 @@
+import { MIN_AUTO_PUBLISH_INTERVAL_MINUTES } from "./auto-publish-gate";
 import { DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, type AuthScheme } from "../core/config";
 import { DEFAULT_MAX_READ_MB, MAX_MAX_READ_MB, MIN_MAX_READ_MB } from "./read-cap";
 import type { EditableFieldId } from "./settings-fields";
@@ -55,7 +56,7 @@ export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   },
   publishIntervalMinutes: {
     name: "Auto-publish interval (minutes)",
-    desc: "How often the plugin publishes on its own. 0 turns automatic publishing off.",
+    desc: `How often the plugin publishes on its own. 0 turns automatic publishing off. Automatic publishes are at least ${MIN_AUTO_PUBLISH_INTERVAL_MINUTES} minutes apart, so a shorter interval still publishes no more often than that; the Publish command is never limited. Each publish that changes the vault adds one history file on the node.`,
     placeholder: "0",
     numeric: true,
   },
