@@ -120,6 +120,15 @@ describe("settings migration", () => {
     }
   });
 
+  it("drops the legacy auth token when the legacy url held a user name or password, and says credentials must be entered again", () => {
+    const result = loadSettings(oldData({ rpcUrl: "https://user:pw@node.example.org", authToken: "legacy-secret" }));
+    expect(result.settings.rpc).toEqual({ url: "" });
+    expect(result.settings.gateway).toEqual({ url: "" });
+    expect(result.settings.auth).toEqual({ scheme: "none" });
+    expect(JSON.stringify(result)).not.toContain("legacy-secret");
+    expect(result.notices.join(" ")).toContain("enter them again");
+  });
+
   it("still carries the legacy auth token over when the URL is not the retired node", () => {
     const result = loadSettings(oldData({ rpcUrl: "https://node.example.org", authToken: "legacy-secret" }));
     expect(result.settings.auth).toEqual({ scheme: "bearer", token: "legacy-secret" });
@@ -168,6 +177,48 @@ describe("settings migration", () => {
     expect(result.persist).toBe(false);
   });
 
+  it("treats a version-less object with no legacy key as unreadable and leaves it untouched", () => {
+    const { version: _version, ...currentFormWithoutVersion } = {
+      ...defaultSettings(),
+      ownedKeys: ["k51mine"],
+      gatewayAuth: { scheme: "bearer", token: "gw-secret" },
+      deviceStore: { "anti-rollback": "floor-7" },
+      kv: { a: "b" },
+    };
+    for (const stored of [currentFormWithoutVersion, { ...currentFormWithoutVersion, authToken: "stray" }, { somethingElse: 1 }, { ownedKeys: ["k51mine"], publishIntervalMinutes: 5 }]) {
+      const result = loadSettings(JSON.parse(JSON.stringify(stored)));
+      expect(result.outcome).toBe("unreadable");
+      expect(result.persist).toBe(false);
+      expect(result.settings).toEqual(defaultSettings());
+    }
+  });
+
+  it("still migrates a real legacy file, even one with a single legacy key, and an empty object", () => {
+    for (const key of ["rpcUrl", "keyName", "authToken", "excludedPaths", "publishIntervalMinutes"]) {
+      const result = loadSettings({ [key]: key === "publishIntervalMinutes" ? 5 : "x" });
+      expect(result.outcome).toBe("migrated");
+      expect(result.persist).toBe(true);
+    }
+    expect(loadSettings(oldData()).outcome).toBe("migrated");
+    expect(loadSettings({})).toMatchObject({ outcome: "migrated", persist: true });
+  });
+
+  it("does not carry a legacy URL with embedded credentials into the settings, and says to set the address again without echoing it", () => {
+    const result = loadSettings(oldData({ rpcUrl: "https://alice:hunter2@node.example.org/", authToken: "" }));
+    expect(result.outcome).toBe("migrated");
+    expect(result.settings.rpc).toEqual({ url: "" });
+    expect(result.settings.gateway).toEqual({ url: "" });
+    expect(JSON.stringify(result.settings)).not.toContain("hunter2");
+    expect(result.notices).toHaveLength(1);
+    expect(result.notices[0]).toContain("credentials");
+    expect(result.notices[0]).toContain("again");
+    expect(JSON.stringify(result.notices)).not.toMatch(/hunter2|alice|node\.example/);
+    // A password with a path or fragment character is caught too.
+    const odd = loadSettings(oldData({ rpcUrl: "https://alice:pa#ss@node.example.org" }));
+    expect(odd.settings.rpc).toEqual({ url: "" });
+    expect(JSON.stringify(odd)).not.toContain("pa#ss");
+  });
+
   it("uses defaults for a missing file", () => {
     const result = loadSettings(null);
     expect(result).toMatchObject({ outcome: "fresh", persist: false, notices: [] });
@@ -186,6 +237,13 @@ describe("settings migration", () => {
 });
 
 describe("settings to config and validation", () => {
+  it("does not throw for a JWT whose finite exp is beyond the date range", () => {
+    const settings = withSettings({ rpc: { url: "https://rpc.example.org" }, gateway: { url: "https://rpc.example.org" }, auth: { scheme: "bearer", token: jwt(1e300) } });
+    expect(() => validateSettings(settings, NOW)).not.toThrow();
+    expect(() => settingsToConfig(settings, NOW)).not.toThrow();
+    expect(validateSettings(settings, NOW).warnings).toEqual(["auth bearer token (JWT) expiry could not be read"]);
+  });
+
   it("builds the shared config, including separate endpoints and the owned keys", () => {
     const settings = withSettings({
       rpc: { url: "https://rpc.example.org", port: 5001 },

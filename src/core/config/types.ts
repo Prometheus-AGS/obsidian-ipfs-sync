@@ -47,6 +47,8 @@ export interface ResolvedEndpoint {
   /** Origin plus optional path prefix, no trailing slash, port applied. */
   readonly baseUrl: string;
   readonly auth: AuthConfig;
+  /** Set (to true) only when this endpoint has no credential because the origin differs from a credentialed RPC endpoint's. */
+  readonly credentialWithheld?: boolean;
 }
 
 export interface SyncConfig {

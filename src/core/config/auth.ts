@@ -40,7 +40,7 @@ function buildHeader(label: string, raw: RawAuthInput): AuthConfig {
   const name = need(label, "header", "a header name", raw.headerName);
   const value = need(label, "header", "a header value", raw.headerValue);
   if (!HEADER_NAME.test(name)) {
-    throw new ConfigError("invalid-auth", `${label}: "${name}" is not a valid HTTP header name`);
+    throw new ConfigError("invalid-auth", `${label}: the header name is not a valid HTTP header name`);
   }
   return { kind: "header", name, value };
 }

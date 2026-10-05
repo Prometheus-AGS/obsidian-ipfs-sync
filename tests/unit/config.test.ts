@@ -54,6 +54,20 @@ describe("composeEndpointUrl", () => {
     },
   );
 
+  it.each(["https://u:pa#ss@host", "https://u:pa/ss@host", "https://u:pa?ss@host", "http://user:se/cr?et#x@[bad", "http://u:p@a@[bad"])(
+    "does not echo any part of a password that holds / ? or # (%s)",
+    (url) => {
+      let message = "";
+      try {
+        composeEndpointUrl("rpc", url);
+      } catch (error) {
+        message = String(error);
+      }
+      expect(message).not.toMatch(/pa|ss|se\/cr|cr\?et|et#x|user|p@a/);
+      expect(message).toContain("<redacted>");
+    },
+  );
+
   it("does not echo credentials embedded in an unparsable URL", () => {
     try {
       composeEndpointUrl("rpc", "http://user:secret@[bad");
@@ -99,6 +113,18 @@ describe("buildAuth", () => {
     expect(() => buildAuth(input, "auth")).toThrowError(message);
   });
 
+  it("does not echo a header name that was a pasted secret", () => {
+    const pasted = "sk-live-9f8e7d6c bearer";
+    try {
+      buildAuth({ scheme: "header", headerName: pasted, headerValue: "v" }, "auth");
+      throw new Error("expected a failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError);
+      expect((error as Error).message).toMatch(/not a valid HTTP header name/);
+      expect((error as Error).message).not.toMatch(/sk-live|9f8e7d6c|bearer/);
+    }
+  });
+
   it("redacts every secret and never returns the original secret", () => {
     const basic = redactAuth({ kind: "basic", user: "u", password: "p" });
     const bearer = redactAuth({ kind: "bearer", token: "tok" });
@@ -129,6 +155,15 @@ describe("JWT expiry warning", () => {
   it("warns for an expired JWT and names the expiry time", () => {
     const warnings = authWarnings("rpc", { kind: "bearer", token: jwt({ exp: 1_700_000_000 }) }, NOW);
     expect(warnings).toEqual(["rpc bearer token (JWT) expired at 2023-11-14T22:13:20.000Z"]);
+  });
+
+  it("never throws for a finite but huge exp; it says the expiry could not be read", () => {
+    for (const exp of [1e300, 8.65e12, -8.65e12, 1e20]) {
+      const token = jwt({ exp });
+      expect(() => authWarnings("rpc", { kind: "bearer", token }, NOW)).not.toThrow();
+      expect(authWarnings("rpc", { kind: "bearer", token }, NOW)).toEqual(["rpc bearer token (JWT) expiry could not be read"]);
+    }
+    expect(() => resolveSyncConfig([NODE, { auth: { scheme: "bearer", token: jwt({ exp: 1e300 }) } }], NOW)).not.toThrow();
   });
 
   it("does not warn for a live JWT, a static token or other schemes", () => {
@@ -208,6 +243,18 @@ describe("secret resolution and precedence", () => {
     expect(elsewhere.gateway.auth).toEqual({ kind: "basic", user: "g", password: "gp" });
     const sameOrigin = resolveSyncConfig([SAME_ORIGIN_NODE, envLayer({ ...GLOBAL_BEARER, ...own })], NOW);
     expect(sameOrigin.gateway.auth).toEqual({ kind: "basic", user: "g", password: "gp" });
+  });
+
+  it("marks the gateway credentialWithheld only when it has none because the origin differs from a credentialed RPC", () => {
+    const other = { rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } };
+    const withheld = resolveSyncConfig([other, envLayer(GLOBAL_BEARER)], NOW);
+    expect(withheld.gateway.credentialWithheld).toBe(true);
+    expect(withheld.rpc.credentialWithheld).toBeUndefined();
+    // Same origin: inherited. No node credential: nothing was withheld. Explicit none or explicit auth: the operator chose.
+    expect(resolveSyncConfig([SAME_ORIGIN_NODE, envLayer(GLOBAL_BEARER)], NOW).gateway.credentialWithheld).toBeUndefined();
+    expect(resolveSyncConfig([other], NOW).gateway.credentialWithheld).toBeUndefined();
+    expect(resolveSyncConfig([{ ...other, gateway: { url: "https://gw.example", auth: { scheme: "none" } } }, envLayer(GLOBAL_BEARER)], NOW).gateway.credentialWithheld).toBeUndefined();
+    expect(resolveSyncConfig([{ ...other, gateway: { url: "https://gw.example", auth: { scheme: "bearer", token: "g" } } }, envLayer(GLOBAL_BEARER)], NOW).gateway.credentialWithheld).toBeUndefined();
   });
 
   it("composes separate RPC and gateway hosts and ports", () => {

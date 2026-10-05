@@ -3,10 +3,38 @@ import type { EndpointName } from "./types";
 
 const MAX_PORT = 65535;
 const EXPLICIT_PORT = /^https?:\/\/(?:[^/?#@]*@)?(?:\[[^\]]*\]|[^/?#:]*):(\d+)/i;
-const USERINFO = /\/\/[^/?#]*@/;
+/** Everything between `//` and the last `@` before the first whitespace: a password may itself hold `/`, `?` or `#`. */
+const USERINFO = /\/\/\S*@/;
+
+/** The text with any userinfo (user and password) replaced by a marker, so it is safe to put in a message. */
+export function redactUserinfo(text: string): string {
+  return text.replace(USERINFO, "//<redacted>@");
+}
+
+/** True when the text looks like a URL with userinfo, whether or not it parses. */
+export function hasUserinfo(text: string): boolean {
+  return USERINFO.test(text);
+}
+
+const INVALID_ADDRESS = "invalid address";
+
+/**
+ * An address as it may be shown: scheme, host, port and path only. Userinfo, query and fragment are dropped; text that
+ * does not parse as a URL becomes a fixed phrase. An empty address stays empty.
+ */
+export function displayAddress(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed === "") return "";
+  try {
+    const parsed = new URL(redactUserinfo(trimmed));
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return INVALID_ADDRESS;
+  }
+}
 
 function safeText(raw: string): string {
-  return raw.replace(USERINFO, "//<redacted>@");
+  return redactUserinfo(raw);
 }
 
 /** Parse a port from a number or numeric string. Empty or missing means "unset". */

@@ -1,4 +1,4 @@
-import { DEFAULT_PUBLICATION_KEY, isRetiredDefaultHost, isValidKeyName, RESERVED_KEY_NAMES } from "../core/config";
+import { DEFAULT_PUBLICATION_KEY, hasUserinfo, isRetiredDefaultHost, isValidKeyName, RESERVED_KEY_NAMES } from "../core/config";
 import { DEFAULT_EXCLUSIONS } from "../sync/exclusions";
 import { defaultSettings, PREVIOUS_SETTINGS_VERSION, SETTINGS_VERSION, type PluginSettings } from "./settings-model";
 import { parseStoredSettings } from "./settings-parse";
@@ -89,13 +89,44 @@ function clearRetiredNode(settings: PluginSettings, outcome: LoadOutcome): LoadR
   return { settings: cleared, outcome, notices: [RETIRED_NODE_REMOVED_NOTICE], persist: true };
 }
 
+/** Shown once when the previous plugin's saved address held a user name or password; neither the address nor the credential is kept. */
+const LEGACY_CREDENTIALS_NOTICE =
+  "IPFS Sync: the address saved by the previous version contained a user name or password, which is not allowed in an address, so the node URLs are now empty. Open the settings, set the address again, and enter the credentials in the authentication fields. Credentials saved with it were removed too; enter them again.";
+
+/** The keys the previous plugin saved (the last two only in its oldest form). */
+const LEGACY_KEYS: readonly string[] = ["rpcUrl", "keyName", "authToken", "excludedPaths", "publishIntervalMinutes", "lastPublishedRoot", "lastPublishedAt"];
+
+/**
+ * Keys of the current form. `publishIntervalMinutes` is in both forms, so it does not tell them apart; the rest do. The optional
+ * keys are listed by hand because the defaults omit them.
+ */
+const CURRENT_FORM_KEYS: readonly string[] = [
+  ...Object.keys(defaultSettings()).filter((key) => key !== "publishIntervalMinutes"),
+  "gatewayAuth",
+  "retiredDefaultNoticeShown",
+  "lastPull",
+  "lastPublish",
+];
+
+/**
+ * An object without a version marker is the previous plugin's data only if it is empty, or has one of that plugin's keys and
+ * none of the current form's. A current-form file that lost its marker would otherwise be overwritten with defaults, wiping the
+ * owned keys, the gateway credential and the device store (which holds the anti-rollback floor).
+ */
+function isLegacyForm(stored: Stored): boolean {
+  const keys = Object.keys(stored);
+  if (keys.length === 0) return true;
+  return keys.some((key) => LEGACY_KEYS.includes(key)) && !keys.some((key) => CURRENT_FORM_KEYS.includes(key));
+}
+
 function migrateLegacy(stored: Stored): LoadResult {
   const base = defaultSettings();
   const oldUrl = text(stored, "rpcUrl")?.trim().replace(/\/+$/, "");
   const retired = oldUrl !== undefined && isRetiredDefaultHost(oldUrl);
-  const url = oldUrl === undefined || oldUrl === "" || retired ? base.rpc.url : oldUrl;
-  // A token written for the retired node is never persisted: it would go to whatever node is set next.
-  const token = retired ? "" : (text(stored, "authToken")?.trim() ?? "");
+  const credentialed = oldUrl !== undefined && !retired && hasUserinfo(oldUrl);
+  const url = oldUrl === undefined || oldUrl === "" || retired || credentialed ? base.rpc.url : oldUrl;
+  // A token written for the retired node, or for an address that held credentials, is never persisted: it would go to whatever node is set next.
+  const token = retired || credentialed ? "" :(text(stored, "authToken")?.trim() ?? "");
   const { key, notice } = mapKeyName(text(stored, "keyName")?.trim());
   const settings: PluginSettings = {
     ...base,
@@ -107,7 +138,11 @@ function migrateLegacy(stored: Stored): LoadResult {
     userExclusions: userExclusionsFrom(text(stored, "excludedPaths")),
     publishIntervalMinutes: intervalFrom(stored["publishIntervalMinutes"]),
   };
-  const notices = [...(notice === undefined ? [] : [notice]), ...(retired ? [RETIRED_NODE_REMOVED_NOTICE] : [])];
+  const notices = [
+    ...(notice === undefined ? [] : [notice]),
+    ...(retired ? [RETIRED_NODE_REMOVED_NOTICE] : []),
+    ...(credentialed ? [LEGACY_CREDENTIALS_NOTICE] : []),
+  ];
   return { settings, outcome: "migrated", notices, persist: true };
 }
 
@@ -122,15 +157,15 @@ function unreadable(): LoadResult {
  * Interpret whatever `loadData()` returned. `null` (no file yet) gives defaults. An object with the
  * version marker is the current form (or the version before it, which loads with defaults for the new fields
  * and is written in the new form on the next settings change); an object without one is the previous
- * plugin's form. Anything else, or a marker this build does not know, gives defaults and leaves the stored
- * data alone.
+ * plugin's form when it has one of that plugin's keys (or is empty). Anything else, or a marker this build does not
+ * know, gives defaults and leaves the stored data alone.
  */
 export function loadSettings(stored: unknown): LoadResult {
   if (stored === null || stored === undefined) {
     return { settings: defaultSettings(), outcome: "fresh", notices: [], persist: false };
   }
   if (!isObject(stored)) return unreadable();
-  if (!("version" in stored)) return migrateLegacy(stored);
+  if (!("version" in stored)) return isLegacyForm(stored) ? migrateLegacy(stored) : unreadable();
   const version = stored["version"];
   if (version !== SETTINGS_VERSION && version !== PREVIOUS_SETTINGS_VERSION) return unreadable();
   const parsed = parseStoredSettings(stored);

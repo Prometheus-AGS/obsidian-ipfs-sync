@@ -191,6 +191,30 @@ describe("plugin gateway authentication: view model", () => {
     expect(vm.visibleGatewayAuthFields()).toEqual([]);
   });
 
+  it("clears the typed gateway secret when the picker leaves that kind, so bearer -> none -> bearer needs the token again", async () => {
+    const { vm, store } = modelFor({ ...OTHER_ORIGIN });
+    await vm.edit("gatewayAuthScheme", "bearer");
+    await vm.edit("gatewayAuthToken", GATEWAY_TOKEN);
+    await vm.edit("gatewayAuthScheme", "none");
+    expect(vm.state().values.gatewayAuthToken).toBe("");
+    const back = await vm.edit("gatewayAuthScheme", "bearer");
+    expect(back.saved).toBe(false);
+    expect(back.state.gatewayAuthPending).toBe(true);
+    expect(store.get().gatewayAuth).toEqual({ scheme: "none" });
+    expect(JSON.stringify(store.get())).not.toContain(GATEWAY_TOKEN);
+  });
+
+  it("clears every field of a left gateway kind, and leaves them alone when the same kind is picked again", async () => {
+    const { vm } = modelFor({ ...OTHER_ORIGIN });
+    await vm.edit("gatewayAuthScheme", "basic");
+    await vm.edit("gatewayAuthUser", "ann");
+    await vm.edit("gatewayAuthPassword", "pw-1");
+    await vm.edit("gatewayAuthScheme", "basic");
+    expect(vm.state().values).toMatchObject({ gatewayAuthUser: "ann", gatewayAuthPassword: "pw-1" });
+    await vm.edit("gatewayAuthScheme", "same");
+    expect(vm.state().values).toMatchObject({ gatewayAuthUser: "", gatewayAuthPassword: "" });
+  });
+
   it("refuses an unknown gateway scheme text", async () => {
     const { vm, store } = modelFor({ ...OTHER_ORIGIN });
     const result = await vm.edit("gatewayAuthScheme", "kerberos");

@@ -1,4 +1,4 @@
-import { classifyKey, ConfigError, describeAuth, type KeyState, type SyncConfig } from "../core/config";
+import { classifyKey, ConfigError, describeAuth, displayAddress, type KeyState, type SyncConfig } from "../core/config";
 import { createKuboClient, KuboError, type KuboClient, type Transport } from "../kubo";
 import { readRootState } from "../sync/root-state";
 import { requestUrlTransport } from "./request-url-transport";
@@ -60,8 +60,9 @@ export async function collectStatus(deps: StatusDeps): Promise<StatusReport> {
   } catch (error) {
     const reason = error instanceof ConfigError ? error.message : "the settings could not be checked";
     return {
-      rpc: settings.rpc.url,
-      gateway: settings.gateway.url,
+      // The stored text may hold credentials or be malformed: show only a redacted form.
+      rpc: displayAddress(settings.rpc.url),
+      gateway: displayAddress(settings.gateway.url),
       auth: settings.auth.scheme,
       mfsRoot: settings.mfsRoot,
       key: settings.publicationKey,

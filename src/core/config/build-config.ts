@@ -41,9 +41,9 @@ const NO_AUTH: AuthConfig = { kind: "none" };
  * shares the RPC endpoint's origin (scheme, host and port, as in one reverse proxy serving both); otherwise it gets none, so the
  * credential is never sent to a host the operator did not give it to. An explicit per-endpoint auth always wins.
  */
-function inheritedAuth(globalAuth: AuthConfig, baseUrl: string, rpcBaseUrl: string | undefined): AuthConfig {
-  if (rpcBaseUrl === undefined) return globalAuth;
-  return new URL(baseUrl).origin === new URL(rpcBaseUrl).origin ? globalAuth : NO_AUTH;
+function inheritedAuth(globalAuth: AuthConfig, baseUrl: string, rpcBaseUrl: string | undefined): { readonly auth: AuthConfig; readonly withheld: boolean } {
+  if (rpcBaseUrl === undefined || new URL(baseUrl).origin === new URL(rpcBaseUrl).origin) return { auth: globalAuth, withheld: false };
+  return { auth: NO_AUTH, withheld: globalAuth.kind !== "none" };
 }
 
 function resolveEndpoint(
@@ -57,8 +57,9 @@ function resolveEndpoint(
     throw new ConfigError(missing.code, missing.message);
   }
   const baseUrl = composeEndpointUrl(name, input?.url ?? "", input?.port);
-  const auth = input?.auth === undefined ? inheritedAuth(globalAuth, baseUrl, rpcBaseUrl) : buildAuth(input.auth, `${name} auth`);
-  return { name, baseUrl, auth };
+  if (input?.auth !== undefined) return { name, baseUrl, auth: buildAuth(input.auth, `${name} auth`) };
+  const inherited = inheritedAuth(globalAuth, baseUrl, rpcBaseUrl);
+  return inherited.withheld ? { name, baseUrl, auth: inherited.auth, credentialWithheld: true } : { name, baseUrl, auth: inherited.auth };
 }
 
 function collectWarnings(rpc: ResolvedEndpoint, gateway: ResolvedEndpoint, now: Date): readonly string[] {

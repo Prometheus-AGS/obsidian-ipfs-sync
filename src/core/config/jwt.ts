@@ -32,6 +32,9 @@ export function decodeJwtExpiry(token: string): Date | undefined {
 export function authWarnings(label: string, auth: AuthConfig, now: Date): readonly string[] {
   if (auth.kind !== "bearer") return [];
   const expiry = decodeJwtExpiry(auth.token);
-  if (expiry === undefined || expiry.getTime() > now.getTime()) return [];
+  if (expiry === undefined) return [];
+  // A finite `exp` beyond the date range gives an invalid Date, which cannot be printed.
+  if (Number.isNaN(expiry.getTime())) return [`${label} bearer token (JWT) expiry could not be read`];
+  if (expiry.getTime() > now.getTime()) return [];
   return [`${label} bearer token (JWT) expired at ${expiry.toISOString()}`];
 }

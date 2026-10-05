@@ -192,6 +192,13 @@ export function visibleGatewayAuthFields(choice: GatewayAuthChoice): readonly Ga
   }
 }
 
+/** A copy of the values with the named fields emptied. */
+export function withBlankedFields(values: FieldValues, fields: readonly EditableFieldId[]): FieldValues {
+  const next: Record<EditableFieldId, string> = { ...values };
+  for (const field of fields) next[field] = "";
+  return next;
+}
+
 export function valuesFrom(settings: PluginSettings): FieldValues {
   return {
     rpcUrl: settings.rpc.url,

@@ -10,6 +10,7 @@ import {
   groupOf,
   parseGroup,
   valuesFrom,
+  withBlankedFields,
   visibleAuthFields,
   visibleGatewayAuthFields,
   GATEWAY_AUTH_CHOICES,
@@ -160,6 +161,17 @@ function isGatewayChoice(text: string): text is GatewayAuthChoice {
   return GATEWAY_AUTH_CHOICES.some((choice) => choice === text);
 }
 
+/**
+ * The draft fields of the kind a picker is leaving, so a typed secret does not survive a detour through another kind and get
+ * saved again without being re-entered. Nothing for an unchanged pick or a field that is not a picker.
+ */
+function fieldsLeft(field: EditableFieldId, previous: string, next: string): readonly EditableFieldId[] {
+  if (previous === next) return [];
+  if (field === "authScheme") return isAuthScheme(previous) ? visibleAuthFields(previous) : [];
+  if (field === "gatewayAuthScheme") return isGatewayChoice(previous) ? visibleGatewayAuthFields(previous) : [];
+  return [];
+}
+
 export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsViewModel {
   const now = deps.now ?? ((): Date => new Date());
   let values: FieldValues = valuesFrom(deps.store.get());
@@ -192,7 +204,8 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
   async function edit(field: EditableFieldId, text: string): Promise<EditResult> {
     if (field === "authScheme" && !isAuthScheme(text)) return { saved: false, state: snapshot() };
     if (field === "gatewayAuthScheme" && !isGatewayChoice(text)) return { saved: false, state: snapshot() };
-    values = { ...values, [field]: text };
+    const previous = field === "authScheme" ? values.authScheme : field === "gatewayAuthScheme" ? values.gatewayAuthScheme : text;
+    values = { ...withBlankedFields(values, fieldsLeft(field, previous, text)), [field]: text };
     const group = groupOf(field);
     const keys = errorKeysOf(group);
     const parsed = parseGroup(group, values);

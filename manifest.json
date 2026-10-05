@@ -5,6 +5,6 @@
   "minAppVersion": "1.12.3",
   "description": "Sync your vault over IPFS via your own kubo node. Snapshot sync now, CRDT + AI layer later.",
   "author": "gqadonis",
-  "authorUrl": "https://ipfs.prometheusags.ai",
+  "authorUrl": "https://github.com/Prometheus-AGS/obsidian-ipfs-sync",
   "isDesktopOnly": false
 }
