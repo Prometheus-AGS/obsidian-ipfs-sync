@@ -147,9 +147,12 @@ What the plugin does today:
   above the cap is counted as failed, named in the result, and the other files continue.
 - Settings tab: RPC and gateway endpoints (URL plus optional port each; both start empty and the tab shows
   "Not configured" until both URLs are set; publish, pull, status, the key actions, the vault opener and the
-  auto-publish timer refuse with "Set your IPFS node in settings" and send no request; Abandon still works; a saved
-  0.2.0 URL that names the maintainer's retired built-in host is kept, with a one-time notice and a settings warning that
-  it is the maintainer's own node and is open to anyone), publication key name,
+  auto-publish timer refuse with "Set your IPFS node in settings" and send no request; Abandon still works). Two
+  migration paths touch the maintainer's retired built-in host, which is open to anyone. Data in the previous plugin's
+  format (no version marker) whose `rpcUrl` names that host is cleared: both URLs start empty and a notice says why.
+  Current-format 0.2.0 data that names that host is kept as you saved it, with a one-time notice and a settings warning.
+  On the legacy path a stored `authToken` still carries over as bearer auth, even when the URL is cleared. The tab also
+  holds the publication key name,
   MFS root, authentication scheme (none, basic, bearer, custom header), the exclusion list, the
   owned IPNS keys, and the pull name, catch-up and read cap settings above, an Encryption section (state: not set up,
   locked or unlocked; Lock, Set up and Unlock buttons), plus the last pull and last publish summaries
@@ -182,7 +185,9 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   publish a very high sequence that every device then records. The recovery is to delete the floor file and the affected
   `state.<h>.json` files and pull again as a first pull.
 - **First pull.** It shows the sequence, date and device, which whoever holds the vault key chose, and needs a yes (or
-  `--accept-first-pull`). Declining writes no file, marker, state, floor or key-slot copy (the CLI's lock may leave an empty
+  `--accept-first-pull`). When existing local files differ from the vault, the confirmation also states how many
+  will be replaced and that a dated copy of each is kept; it is not shown when the count is zero. The count is a
+  preview made before the stage, and the stage plans again. Declining writes no file, marker, state, floor or key-slot copy (the CLI's lock may leave an empty
   `.ipfs-sync/` folder). A root CID given with
   `--root-cid` is only as trustworthy as the gateway that serves it: the client does not check the returned bytes against
   the CID, so authenticity rests on the vault key.
@@ -245,8 +250,14 @@ code path reads a plaintext manifest.
   header through Node's `http` and `https`, found with `globalThis.require`, and cancels after the header bytes, so a
   hostile gateway cannot make it buffer a multi-GB body for a 22-byte header read. Whether `globalThis.require` exists
   inside real Obsidian is unconfirmed; if it does not, the plugin falls back to buffering without saying so. On mobile
-  and for every other request, Obsidian's `requestUrl` buffers each whole response body in memory. Redirects are not
-  followed on the streaming path and it has no timeout.
+  and for every other request, Obsidian's `requestUrl` buffers each whole response body in memory. The streaming path
+  has no timeout.
+- **Redirects.** A 301, 302, 303, 307 or 308 answer is refused on the shared request path with a fixed message; the
+  `Location` the node named is not shown and not followed. The Node stream transport never follows one, so that
+  refusal holds. Obsidian's `requestUrl` follows redirects itself and offers no option to stop it and no way to read the
+  final URL. On mobile, and on desktop for every request that is not a ranged read, a followed redirect is neither
+  prevented nor detected. Whether `requestUrl` forwards the credential to the redirect target was not checked. Point the plugin
+  only at an endpoint you control and trust not to redirect.
 - Obsidian's `requestUrl` transport buffers each whole response body in memory. The one-segment memory bound and the
   size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and Range requests
   reduce the exposure only against gateways that honour them. The plugin pull holds up to a 128 MiB budget (a design
@@ -334,6 +345,13 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   reads through the gateway, and the gateway URL is never derived from the RPC URL. A port variable alone
   (`--rpc-port`, `IPFS_SYNC_RPC_PORT`) does not count as a URL. `abandon` is the exception: it only moves local state
   aside, so it runs with no node configured.
+- **Which endpoint gets the credential.** The global auth (`--auth`, `IPFS_SYNC_AUTH_*`) is the RPC credential. The
+  gateway inherits it only when its origin (scheme, host and port) equals the RPC origin, as with one reverse proxy
+  serving both. On any other origin the gateway gets auth kind `none`, so the credential never goes to a host you did not
+  give it to. To authenticate the gateway on another origin, set `IPFS_SYNC_GATEWAY_AUTH_*` (the same suffixes as
+  `IPFS_SYNC_AUTH_*`); an explicit gateway auth always wins. The consequence is for the plugin: it has one auth field and
+  no gateway auth field. A plugin user whose gateway is on a different origin and needs auth sends no credential to the
+  gateway, and its requests fail. Put both endpoints behind one origin, or use the CLI for that node.
 
 The CLI is a plain Node HTTP client against the kubo RPC and gateway — no local IPFS
 daemon needed.

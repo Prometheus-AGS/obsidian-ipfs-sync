@@ -23,14 +23,31 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
   actions, the vault opener and the auto-publish timer refuse with "Set your IPFS node in settings" and send no request.
 - **The operator tools name the shared node themselves** (`tools/feature-op-client.ts` and the `feature-op-mvp-*`
   toolboxes), and `IPFS_SYNC_RPC_URL` and `IPFS_SYNC_GATEWAY_URL` still override it.
+- **Four review fixes, from an independent code-reading review.**
+  - **The gateway gets the RPC credential only on the RPC origin.** The gateway inherits the global auth when its origin
+    equals the RPC origin; on any other origin it gets auth kind `none` unless gateway auth is set explicitly
+    (`IPFS_SYNC_GATEWAY_AUTH_*`). The plugin has one auth field and no gateway auth field, so a plugin user whose gateway
+    is on another origin and needs auth now sends no credential to the gateway, and those requests fail
+    (`src/core/config/build-config.ts`).
+  - **Redirects are refused, never followed.** A 301, 302, 303, 307 or 308 answer fails with a fixed message that does not
+    echo `Location`. The Node stream transport never follows one. Obsidian's `requestUrl` follows redirects itself with no
+    option to stop it, so on mobile and on desktop non-ranged requests a followed redirect is neither prevented nor
+    detected (`src/kubo/http.ts`, `tests/unit/kubo-redirect.test.ts`).
+  - **The legacy-format retired-host case is cleared, not kept.** See the retired-host warning below.
+  - **The first-pull confirmation states the replacement count.** When N existing local files differ from the vault, the
+    confirmation says N files will be replaced and a dated copy of each is kept. It is not shown when N is 0. It is a
+    preview; the stage plans again (`src/sync/encrypted-pull.ts`, `cli/pull-encrypted-command.ts`,
+    `src/plugin/first-pull-dialog-model.ts`).
 
 ### Added
 
 - **`abandon` works with no node configured** (CLI and plugin). It only moves local state aside and prints the sequence
   floor, so it is the way out when a node is gone.
-- **A retired-host warning.** A saved 0.2.0 URL whose host is the retired built-in host is kept as an explicit value,
-  not cleared. The plugin shows a one-time notice at load and a warning in the settings that it is the maintainer's own
-  node and is open to anyone. The host string lives only in `src/core/config/retired-default-hosts.ts`, for that
+- **A retired-host warning, on two migration paths.** Stored data in the previous plugin's format (no version marker)
+  whose `rpcUrl` names the retired built-in host is cleared: RPC and gateway URLs start empty and a notice says why. A
+  legacy `authToken` still carries over as bearer auth. Stored data in the current 0.2.0 format that names that host is
+  kept as saved, with a one-time notice at load and a warning in the settings that it is the maintainer's own node and is
+  open to anyone. The host string lives only in `src/core/config/retired-default-hosts.ts`, for that
   comparison; `tests/unit/no-default-node.test.ts` fails if it appears elsewhere under `src/` or `cli/`.
 - **A blocking constraint, `no-default-node`,** in `.kbd-orchestrator/constraints.md`, with a grep that fails on a
   built-in URL under `src/` or `cli/`.
@@ -40,6 +57,15 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
 - The maintainer's node is not hardened. Anyone who types its address into the settings is back where 0.2.0 put them.
 - The guard evidence for this tree is stale and must be regenerated (stated in the commit). Nothing here has been run
   inside Obsidian or on a phone.
+- **Open findings from an independent code-reading review.** The reviewer read the code and executed nothing. The labels
+  are the review's own, not released facts. None is fixed on this branch.
+  - M2: the CLI does not know a renamed Obsidian configuration folder, so it can sync a folder the plugin would exclude.
+  - M4: plain `http` is accepted for an endpoint that carries credentials, with no warning.
+  - M5: the plugin transport buffers whole response bodies without a bound, and some CLI reads do too.
+  - M6: the Obsidian adapter cannot see symbolic links, and its rename is not atomic.
+  - M7: `change-passphrase` and rewrap do not revoke an old passphrase, and there is no key rotation command. A leaked
+    old passphrase opens the vault forever, for every copy of the vault data that anyone kept.
+  - M8: the device-local rollback floor is easy to reset, which removes the rollback protection on that device.
 
 ## [Unreleased] - guard removal: real notes are accepted (branch `mvp-07b-guard-removal`, not a release)
 

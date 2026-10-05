@@ -484,10 +484,21 @@ Which node sees this is the user's choice, made explicitly. The lowest configura
 file (or, in the plugin, settings), a command exits 2 with `no-rpc-url` or `no-gateway-url` and sends no request; both
 URLs are required because every pull, publish read-back, status and key command reads through the gateway. `abandon`
 needs neither (local state only). The plugin starts with empty URLs and refuses every node action with "Set your IPFS
-node in settings". A saved 0.2.0 URL that names the retired built-in host (`src/core/config/retired-default-hosts.ts`,
-a comparison only) is kept, with a one-time notice and a settings warning. The reason: the host that releases up to 0.2.0
-built in is the maintainer's own node and is open to anyone, so a default would have sent every fresh install's
+node in settings". Two migration paths meet the retired built-in host (`src/core/config/retired-default-hosts.ts`, a
+comparison only). Stored data in the previous plugin's format (no version marker) whose `rpcUrl` names that host
+migrates to empty RPC and gateway URLs with a notice (`migrateLegacy` in `src/plugin/settings-migration.ts`); a legacy
+`authToken` still carries over as bearer auth. Stored data in the current 0.2.0 format that names that host is kept as
+saved, with a one-time notice and a settings warning (`src/plugin/node-status.ts`). The reason: the host that releases up
+to 0.2.0 built in is the maintainer's own node and is open to anyone, so a default would have sent every fresh install's
 encrypted blobs and their metadata there. The exposure of that node is not fixed by this change.
+
+Which endpoint gets the credential is decided in `src/core/config/build-config.ts`. The global auth is the RPC credential.
+The gateway inherits it only when the gateway origin (scheme, host and port) equals the RPC origin; on any other origin it
+gets auth kind `none` unless an explicit gateway auth is set, so the credential never goes to a host the operator did not
+name. The CLI sets explicit gateway auth with `IPFS_SYNC_GATEWAY_AUTH_*`. The plugin settings hold one auth field
+(`settingsToLayer` in `src/plugin/settings-to-config.ts`) and no gateway auth field. A plugin user whose gateway is on a
+different origin and needs auth therefore sends no credential to the gateway, and those requests fail. Fixing that needs a
+second auth field in the settings, which is a spec change and is not built.
 
 ### 8.7 Stated limits
 
@@ -495,8 +506,15 @@ encrypted blobs and their metadata there. The exposure of that node is not fixed
   `globalThis.require` (`src/plugin/range-streaming-transport.ts`); the ranged source reads the header bytes and cancels,
   which destroys the socket, so a hostile gateway cannot make the plugin buffer a large body for a header read. Whether
   `globalThis.require` exists in real Obsidian is unconfirmed, and without it the plugin silently buffers through
-  `requestUrl`. Mobile always buffers. Redirects are not followed on this path and it has no timeout. "Abort" means the
-  plugin stops probing further size classes; it does not fail the pull.
+  `requestUrl`. Mobile always buffers. This path has no timeout. "Abort" means the plugin stops probing further size
+  classes; it does not fail the pull.
+- **Redirects.** `requestEndpoint` in `src/kubo/http.ts` passes `redirect: "manual"` and refuses a 301, 302, 303, 307 or
+  308 answer (and a `fetch` opaque redirect) with the fixed `REDIRECT_REFUSED_MESSAGE`. The `Location` is never echoed and
+  never followed, on RPC and gateway requests alike (`tests/unit/kubo-redirect.test.ts`). The Node stream transport does not
+  follow redirects, so a 3xx answer reaches that check. Obsidian's `requestUrl` follows redirects itself, has no option to
+  stop it and exposes no final URL. On mobile, and on desktop for every request that is not a ranged read, a followed
+  redirect is therefore neither prevented nor detected. Whether `requestUrl` forwards the credential to the target was not
+  checked. The control that holds is operator choice of an endpoint that does not redirect.
 - **Plugin transport.** The Obsidian `requestUrl` transport buffers whole response bodies. The streaming caps and the
   one-segment memory bound therefore give no memory protection inside the plugin for what the transport has already
   buffered; Range requests reduce the exposure only against gateways that honour them. The CLI pull streams. The plugin
@@ -845,7 +863,11 @@ In order, and what each step may write:
    passphrase, a damaged slot and a failed commitment are one outcome and one message.
 5. `manifest.enc` (or the chosen history entry) is authenticated and decoded; its `vaultId` must equal the slot file's; for
    `--manifest` its `rootCID` must equal the named CID. The path policy runs over the whole manifest.
-6. The verdict (below). A first pull is shown and confirmed. Only then are the key-slot copy and, for a first pull or a
+6. The verdict (below). A first pull is shown and confirmed. The confirmation also states how many existing local files
+   will be replaced, with a dated copy of each kept, and only when that count is above zero
+   (`countReplacedLocalFiles` in `src/sync/encrypted-pull.ts`, shown by `cli/pull-encrypted-command.ts` and
+   `src/plugin/first-pull-dialog-model.ts`). The count is a read-only preview: a first pull has no baseline, so it counts
+   every local file that differs from the manifest at a manifest path, and the stage plans again. Only then are the key-slot copy and, for a first pull or a
    newer manifest, the floor written. Nothing is written before this step except the lock and the sweep.
 7. Plan: for every manifest path, the path policy first, then the symbolic-link prefix walk, then the three-way rule on
    plaintext sha256 (L missing: fetch; L = R: unchanged; L = B: replace; B = R: locally modified, left alone; otherwise
