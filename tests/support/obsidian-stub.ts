@@ -38,12 +38,15 @@ export class Notice {
 /** Obsidian's `Platform` flags, as a desktop app reports them. A test that needs another platform assigns these fields and restores them. */
 export const Platform = { isDesktopApp: true, isMobile: false, isIosApp: false, isAndroidApp: false };
 
+/** What `Vault.getName()` returns in the stub: the vault folder's name, fixed so a test can rely on it. */
+export const STUB_VAULT_NAME = "Test vault";
+
 export class App {
-  readonly vault: { readonly adapter: MemoryAdapter };
+  readonly vault: { readonly adapter: MemoryAdapter; getName(): string };
   readonly workspace = new Workspace();
 
   constructor(adapter: MemoryAdapter = new MemoryAdapter()) {
-    this.vault = { adapter };
+    this.vault = { adapter, getName: () => STUB_VAULT_NAME };
   }
 }
 
