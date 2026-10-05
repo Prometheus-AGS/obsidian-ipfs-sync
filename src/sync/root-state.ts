@@ -1,6 +1,6 @@
 import type { Bytes, HostKv } from "../core/host-bridge";
 import { MANIFEST_DEVICE_MAX_CHARS, type EncryptedManifest } from "./encrypted-manifest";
-import { CID_TOKEN, HEX32, HEX64, RootStateError, parseJsonObject, parseManifestField, parseMtimes, requireText, type JsonRecord } from "./local-record";
+import { HEX32, HEX64, RootStateError, assertPersistableCid, isCidToken, parseJsonObject, parseManifestField, parseMtimes, requireText, type JsonRecord } from "./local-record";
 import { manifestIdentity } from "./manifest-identity";
 import { rootFileNames } from "./root-files";
 import { stableStringify } from "./stable-json";
@@ -127,7 +127,7 @@ interface Shared {
 
 function parseShared(record: JsonRecord): Shared {
   const rootCid = record["rootCid"];
-  if (rootCid !== null && (typeof rootCid !== "string" || !CID_TOKEN.test(rootCid))) refuse('state field "rootCid" is malformed');
+  if (rootCid !== null && !isCidToken(rootCid)) refuse('state field "rootCid" is malformed');
   const manifest = parseManifestField(record["manifest"], "state");
   const sequence = record["sequence"];
   if (typeof sequence !== "number" || sequence !== manifest.sequence) refuse("state sequence does not match its manifest");
@@ -246,5 +246,6 @@ export async function readRootState(kv: Pick<HostKv, "get">, mfsRoot: string): P
 }
 
 export async function writeRootState(kv: Pick<HostKv, "set">, state: RootState): Promise<void> {
+  assertPersistableCid(state.rootCid, "state rootCid");
   await kv.set(rootFileNames(state.mfsRoot).state, encodeRootState(state));
 }

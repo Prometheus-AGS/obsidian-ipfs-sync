@@ -2,7 +2,7 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import type { Bytes, HostKv } from "../core/host-bridge";
 import { KEY_SLOTS_MAX_BYTES } from "../crypto";
 import { isHistoryName } from "./history-names";
-import { CID_TOKEN, HEX32, HEX64, RootStateError, parseJsonObject, requireText, type JsonRecord } from "./local-record";
+import { HEX32, HEX64, RootStateError, assertPersistableCid, isCidToken, parseJsonObject, requireText, type JsonRecord } from "./local-record";
 import { maintenancePending, publishJournalPending } from "./publish-refusals";
 import { rootFileNames } from "./root-files";
 import { stableStringify } from "./stable-json";
@@ -136,7 +136,7 @@ function parseRemovals(value: unknown): readonly string[] {
 function parseStartRoot(record: JsonRecord, key: string): string | null {
   const value = record[key];
   if (value === null) return null;
-  if (typeof value === "string" && CID_TOKEN.test(value)) return value;
+  if (isCidToken(value)) return value;
   throw new RootStateError(`maintenance journal field "${key}" is missing or malformed`);
 }
 
@@ -205,6 +205,8 @@ export async function readMaintenanceJournal(kv: Pick<HostKv, "get">, mfsRoot: s
 }
 
 export async function writeMaintenanceJournal(kv: Pick<HostKv, "set">, journal: MaintenanceJournal): Promise<void> {
+  assertPersistableCid(journal.startRoot, "maintenance journal startRoot");
+  assertPersistableCid(journal.snapshotRoot, "maintenance journal snapshotRoot");
   await kv.set(rootFileNames(journal.mfsRoot).maintenance, encodeMaintenanceJournal(journal));
 }
 

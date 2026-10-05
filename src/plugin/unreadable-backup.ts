@@ -43,6 +43,15 @@ async function readOriginal(deps: UnreadableBackupDeps, fallbackText: string): P
   }
 }
 
+async function readsBack(deps: UnreadableBackupDeps, path: string, written: Uint8Array): Promise<boolean> {
+  try {
+    const stored = new Uint8Array(await deps.adapter.readBinary(path));
+    return stored.length === written.length && stored.every((byte, index) => byte === written[index]);
+  } catch {
+    return false;
+  }
+}
+
 export function createUnreadableBackup(deps: UnreadableBackupDeps): UnreadableBackup {
   return {
     save: async (fallbackText) => {
@@ -52,7 +61,10 @@ export function createUnreadableBackup(deps: UnreadableBackupDeps): UnreadableBa
         const path = attempt === 1 ? base : `${base}-${attempt}`;
         // An earlier copy is the user's only record of an older file: take the next free name instead.
         if ((await deps.adapter.stat(path)) !== null) continue;
-        await deps.adapter.writeBinary(path, new TextEncoder().encode(text).buffer);
+        const bytes = new TextEncoder().encode(text);
+        await deps.adapter.writeBinary(path, bytes.buffer);
+        // The copy is the only record of the file about to be replaced: read it back and refuse the save when it is not what was written.
+        if (!(await readsBack(deps, path, bytes))) throw new Error("the copy of the unreadable settings file could not be verified, so the file was not replaced");
         return path;
       }
       throw new Error("no free name for the copy of the unreadable settings file");

@@ -165,6 +165,7 @@ function buildOptions(ctx: PullContext, passphrase: PullVaultOptions["passphrase
     flags: engineFlags(flags),
     passphrase,
     acceptFirstPull: flags.acceptFirstPull,
+    acceptReplace: flags.acceptReplace,
     acceptLarge: flags.acceptLarge,
     ...(flags.maxBytes === undefined ? {} : { confirmAboveBytes: flags.maxBytes }),
   };

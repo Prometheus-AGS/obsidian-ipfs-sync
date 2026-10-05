@@ -150,7 +150,7 @@ function migrateLegacy(stored: Stored): LoadResult {
 
 const UNREADABLE_NOTICE =
   "IPFS Sync: the stored settings could not be read, so defaults are in use. The stored data is left untouched until you change a setting. " +
-  "Changing a setting saves the defaults over that file, which holds your credentials, your owned keys and the sequence floor record." +
+  "Changing a setting saves the defaults over that file, which holds your credentials, your owned keys and the sequence floor record. " +
   "Before that happens a copy of the file is saved in the plugin folder as data.json.unreadable-followed by the UTC date and time. " +
   "The copy is plain text and holds the same secrets as the original, so delete it when you no longer need it.";
 

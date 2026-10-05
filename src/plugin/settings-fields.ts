@@ -210,6 +210,8 @@ export interface CredentialClearing {
   readonly settings: PluginSettings;
   /** A stored credential was dropped because its endpoint moved to another origin. */
   readonly cleared: boolean;
+  /** The endpoint of the edited group moved to another origin (whether or not a credential was stored). */
+  readonly originChanged: boolean;
 }
 
 /**
@@ -218,15 +220,15 @@ export interface CredentialClearing {
  */
 export function clearCredentialOnOriginChange(before: PluginSettings, after: PluginSettings, group: FieldGroup): CredentialClearing {
   if (group === "rpc" && endpointOrigin(before.rpc) !== endpointOrigin(after.rpc)) {
-    return { settings: { ...after, auth: emptyAuth("none") }, cleared: before.auth.scheme !== "none" };
+    return { settings: { ...after, auth: emptyAuth("none") }, cleared: before.auth.scheme !== "none", originChanged: true };
   }
   if (group === "gateway" && endpointOrigin(before.gateway) !== endpointOrigin(after.gateway)) {
     // An explicit "none" holds no secret and is a choice the operator made: it stays.
-    if (before.gatewayAuth === undefined || before.gatewayAuth.scheme === "none") return { settings: after, cleared: false };
+    if (before.gatewayAuth === undefined || before.gatewayAuth.scheme === "none") return { settings: after, cleared: false, originChanged: true };
     const { gatewayAuth: _dropped, ...rest } = after;
-    return { settings: rest, cleared: true };
+    return { settings: rest, cleared: true, originChanged: true };
   }
-  return { settings: after, cleared: false };
+  return { settings: after, cleared: false, originChanged: false };
 }
 
 /** A copy of the values with the named fields emptied. */

@@ -5,6 +5,7 @@ import { createAdapterLockFile } from "./adapter-lock-file";
 import { createAbandonFlow, type AbandonFlow } from "./abandon-flow";
 import { AbandonVaultDialog, type AbandonOutcome } from "./abandon-vault-dialog";
 import { ClearStaleLockDialog } from "./clear-stale-lock-dialog";
+import { ABANDON_COPY } from "./encryption-copy";
 import { scheduleCatchUp } from "./catch-up";
 import { flushOpenEditors } from "./editor-flush";
 import { obsidianCostConfirmation } from "./cost-confirm-dialog";
@@ -255,9 +256,11 @@ export default class IpfsSyncPlugin extends Plugin {
   rearmAutoPublish(): void {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
-    // A stored value above the cap (an older file) is held at it: a longer delay overflows the timer and fires in a tight loop.
-    const minutes = Math.min(this.store.get().publishIntervalMinutes, MAX_PUBLISH_INTERVAL_MINUTES);
-    if (minutes <= 0) return;
+    const stored = this.store.get().publishIntervalMinutes;
+    // Zero, a negative or a value that is not a number turns the timer off (NaN would fire in a tight loop).
+    if (!Number.isFinite(stored) || stored <= 0) return;
+    // Whole minutes, at least one (a fraction would otherwise be a near-zero delay), and held at the cap: a longer delay overflows the timer.
+    const minutes = Math.min(Math.max(1, Math.floor(stored)), MAX_PUBLISH_INTERVAL_MINUTES);
     this.timer = window.setInterval(() => void this.publishVault({ quiet: true }), minutes * MS_PER_MINUTE);
     this.registerInterval(this.timer);
   }
@@ -354,6 +357,8 @@ export default class IpfsSyncPlugin extends Plugin {
     const outcome = await this.abandonFlow.open();
     if (outcome === "busy") new Notice(busyNotice(undefined), NOTICE_MS);
     else if (outcome.abandoned) new Notice(`IPFS Sync: vault abandoned. ${outcome.backupNote ?? ""}`.trim(), NOTICE_MS);
+    // The dialog was closed while the action ran and the action failed: the device may be in a partial state, so say so.
+    else if (outcome.failure !== undefined) new Notice(`IPFS Sync: ${ABANDON_COPY.failed}: ${outcome.failure}. Check the settings before trying again.`, NOTICE_MS);
     return outcome;
   }
 

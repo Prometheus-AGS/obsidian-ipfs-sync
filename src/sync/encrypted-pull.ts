@@ -107,7 +107,7 @@ export const FIRST_PULL_NO_BASELINE_STATEMENT =
 export const NO_STATE_PULL_STATEMENT =
   "This directory has no state for this vault, so nothing here is a baseline: every file that differs from the node's copy is replaced by the node's text, and a dated copy of the local text is kept.";
 const NO_STATE_NOT_CONFIRMED_MESSAGE =
-  "this directory has no state for this vault and holds files that differ from the node's copy, and this run cannot ask: confirm at the prompt, or pass --accept-first-pull; nothing was written";
+  "this directory has no state for this vault and holds files that differ from the node's copy, and this run cannot ask: confirm at the prompt, or pass --accept-replace; nothing was written";
 export const FIRST_PULL_GATEWAY_STATEMENT =
   "An explicit root CID names what the gateway serves; the client does not verify the returned bytes against it, so authenticity rests on the vault key.";
 
@@ -144,6 +144,12 @@ export interface EncryptedPullOptions {
   readonly unlocked?: UnlockedVault;
   /** `--accept-first-pull`: the non-interactive yes. */
   readonly acceptFirstPull?: boolean;
+  /**
+   * `--accept-replace`: the non-interactive yes to the question of a pull that is not a first pull but runs into a directory with no state for the vault
+   * (the device holds a floor), where files that differ from the node's copy are replaced. `acceptFirstPull` does not answer that question: it was given
+   * for a different one (review round 4, A-L2).
+   */
+  readonly acceptReplace?: boolean;
   /** The host's configuration folder (`vault.configDir`), for the path policy. */
   readonly configDir?: string;
   /** This device's additions to the default exclusion list, for the path policy. */
@@ -486,7 +492,8 @@ async function confirmFirstPull<R>(
   policy: PathPolicyResult,
   stateless: boolean,
 ): Promise<void> {
-  if (options.acceptFirstPull === true) return;
+  // Each question is answered by its own flag: the first-pull yes does not cover the replace question, and the reverse.
+  if ((stateless ? options.acceptReplace : options.acceptFirstPull) === true) return;
   const replaced = stateless ? await countReplacedLocalFiles(deps, options, manifest) : undefined;
   if (replaced === 0) return;
   if (deps.confirmFirstPull === undefined) {

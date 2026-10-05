@@ -28,7 +28,7 @@ import { decodeManifestFile } from "./encrypted-manifest";
 import { guardKv } from "./guarded-kv";
 import { sha256Hex } from "./hash";
 import { buildJournal, readJournal, writeJournal, type PublishJournal } from "./journal";
-import { CID_TOKEN } from "./local-record";
+import { isCidToken } from "./local-record";
 import { isUnreadableManifest } from "./manifest-auth";
 import type { RewrapCostPlan, RewrapKind } from "./key-management-text";
 import {
@@ -537,7 +537,7 @@ async function publishJournalOf(kv: Pick<HostKv, "get">, mfsRoot: string, vaultI
  */
 export async function prepareAcceptance(deps: AcceptDeps, input: AcceptInput): Promise<PreparedAcceptance> {
   const { rootCid } = input.target;
-  if (!CID_TOKEN.test(rootCid)) throw new KeyManagementError("root-incomplete", ROOT_INCOMPLETE);
+  if (!isCidToken(rootCid)) throw new KeyManagementError("root-incomplete", ROOT_INCOMPLETE);
   const keySlots = await deps.node.readKeySlotsFileAt(rootCid);
   const manifestFile = await deps.node.readManifestFileAt(rootCid);
   if (keySlots === undefined || manifestFile === undefined) throw new KeyManagementError("root-incomplete", ROOT_INCOMPLETE);

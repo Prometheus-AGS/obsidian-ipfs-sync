@@ -89,6 +89,7 @@ function checkPullFlags(args: ParsedArgs): void {
     "--expect-min-sequence": args.pull.expectMinSequence,
     "--expect-vault-id": args.pull.expectVaultId,
     "--accept-first-pull": on(args.pull.acceptFirstPull),
+    "--accept-replace": on(args.pull.acceptReplace),
     "--max-bytes": args.pull.maxBytes,
     "--accept-large": on(args.pull.acceptLarge),
     "--list-versions": on(args.pull.listVersions),

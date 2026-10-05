@@ -15,6 +15,7 @@ import {
   visibleAuthFields,
   visibleGatewayAuthFields,
   GATEWAY_AUTH_CHOICES,
+  GATEWAY_AUTH_FIELD_IDS,
   type EditableFieldId,
   type FieldId,
   type FieldValues,
@@ -176,6 +177,16 @@ function fieldsLeft(field: EditableFieldId, previous: string, next: string): rea
   return [];
 }
 
+/** The node block's draft fields: the picker and every field of every kind. */
+const NODE_AUTH_DRAFT: readonly EditableFieldId[] = ["authScheme", "authUser", "authPassword", "authToken", "authHeaderName", "authHeaderValue"];
+
+/** The listed fields of `from`, as a partial set of values. */
+function pickFields(from: FieldValues, fields: readonly EditableFieldId[]): Partial<Record<EditableFieldId, string>> {
+  const picked: Partial<Record<EditableFieldId, string>> = {};
+  for (const field of fields) picked[field] = from[field];
+  return picked;
+}
+
 export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsViewModel {
   const now = deps.now ?? ((): Date => new Date());
   let values: FieldValues = valuesFrom(deps.store.get());
@@ -212,6 +223,9 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
   async function edit(field: EditableFieldId, text: string): Promise<EditResult> {
     if (field === "authScheme" && !isAuthScheme(text)) return { saved: false, state: snapshot() };
     if (field === "gatewayAuthScheme" && !isGatewayChoice(text)) return { saved: false, state: snapshot() };
+    // The "credential was cleared" line belongs to the edit that cleared it; any later edit removes it.
+    rpcCleared = false;
+    gatewayCleared = false;
     const previous = field === "authScheme" ? values.authScheme : field === "gatewayAuthScheme" ? values.gatewayAuthScheme : text;
     values = { ...withBlankedFields(values, fieldsLeft(field, previous, text)), [field]: text };
     const group = groupOf(field);
@@ -236,9 +250,11 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
     // Apply the group to the latest stored settings, so a concurrent change elsewhere is kept.
     // A credential saved for one origin is dropped when the address moves to another, in the same write.
     let cleared = false;
+    let originChanged = false;
     const saved = await deps.store.update((current) => {
       const next = clearCredentialOnOriginChange(current, parsed.apply(current), group);
       cleared = next.cleared;
+      originChanged = next.originChanged;
       return next.settings;
     });
     errors = replaceErrors(errors, keys, []);
@@ -250,15 +266,17 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       gatewayAuthPending = false;
       gatewayCleared = false;
     }
-    if (cleared && group === "rpc") {
-      values = { ...withBlankedFields(values, visibleAuthFields(isAuthScheme(values.authScheme) ? values.authScheme : "none")), authScheme: "none" };
+    // Any move to another origin, with or without a saved credential, drops what was typed for the old address, so a half-typed
+    // secret cannot be completed later and saved for the new host. The group's picker goes back to what is stored.
+    if (originChanged && group === "rpc") {
+      values = { ...values, ...pickFields(valuesFrom(saved), NODE_AUTH_DRAFT) };
       authPending = false;
-      rpcCleared = true;
+      rpcCleared = cleared;
     }
-    if (cleared && group === "gateway") {
-      values = { ...withBlankedFields(values, visibleGatewayAuthFields(isGatewayChoice(values.gatewayAuthScheme) ? values.gatewayAuthScheme : "same")), gatewayAuthScheme: "same" };
+    if (originChanged && group === "gateway") {
+      values = { ...values, ...pickFields(valuesFrom(saved), GATEWAY_AUTH_FIELD_IDS) };
       gatewayAuthPending = false;
-      gatewayCleared = true;
+      gatewayCleared = cleared;
     }
     deps.onSaved?.(saved);
     return { saved: true, state: snapshot() };

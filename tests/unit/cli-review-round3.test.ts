@@ -298,12 +298,19 @@ describe("a run without a terminal cannot be asked (C-L2)", () => {
     });
   });
 
-  it("offers them when standard input is a terminal", () => {
-    withTty(true, () => {
-      const io = createProcessIo();
-      expect(io.confirm).toBeTypeOf("function");
-      expect(io.prompt).toBeTypeOf("function");
-    });
+  it("offers them when standard input and standard output are terminals (round 4, A-L1: both)", () => {
+    const original = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    try {
+      withTty(true, () => {
+        const io = createProcessIo();
+        expect(io.confirm).toBeTypeOf("function");
+        expect(io.prompt).toBeTypeOf("function");
+      });
+    } finally {
+      if (original === undefined) Reflect.deleteProperty(process.stdout, "isTTY");
+      else Object.defineProperty(process.stdout, "isTTY", original);
+    }
   });
 
   it("an unattended keys change-passphrase, increase-cost and prune-history without the explicit flag exit 2 before a request", async () => {

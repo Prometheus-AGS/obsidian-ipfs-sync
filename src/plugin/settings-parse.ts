@@ -121,6 +121,15 @@ function parsePullFields(stored: Stored): PullFields | undefined {
 }
 
 /**
+ * The publish interval is a whole number of minutes, 0 or more (0 = off). A stored number that is not (a fraction, a negative, NaN
+ * or infinity) loads as the default 0, auto-publish off, instead of making the whole file unreadable: the rest of the settings
+ * (credentials, owned keys, sequence floor) stay, and nothing starts publishing by itself. A value above the cap is kept; the timer holds it at the cap.
+ */
+function wholeMinutes(stored: number): number {
+  return Number.isInteger(stored) && stored >= 0 ? stored : 0;
+}
+
+/**
  * The stored data of the current form (version 3) or the previous one (version 2, which has none of the pull
  * fields) as a typed model, or `undefined` when any part of it has the wrong shape. The result is always the
  * current form, with defaults for whatever the stored data lacks.
@@ -149,9 +158,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     typeof mfsRoot === "string" &&
     isStringList(userExclusions) &&
     isStringList(ownedKeys) &&
-    typeof interval === "number" &&
-    Number.isFinite(interval) &&
-    interval >= 0;
+    typeof interval === "number";
   if (!valid) return undefined;
   const lastPull = parsePullSummary(stored["lastPull"]);
   const lastPublish = parsePublishSummary(stored["lastPublish"]);
@@ -165,7 +172,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     ...(gatewayAuth === undefined ? {} : { gatewayAuth }),
     userExclusions,
     ownedKeys,
-    publishIntervalMinutes: interval,
+    publishIntervalMinutes: wholeMinutes(interval),
     ...pull,
     ...(stored["retiredDefaultNoticeShown"] === true ? { retiredDefaultNoticeShown: true } : {}),
     ...(lastPull === undefined ? {} : { lastPull }),

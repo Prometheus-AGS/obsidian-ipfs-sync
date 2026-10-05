@@ -42,24 +42,40 @@ const NOTICE_FOR_VIEW: Readonly<Record<Exclude<StaleLockView["kind"], "stale">, 
   unreadable: COPY.unreadableNotice,
 };
 
+/** What to show after the dialog is done: the success line, the failure (fixed text) when it was closed while running, or nothing for a cancel. */
+function noticeFor(outcome: ClearLockOutcome): string {
+  if (outcome.cleared) return COPY.cleared;
+  return outcome.failure === undefined ? "" : `IPFS Sync: ${COPY.failed}: ${outcome.failure}.`;
+}
+
+/** One open dialog: its handle is set after `openDialog` returns, and a dialog that finished before that is never recorded as open. */
+interface OpenDialog {
+  handle: ClearLockDialogHandle | undefined;
+  finished: boolean;
+}
+
 export function createStaleLockFlow(deps: StaleLockFlowDeps): StaleLockFlow {
-  let open: ClearLockDialogHandle | undefined;
+  let open: OpenDialog | undefined;
 
   return {
     inspect: () => deps.control.inspect(),
     open: async () => {
       const view = await deps.control.inspect();
       if (view.kind !== "stale") return { notice: NOTICE_FOR_VIEW[view.kind] };
-      open?.close();
+      open?.handle?.close();
       return new Promise((resolve) => {
-        open = deps.openDialog({ description: view.description, clear: async () => toResult(await deps.control.clear()) }, (outcome) => {
-          open = undefined;
-          resolve({ notice: outcome.cleared ? COPY.cleared : "" });
+        const mine: OpenDialog = { handle: undefined, finished: false };
+        mine.handle = deps.openDialog({ description: view.description, clear: async () => toResult(await deps.control.clear()) }, (outcome) => {
+          mine.finished = true;
+          // Only this dialog's own record is dropped: a late finish of an earlier dialog must not forget the one open now.
+          if (open === mine) open = undefined;
+          resolve({ notice: noticeFor(outcome) });
         });
+        if (!mine.finished) open = mine;
       });
     },
     dispose: () => {
-      open?.close();
+      open?.handle?.close();
       open = undefined;
     },
   };

@@ -6,7 +6,14 @@ import { STALE_LOCK_COPY as COPY } from "./stale-lock-copy";
 const ID = { consequences: "ipfs-sync-stale-lock-consequences", error: "ipfs-sync-stale-lock-error" } as const;
 
 export type ClearLockResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
-export type ClearLockOutcome = { readonly cleared: boolean };
+/**
+ * `failure` is set only when the dialog was closed after Clear lock and the action then failed: fixed, safe text (never an error
+ * message). A plain Cancel has no `failure`.
+ */
+export type ClearLockOutcome = { readonly cleared: boolean; readonly failure?: string };
+
+/** Shown instead of the text of an error the action threw: the console has the detail. */
+const UNEXPECTED_FAILURE = "an unexpected error occurred; see the developer console for details";
 
 export interface ClearLockDialogRequest {
   /** What the lock file looks like now: process, host and age. */
@@ -69,7 +76,7 @@ export class ClearStaleLockDialog extends Modal {
     try {
       result = await this.request.clear();
     } catch (error) {
-      result = { ok: false, reason: error instanceof Error ? error.message : "unknown error" };
+      result = { ok: false, reason: UNEXPECTED_FAILURE };
     }
     if (result.ok) {
       this.finish({ cleared: true });
@@ -79,7 +86,7 @@ export class ClearStaleLockDialog extends Modal {
     this.failureEl?.setText(errorLine(`${COPY.failed}: ${result.reason}`));
     if (this.failureEl !== undefined) markProblem(this.failureEl, true);
     this.busy = false;
-    if (this.closing) this.finish({ cleared: false });
+    if (this.closing) this.finish({ cleared: false, failure: result.reason });
     else this.cancelButton?.focus();
   }
 

@@ -37,15 +37,18 @@ export function createSettingsStore(port: PluginDataPort, initial: LoadResult, b
 
   async function apply(change: (settings: PluginSettings) => PluginSettings): Promise<PluginSettings> {
     const changed = change(current);
+    let copying = false;
     if (backupPending && backup !== undefined) {
-      // A copy that cannot be written fails the save: the original stays, and memory does not run ahead of disk.
+      // A copy that cannot be written (or read back identical) fails the save: the original stays, and memory does not run ahead of disk.
       await backup.save(fallbackText);
-      backupPending = false;
+      copying = true;
     }
     // Whatever `change` was built from, the saved sequence floor and device id are never lowered or replaced.
     const deviceStore = mergeDeviceStore(current.deviceStore, changed.deviceStore);
     const next = deviceStore === changed.deviceStore ? changed : { ...changed, deviceStore };
     await port.saveData(next);
+    // Only a save that went through replaced the file: until then the next attempt copies again.
+    if (copying) backupPending = false;
     current = next;
     return next;
   }

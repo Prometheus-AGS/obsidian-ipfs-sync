@@ -67,6 +67,8 @@ export interface PullFlags {
   readonly expectVaultId: string | undefined;
   /** `--accept-first-pull`: the non-interactive yes to the first-pull question. */
   readonly acceptFirstPull: boolean;
+  /** `--accept-replace`: the non-interactive yes to the question of a pull into a directory with no state for a vault this device already knows. */
+  readonly acceptReplace: boolean;
   /** `--max-bytes <n>`: plaintext bytes above which the pull asks (default 512 MiB). */
   readonly maxBytes: number | undefined;
   /** `--accept-large`: the non-interactive yes to the large-pull question. */
@@ -111,6 +113,7 @@ const OPTIONS = {
   "expect-min-sequence": { type: "string" },
   "expect-vault-id": { type: "string" },
   "accept-first-pull": { type: "boolean" },
+  "accept-replace": { type: "boolean" },
   "max-bytes": { type: "string" },
   "accept-large": { type: "boolean" },
   "list-versions": { type: "boolean" },
@@ -228,6 +231,7 @@ function pullFlags(values: ReturnType<typeof parseStrict>["values"]): PullFlags 
     expectMinSequence: positiveInteger("--expect-min-sequence", values["expect-min-sequence"]),
     expectVaultId,
     acceptFirstPull: values["accept-first-pull"] ?? false,
+    acceptReplace: values["accept-replace"] ?? false,
     maxBytes: positiveInteger("--max-bytes", values["max-bytes"]),
     acceptLarge: values["accept-large"] ?? false,
     listVersions: values["list-versions"] ?? false,

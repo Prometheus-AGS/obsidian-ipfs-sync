@@ -120,11 +120,15 @@ describe("node host bridge", () => {
       expect(await readdir(join(root, "keys"))).toEqual(["slot.json"]);
     });
 
-    it("creates missing parent directories 0700 and leaves an existing directory mode alone", async () => {
+    it("creates missing parent directories with the platform default mode outside the state folder, 0700 inside it, and leaves an existing directory mode alone (round 4, A-L4)", async () => {
+      await mkdir(join(root, "reference"));
+      const defaultMode = (await stat(join(root, "reference"))).mode & 0o777;
       await mkdir(join(root, "existing"), { mode: 0o755 });
       await host.fs.write("existing/new/a.txt", bytes("a"));
-      expect(((await stat(join(root, "existing/new"))).mode & 0o777).toString(8)).toBe("700");
+      expect(((await stat(join(root, "existing/new"))).mode & 0o777).toString(8)).toBe(defaultMode.toString(8));
       expect(((await stat(join(root, "existing"))).mode & 0o777).toString(8)).toBe("755");
+      await host.fs.write(".ipfs-sync/new/a.txt", bytes("a"));
+      expect(((await stat(join(root, ".ipfs-sync/new"))).mode & 0o777).toString(8)).toBe("700");
     });
   });
 });

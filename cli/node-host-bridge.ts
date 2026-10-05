@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { Bytes, HostBridge, HostFs, HostFsEntry, HostFsLstat, HostFsStat, HostKv } from "../src/core/host-bridge";
 import { HostNotImplementedError, HostPathError } from "../src/sync/host-errors";
+import { foldKey } from "../src/sync/path-fold";
 import { assertParentInsideRoot } from "./realpath-guard";
 import { assertStateFolderUnlinked } from "./state-folder-link";
 
@@ -80,9 +81,20 @@ async function readSlice(absolute: string, offset: number, length: number): Prom
   }
 }
 
+const STATE_FOLDER_KEY = foldKey(KV_DIRECTORY);
+
+/**
+ * Is `path` the state folder or below it? The first segment is compared by fold key, not byte for byte: on a case-insensitive volume `.Ipfs-Sync/x`
+ * is the state folder, and on any volume a name that folds to it is treated as the state folder (stricter, never looser).
+ */
+function isStatePath(path: string): boolean {
+  const first = path.split("/").find((segment) => segment !== "");
+  return first !== undefined && foldKey(first) === STATE_FOLDER_KEY;
+}
+
 /** Directories under the state folder hold the record, the journal and the key-slot copy: owner-only. Everywhere else the default mode applies. */
 function directoryMode(path: string): number | undefined {
-  return path === KV_DIRECTORY || path.startsWith(`${KV_DIRECTORY}/`) ? KV_DIRECTORY_MODE : undefined;
+  return isStatePath(path) ? KV_DIRECTORY_MODE : undefined;
 }
 
 function createFs(root: string): HostFs {
@@ -90,7 +102,7 @@ function createFs(root: string): HostFs {
   /** Resolve a mutation target and prove its parent's realpath is inside the vault's, before anything is created. */
   const mutableAt = async (path: string): Promise<string> => {
     const target = at(path);
-    if (directoryMode(path) !== undefined) await assertStateFolderUnlinked(root);
+    if (isStatePath(path)) await assertStateFolderUnlinked(root);
     await assertParentInsideRoot(root, target, path);
     return target;
   };
@@ -101,7 +113,7 @@ function createFs(root: string): HostFs {
     readRange: async (path, offset, length) => readSlice(at(path), offset, length),
     write: async (path, data) => {
       const target = await mutableAt(path);
-      await mkdir(dirname(target), { recursive: true, mode: KV_DIRECTORY_MODE });
+      await mkdir(dirname(target), { recursive: true, mode: directoryMode(path) });
       await replaceAtomically(target, data);
     },
     mkdir: async (path) => {

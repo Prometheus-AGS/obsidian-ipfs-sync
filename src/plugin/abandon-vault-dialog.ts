@@ -11,7 +11,14 @@ const ID = {
 } as const;
 
 export type AbandonResult = { readonly ok: true; readonly backupNote?: string } | { readonly ok: false; readonly reason: string };
-export type AbandonOutcome = { readonly abandoned: true; readonly backupNote?: string } | { readonly abandoned: false };
+/**
+ * `failure` is set only when the dialog was closed after Confirm and the action then failed: fixed, safe text (never an error message),
+ * so the caller can say so even though the dialog is gone. A plain Cancel has no `failure`.
+ */
+export type AbandonOutcome = { readonly abandoned: true; readonly backupNote?: string } | { readonly abandoned: false; readonly failure?: string };
+
+/** Shown instead of the text of an error the action threw: the console has the detail. */
+const UNEXPECTED_FAILURE = "an unexpected error occurred; see the developer console for details";
 
 export interface AbandonDialogRequest {
   /**
@@ -94,7 +101,7 @@ export class AbandonVaultDialog extends Modal {
     try {
       result = await this.request.abandon();
     } catch (error) {
-      result = { ok: false, reason: error instanceof Error ? error.message : "unknown error" };
+      result = { ok: false, reason: UNEXPECTED_FAILURE };
     }
     if (result.ok) {
       this.finish({ abandoned: true, ...(result.backupNote === undefined ? {} : { backupNote: result.backupNote }) });
@@ -102,7 +109,7 @@ export class AbandonVaultDialog extends Modal {
       return;
     }
     this.apply(this.model.fail(result.reason));
-    if (this.closing) this.finish({ abandoned: false });
+    if (this.closing) this.finish({ abandoned: false, failure: result.reason });
     else this.cancelButton?.focus();
   }
 

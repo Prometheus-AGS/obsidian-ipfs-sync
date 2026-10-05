@@ -31,7 +31,7 @@ describe("a credential over plain http (K-L2)", () => {
     expect(withGateway.warnings[0]).toContain("gateway");
   });
 
-  it.each(["http://localhost:5001", "http://127.0.0.1:5001", "http://127.9.9.9", "http://[::1]:5001", "http://app.localhost"])("does not warn for loopback %s", (url) => {
+  it.each(["http://localhost:5001", "http://127.0.0.1:5001", "http://127.9.9.9", "http://[::1]:5001"])("does not warn for loopback %s", (url) => {
     expect(config(url, url).warnings).toEqual([]);
   });
 

@@ -47,8 +47,14 @@ function backupNote(backupDir: string, count: number, floor: AbandonFloor): stri
   return `${count} file${count === 1 ? "" : "s"} moved to ${backupDir} in the vault folder. Nothing on the node was changed. ${describeAbandonFloor(floor)}. To start a new vault, choose an empty MFS root in the settings, then run Publish.`;
 }
 
+/** One open dialog: its handle is set after `openDialog` returns, and a dialog that finished before that is never recorded as open. */
+interface OpenDialog {
+  handle: AbandonDialogHandle | undefined;
+  finished: boolean;
+}
+
 export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
-  let open: AbandonDialogHandle | undefined;
+  let open: OpenDialog | undefined;
 
   /** The action behind the dialog's button. Never throws: a failure is returned as text for the dialog. */
   async function abandon(): Promise<Awaited<ReturnType<AbandonDialogRequest["abandon"]>>> {
@@ -81,13 +87,22 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
   return {
     open: () => {
       if (deps.lock.holder() !== undefined) return Promise.resolve("busy");
+      // At most one dialog is open: the lock is taken only when Confirm is pressed, so a second request closes the first.
+      open?.handle?.close();
       return new Promise<AbandonOutcome | "busy">((resolve) => {
-        open = deps.openDialog({ abandon }, (outcome) => {
-          open = undefined;
+        const mine: OpenDialog = { handle: undefined, finished: false };
+        mine.handle = deps.openDialog({ abandon }, (outcome) => {
+          mine.finished = true;
+          // Only this dialog's own record is dropped: a late finish of an earlier dialog must not forget the one open now.
+          if (open === mine) open = undefined;
           resolve(outcome);
         });
+        if (!mine.finished) open = mine;
       });
     },
-    dispose: () => open?.close(),
+    dispose: () => {
+      open?.handle?.close();
+      open = undefined;
+    },
   };
 }

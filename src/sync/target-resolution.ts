@@ -1,20 +1,20 @@
 import { classifyKey } from "../core/config";
 import type { KuboClient } from "../kubo";
+import { isCidToken } from "./local-record";
 import { PullSourceError, PullTargetError } from "./pull-errors";
 
-/** IPNS key IDs and CIDs: a plain alphanumeric token. Anything else never reaches a request. */
-const TOKEN = /^[A-Za-z0-9]{10,}$/;
 /** The longest CID the local record reads back (`CID_TOKEN` in `local-record.ts`): a longer one would be written to a state or journal file this build then refuses. */
 export const CID_MAX_LENGTH = 128;
-const CID_SHAPE = /^[A-Za-z0-9]{10,128}$/;
+/** A resolved root path is captured at any length so a too-long identifier gets its own fixed refusal below. */
 const ROOT_PATH = /^\/ipfs\/([A-Za-z0-9]{10,})$/;
 
+/** IPNS key IDs and CIDs share one alphanumeric token rule (`isCidToken`). Anything else never reaches a request. */
 export function isIpnsName(value: string): boolean {
-  return TOKEN.test(value);
+  return isCidToken(value);
 }
 
 export function isCid(value: string): boolean {
-  return CID_SHAPE.test(value);
+  return isCidToken(value);
 }
 
 export interface TargetInput {

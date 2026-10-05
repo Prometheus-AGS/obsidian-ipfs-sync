@@ -65,7 +65,7 @@ function resolveEndpoint(
 const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
 
 function isLoopbackHost(hostname: string): boolean {
-  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "[::1]" || LOOPBACK_IPV4.test(hostname);
+  return hostname === "localhost" || hostname === "[::1]" || LOOPBACK_IPV4.test(hostname);
 }
 
 /** A credential sent over unencrypted http to a host that is not this machine is readable on the way (review round 3, K-L2). A warning, not a refusal. */

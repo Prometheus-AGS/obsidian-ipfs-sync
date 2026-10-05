@@ -283,20 +283,43 @@ describe("a device that holds a floor pulling into a directory with no state for
     expect(second.staged).toEqual([]);
   });
 
-  it("a non-interactive run without --accept-first-pull stops before writing, with a message that does not claim the vault is unknown", async () => {
+  it("a non-interactive run without --accept-replace stops before writing, naming --accept-replace and not claiming the vault is unknown (round 4, A-L2)", async () => {
     const { rig, second, host } = await floorThenStatelessDirectory(true);
-    const stop = stopOf(await runPull(rig, second, { options: { acceptFirstPull: false } }));
+    const stop = stopOf(await runPull(rig, second, { options: { acceptFirstPull: false, acceptReplace: false } }));
     expect(stop.reason).toBe("first-pull-not-confirmed");
-    expect(stop.message).toContain("--accept-first-pull");
+    expect(stop.message).toContain("--accept-replace");
+    expect(stop.message).not.toContain("--accept-first-pull");
     expect(host.mutations).toEqual([]);
   });
 
-  it("--accept-first-pull is unchanged: the pull goes on without asking", async () => {
+  it("--accept-first-pull alone does not answer this question: it stops without a terminal and asks with one (round 4, A-L2)", async () => {
+    const stopped = await floorThenStatelessDirectory(true);
+    const stop = stopOf(await runPull(stopped.rig, stopped.second, { options: { acceptFirstPull: true } }));
+    expect(stop.reason).toBe("first-pull-not-confirmed");
+    expect(stop.message).toContain("--accept-replace");
+    expect(stopped.host.mutations).toEqual([]);
+
+    const asking = await floorThenStatelessDirectory(true);
+    let asked = 0;
+    const stopAfterNo = stopOf(
+      await runPull(asking.rig, asking.second, {
+        options: { acceptFirstPull: true },
+        deps: {
+          confirmFirstPull: async () => (asked++, false),
+        },
+      }),
+    );
+    expect(asked).toBe(1);
+    expect(stopAfterNo.reason).toBe("first-pull-declined");
+    expect(asking.host.mutations).toEqual([]);
+  });
+
+  it("--accept-replace goes on without asking", async () => {
     const { rig, second } = await floorThenStatelessDirectory(true);
     let asked = false;
     const verified = verifiedOf(
       await runPull(rig, second, {
-        options: { acceptFirstPull: true },
+        options: { acceptReplace: true },
         deps: {
           confirmFirstPull: async () => {
             asked = true;
@@ -307,6 +330,19 @@ describe("a device that holds a floor pulling into a directory with no state for
     );
     expect(asked).toBe(false);
     expect(verified.verdict.kind).not.toBe("first-pull");
+  });
+
+  it("--accept-first-pull still answers the true first pull, and --accept-replace does not", async () => {
+    const answered = await vault();
+    const first = verifiedOf(await runPull(answered, newPuller(), { options: { acceptFirstPull: true } }));
+    expect(first.verdict.kind).toBe("first-pull");
+
+    const refused = await vault();
+    const b = newPuller();
+    const stop = stopOf(await runPull(refused, b, { options: { acceptFirstPull: false, acceptReplace: true } }));
+    expect(stop.reason).toBe("first-pull-not-confirmed");
+    expect(stop.message).toContain("--accept-first-pull");
+    expectNothingWritten(b);
   });
 
   it("does not ask when the directory has no differing file (an empty destination is unchanged)", async () => {

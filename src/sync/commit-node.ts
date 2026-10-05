@@ -4,10 +4,10 @@ import { NAME_RESOLVE_DHT_TIMEOUT, classifyResolveFailure, type KuboClient } fro
 import { writeBytesToMfs } from "./chunked-write";
 import type { CommitNode, NameReading } from "./commit-ports";
 import { historyFileName } from "./history-names";
+import { isCidToken } from "./local-record";
 import { assertNameUnmoved } from "./name-recheck";
 import { MANIFEST_READ_CAP, readFileIfPresent, statIfPresent, type NodeReadClient } from "./node-reader";
 import { publicationKeyChanged, remoteObjectInvalid } from "./publish-refusals";
-import { CID_MAX_LENGTH } from "./target-resolution";
 
 /**
  * The adapter between the commit protocol's narrow node port and the shared kubo client. Reads are bounded
@@ -31,20 +31,20 @@ export interface CommitNodeConfig {
   readonly beforeWrite: () => void;
 }
 
-/** What a name can resolve to that this adapter will build an `/ipfs/` path from: a CID's alphabet, nothing that could add a path segment. */
-const READABLE_ROOT = /^[A-Za-z0-9]{10,128}$/;
+const IPFS_PREFIX = "/ipfs/";
 
-/** `/ipfs/<cid>` as the bare CID; a path of another shape is kept whole, so it can only ever differ from a CID. */
+/** `/ipfs/<cid>` as the bare CID. Any other shape (`/ipns/...`, a path below the root, a bare token, whitespace) is refused; the value is not echoed. */
 function rootOfPath(path: string): string {
-  return boundedCid(path.startsWith("/ipfs/") ? path.slice("/ipfs/".length) : path, "the name's value");
+  if (!path.startsWith(IPFS_PREFIX)) throw remoteObjectInvalid("the name's value");
+  return validCid(path.slice(IPFS_PREFIX.length), "the name's value");
 }
 
 /**
- * A CID the node supplied, refused above the length the local record reads back (`CID_TOKEN`, 128): a longer one would be written to a journal or
- * a state file that this build then refuses (review round 3, S-M2). The refusal is fixed text; the value is not echoed.
+ * A CID the node supplied, held to the one CID rule the local record reads back (`isCidToken`): one that fails it would be written to a journal or a
+ * state file that this build then refuses (review rounds 3 and 4). The refusal is fixed text; the value is not echoed.
  */
-function boundedCid(value: string, what: string): string {
-  if (value.length > CID_MAX_LENGTH) throw remoteObjectInvalid(what);
+function validCid(value: string, what: string): string {
+  if (!isCidToken(value)) throw remoteObjectInvalid(what);
   return value;
 }
 
@@ -78,15 +78,15 @@ export function createCommitNode(config: CommitNodeConfig): CommitNode {
     resolveName,
     currentCid: async () => {
       const cid = (await statIfPresent(client, `${mfsRoot}/current`))?.cid;
-      return cid === undefined ? undefined : boundedCid(cid, "the current tree");
+      return cid === undefined ? undefined : validCid(cid, "the current tree");
     },
     readManifestFile: () => readFileIfPresent(client, `${mfsRoot}/manifest.enc`, "manifest.enc", MANIFEST_READ_CAP),
     readManifestFileAt: async (rootCid) =>
-      READABLE_ROOT.test(rootCid) ? readFileIfPresent(client, `/ipfs/${rootCid}/manifest.enc`, "manifest.enc", MANIFEST_READ_CAP) : undefined,
+      isCidToken(rootCid) ?readFileIfPresent(client, `/ipfs/${rootCid}/manifest.enc`, "manifest.enc", MANIFEST_READ_CAP) : undefined,
     writeManifestFile: (bytes) => write(`${mfsRoot}/manifest.enc`, bytes, "manifest.enc"),
     readHistoryFile: (sequence, rootCid) => readFileIfPresent(client, historyPath(mfsRoot, sequence, rootCid), "a history file", MANIFEST_READ_CAP),
     writeHistoryFile: (sequence, rootCid, bytes) => write(historyPath(mfsRoot, sequence, rootCid), bytes, "a history file"),
-    rootCid: async () => boundedCid((await client.filesStat(mfsRoot)).cid, "the vault root"),
+    rootCid: async () => validCid((await client.filesStat(mfsRoot)).cid, "the vault root"),
     pinRoot: async (rootCid) => {
       config.beforeWrite();
       await client.pinAdd(rootCid);

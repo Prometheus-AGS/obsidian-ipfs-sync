@@ -140,6 +140,10 @@ export const AUTH_SCHEME_LABELS: Readonly<Record<AuthScheme, string>> = {
 export const FIXTURE_NOTICE_TITLE = "Publishing is encrypted";
 
 export const SECRETS_WARNING_TITLE = "Secrets are stored in plain text";
+/** One sentence under the credential fields, shown while a node or gateway credential kind is chosen. */
+export const SECRETS_REDIRECT_NOTE =
+  "Requests may follow redirects the plugin cannot see, so use a node address you trust and prefer Basic or Bearer over a custom header.";
+
 export const SECRETS_WARNING =
   "The password, token and header value are saved unencrypted in this plugin's data file, " +
   ".obsidian/plugins/ipfs-sync/data.json. That file is excluded from sync, so it is never published. " +

@@ -20,7 +20,8 @@ const UNSAFE_RANGES: readonly (readonly [number, number])[] = [
   [0xe0000, 0xe007f], // the tag block: invisible characters that can carry hidden text
 ];
 
-const isUnsafeCodePoint = (codePoint: number): boolean => UNSAFE_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high);
+/** The one range table: `escapeNodeText` and the CLI's terminal output both ask this. */
+export const isUnsafeCodePoint = (codePoint: number): boolean => UNSAFE_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high);
 
 /** `\uXXXX` for a code point of the basic plane, `\u{X}` for one above it. */
 function escapeCodePoint(codePoint: number): string {

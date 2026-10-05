@@ -3,7 +3,8 @@ import { authHeaders } from "./auth-headers";
 import { KuboError, KuboNetworkError } from "./errors";
 import { requestEndpoint, type Transport } from "./http";
 
-const CID_SHAPE = /^[A-Za-z0-9]{10,}$/;
+/** The same bound as the local record's CID token (`CID_TOKEN` in `sync/local-record.ts`, which this layer cannot import): 10 to 128 alphanumeric characters. */
+const CID_SHAPE = /^[A-Za-z0-9]{10,128}$/;
 
 /** A byte range of a gateway object: `length` bytes starting at `start`. */
 export interface GatewayRange {

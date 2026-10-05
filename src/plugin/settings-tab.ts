@@ -20,6 +20,7 @@ import {
   FIXTURE_NOTICE_TITLE,
   GATEWAY_AUTH_INCOMPLETE,
   GATEWAY_AUTH_SAME_LABEL,
+  SECRETS_REDIRECT_NOTE,
   SECRETS_WARNING,
   SECRETS_WARNING_TITLE,
   SECTIONS,
@@ -38,6 +39,7 @@ const NODE_LABEL = "Node";
 const WARNING_PREFIX = "Warning";
 const SECRETS_NOTE_ID = "ipfs-sync-secrets-warning";
 const FIXTURE_NOTE_ID = "ipfs-sync-fixture-notice";
+const REDIRECT_NOTE_ID = "ipfs-sync-redirect-note";
 
 const RPC_CREDENTIAL_NOTICE_ID = "ipfs-sync-rpc-credential-notice";
 const GATEWAY_CREDENTIAL_NOTICE_ID = "ipfs-sync-gateway-credential-notice";
@@ -69,6 +71,7 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
   private readonly staleLock: StaleLockSection | undefined;
   private authFieldsEl: HTMLElement | undefined;
   private authStatusEl: HTMLElement | undefined;
+  private redirectEl: HTMLElement | undefined;
   private nodeStatusEl: HTMLElement | undefined;
   private nodeWarningEl: HTMLElement | undefined;
   private schemeSelect: HTMLSelectElement | undefined;
@@ -176,7 +179,18 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     this.authFieldsEl = section.createDiv();
     this.slots.create("auth", section);
     this.authStatusEl = liveRegion(section, AUTH_STATUS_ID);
+    this.redirectEl = section.createDiv();
     this.renderAuthFields();
+  }
+
+  /** The one redirect sentence: shown while the node or the gateway has a credential kind chosen, absent otherwise. */
+  private showRedirectNote(state: SettingsViewState): void {
+    const host = this.redirectEl;
+    if (host === undefined) return;
+    host.empty();
+    const gatewayChosen = state.values.gatewayAuthScheme !== GATEWAY_AUTH_SAME && state.values.gatewayAuthScheme !== "none";
+    if (state.values.authScheme === "none" && !gatewayChosen) return;
+    host.createEl("p", { text: SECRETS_REDIRECT_NOTE, cls: "setting-item-description ipfs-sync-redirect-note", attr: { id: REDIRECT_NOTE_ID } });
   }
 
   private renderAuthFields(): void {
@@ -193,8 +207,9 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
       const result = await this.vm.edit(field, text);
       if (field === "authScheme") this.renderAuthFields();
       if (field === "gatewayAuthScheme") this.renderGatewayAuthFields();
-      if (result.state.rpcCredentialNotice !== "") this.showClearedNode(result.state);
-      if (result.state.gatewayCredentialNotice !== "") this.showClearedGateway(result.state);
+      // An address edit that moved to another origin put the pickers back and blanked the unsaved credential fields: redraw them.
+      if (this.schemeSelect !== undefined && this.schemeSelect.value !== result.state.values.authScheme) this.showClearedNode(result.state);
+      if (this.gatewaySelect !== undefined && this.gatewaySelect.value !== result.state.values.gatewayAuthScheme) this.showClearedGateway(result.state);
       this.applyState(result.state);
       if (result.saved && KEY_REFRESH_FIELDS.has(field)) void this.keys.refresh();
       else if (result.saved && KEY_STALE_FIELDS.has(field)) this.keys.markStale();
@@ -220,6 +235,7 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     this.rpcCredentialEl?.setText(state.rpcCredentialNotice);
     this.gatewayCredentialEl?.setText(state.gatewayCredentialNotice);
     this.slots.showAll(state.errors);
+    this.showRedirectNote(state);
     this.pull.update(state);
     this.nodeStatusEl?.setText(`${NODE_LABEL}: ${state.node.summary}${state.node.explanation === "" ? "" : `. ${state.node.explanation}`}`);
     this.nodeWarningEl?.setText(state.node.retiredWarning === undefined ? "" : `${WARNING_PREFIX}: ${state.node.retiredWarning}`);
