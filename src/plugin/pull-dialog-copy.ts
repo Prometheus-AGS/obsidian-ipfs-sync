@@ -25,6 +25,8 @@ export const FIRST_PULL_COPY = {
   filesName: "Files",
   skippedName: "Paths that will be skipped",
   replacedName: "Local files that will be replaced",
+  /** The count is a preview made before the stage, and the stage plans again, so it is a lower bound. */
+  replacedLowerBound: "at least",
   replacedNote: "(a dated copy of each is kept)",
   statementsHeading: "What this means",
   requirementsHeading: "To publish from this device later you also need to:",

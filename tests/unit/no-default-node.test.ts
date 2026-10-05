@@ -22,7 +22,7 @@ import { describeNode, NODE_NOT_SET_NOTICE, retiredDefaultNotice } from "../../s
 import { createPublishRunner } from "../../src/plugin/publish-runner";
 import { createPullRunner } from "../../src/plugin/pull-runner";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { defaultSettings, PREVIOUS_SETTINGS_VERSION } from "../../src/plugin/settings-model";
 import { createSettingsStore } from "../../src/plugin/settings-store";
 import { settingsToConfig, validateSettings } from "../../src/plugin/settings-to-config";
 import { collectStatus } from "../../src/plugin/sync-status";
@@ -308,7 +308,7 @@ describe("the plugin entry without a node", () => {
   });
 });
 
-// ---------- a saved 0.2.0 value is explicit: warn, never clear ----------
+// ---------- a stored 0.2.0 value is cleared at load; a hand-typed one is warned about ----------
 
 describe("the retired default host", () => {
   it("is recognised by host, case-insensitively, and nothing else is", () => {
@@ -319,33 +319,120 @@ describe("the retired default host", () => {
     expect(isRetiredDefaultHost("not a url")).toBe(false);
   });
 
-  const saved = { ...defaultSettings(), rpc: { url: RETIRED_URL }, gateway: { url: RETIRED_URL } };
-
-  it("keeps a saved 0.2.0 value on load and does not clear it", () => {
-    const result = loadSettings(JSON.parse(JSON.stringify(saved)));
-    expect(result.settings.rpc.url).toBe(RETIRED_URL);
-    expect(result.settings.gateway.url).toBe(RETIRED_URL);
+  it("is recognised with a trailing dot (FQDN form), a port, a path and a trailing slash", () => {
+    expect(isRetiredDefaultHost(`${RETIRED_URL}.`)).toBe(true);
+    expect(isRetiredDefaultHost(`${RETIRED_URL}./`)).toBe(true);
+    expect(isRetiredDefaultHost(`${RETIRED_URL.toUpperCase()}.`)).toBe(true);
+    expect(isRetiredDefaultHost(`${RETIRED_URL}.:5001/api/v0`)).toBe(true);
+    expect(isRetiredDefaultHost(`${RETIRED_URL}/`)).toBe(true);
+    expect(isRetiredDefaultHost(`${RETIRED_URL}:5001`)).toBe(true);
+    expect(isRetiredDefaultHost(`${RETIRED_URL}/ipfs/x`)).toBe(true);
   });
 
-  it("warns once at load and records that it did", async () => {
+  it("does not match a look-alike host", () => {
+    const host = RETIRED_URL.slice("https://".length);
+    expect(isRetiredDefaultHost(`https://sub.${host}`)).toBe(false);
+    expect(isRetiredDefaultHost(`https://${host}.evil.test`)).toBe(false);
+    expect(isRetiredDefaultHost(`https://x${host}`)).toBe(false);
+  });
+
+  const saved = { ...defaultSettings(), rpc: { url: RETIRED_URL }, gateway: { url: RETIRED_URL } };
+  const withToken = { ...saved, auth: { scheme: "bearer", token: "node-secret" } };
+
+  it("clears a stored current-version value on load, drops the auth carried with it, and persists", () => {
+    const result = loadSettings(JSON.parse(JSON.stringify(withToken)));
+    expect(result.outcome).toBe("current");
+    expect(result.settings.rpc.url).toBe("");
+    expect(result.settings.gateway.url).toBe("");
+    expect(result.settings.auth).toEqual({ scheme: "none" });
+    expect(JSON.stringify(result.settings)).not.toContain("node-secret");
+    expect(JSON.stringify(result.settings).toLowerCase()).not.toContain(RETIRED_URL.slice("https://".length));
+    expect(result.persist).toBe(true);
+    expect(result.notices).toHaveLength(1);
+    expect(result.notices[0]).toContain("0.2.0");
+    expect(result.notices[0]).toContain("removed");
+    expect(result.notices[0]).toContain("enter them again");
+    expect(result.notices[0]).not.toContain(RETIRED_URL.slice("https://".length));
+  });
+
+  it("clears a previous-version value the same way", () => {
+    const result = loadSettings({ ...JSON.parse(JSON.stringify(withToken)), version: PREVIOUS_SETTINGS_VERSION });
+    expect(result.outcome).toBe("upgraded");
+    expect(result.settings.rpc.url).toBe("");
+    expect(result.settings.gateway.url).toBe("");
+    expect(result.settings.auth).toEqual({ scheme: "none" });
+    expect(result.persist).toBe(true);
+    expect(result.notices).toHaveLength(1);
+  });
+
+  it("clears both URLs when only one of them names the retired host, including the FQDN-dot form", () => {
+    for (const [rpc, gateway] of [
+      [RETIRED_URL, "https://gw.test"],
+      ["https://node.test", `${RETIRED_URL}.`],
+    ] as const) {
+      const result = loadSettings(JSON.parse(JSON.stringify({ ...defaultSettings(), rpc: { url: rpc }, gateway: { url: gateway } })));
+      expect(result.settings.rpc.url).toBe("");
+      expect(result.settings.gateway.url).toBe("");
+      expect(result.persist).toBe(true);
+      expect(result.notices).toHaveLength(1);
+    }
+  });
+
+  it("leaves a stored URL on another host, its auth and its silence alone", () => {
+    const own = { ...defaultSettings(), rpc: { url: "https://node.test" }, gateway: { url: "https://gw.test" }, auth: { scheme: "bearer", token: "mine" } };
+    const result = loadSettings(JSON.parse(JSON.stringify(own)));
+    expect(result.settings.rpc.url).toBe("https://node.test");
+    expect(result.settings.auth).toEqual({ scheme: "bearer", token: "mine" });
+    expect(result.persist).toBe(false);
+    expect(result.notices).toEqual([]);
+  });
+
+  it("drops a stored gateway credential with the retired node, for a retired RPC URL or a retired gateway URL, in both versions", () => {
+    const gatewayAuth = { scheme: "bearer", token: "gw-secret" };
+    for (const [rpc, gateway] of [
+      [RETIRED_URL, "https://gw.test"],
+      ["https://node.test", RETIRED_URL],
+    ] as const) {
+      for (const version of [undefined, PREVIOUS_SETTINGS_VERSION]) {
+        const stored = { ...defaultSettings(), rpc: { url: rpc }, gateway: { url: gateway }, gatewayAuth, ...(version === undefined ? {} : { version }) };
+        const result = loadSettings(JSON.parse(JSON.stringify(stored)));
+        expect(result.settings.gatewayAuth).toBeUndefined();
+        expect("gatewayAuth" in result.settings).toBe(false);
+        expect(JSON.stringify(result.settings)).not.toContain("gw-secret");
+        expect(result.persist).toBe(true);
+      }
+    }
+  });
+
+  it("keeps a stored gateway credential untouched when no URL names the retired host", () => {
+    const gatewayAuth = { scheme: "bearer", token: "gw-mine" };
+    const own = { ...defaultSettings(), rpc: { url: "https://node.test" }, gateway: { url: "https://gw.test" }, gatewayAuth };
+    const result = loadSettings(JSON.parse(JSON.stringify(own)));
+    expect(result.settings.gatewayAuth).toEqual(gatewayAuth);
+    expect(result.persist).toBe(false);
+  });
+
+  it("clears a stored value at plugin load, says so once, writes the cleared data, and does not warn about 'open to anyone'", async () => {
     Notice.reset();
     resetRequestUrl();
     const plugin = new IpfsSyncPlugin(new StubApp(fixtureVault()) as unknown as App, MANIFEST);
     const stub = plugin as unknown as StubPlugin;
-    stub.data = JSON.parse(JSON.stringify(saved));
+    stub.data = JSON.parse(JSON.stringify(withToken));
     await plugin.onload();
-    const warnings = Notice.shown.filter((n) => n.message.includes("open to anyone"));
-    expect(warnings).toHaveLength(1);
-    expect(warnings[0]?.message).toContain("project maintainer's own node");
-    const stored = stub.data as { rpc: { url: string }; retiredDefaultNoticeShown?: boolean };
-    expect(stored.rpc.url).toBe(RETIRED_URL);
-    expect(stored.retiredDefaultNoticeShown).toBe(true);
+    const removed = Notice.shown.filter((n) => n.message.includes("removed"));
+    expect(removed).toHaveLength(1);
+    expect(Notice.shown.filter((n) => n.message.includes("open to anyone"))).toHaveLength(0);
+    const stored = stub.data as { rpc: { url: string }; gateway: { url: string }; auth: unknown; retiredDefaultNoticeShown?: boolean };
+    expect(stored.rpc.url).toBe("");
+    expect(stored.gateway.url).toBe("");
+    expect(stored.auth).toEqual({ scheme: "none" });
+    expect(JSON.stringify(stored)).not.toContain("node-secret");
 
     Notice.reset();
     const again = new IpfsSyncPlugin(new StubApp(fixtureVault()) as unknown as App, MANIFEST);
     (again as unknown as StubPlugin).data = stub.data;
     await again.onload();
-    expect(Notice.shown.filter((n) => n.message.includes("open to anyone"))).toHaveLength(0);
+    expect(Notice.shown.filter((n) => n.message.includes("removed") || n.message.includes("open to anyone"))).toHaveLength(0);
   });
 
   it("shows Not configured in the settings tab for an empty URL, and the warning for the retired host", async () => {

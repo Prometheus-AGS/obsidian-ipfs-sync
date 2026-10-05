@@ -56,7 +56,7 @@ function printFirstPull(io: CliIo, details: FirstPullDetails): void {
   io.out(`  device     ${details.device}`);
   io.out(`  files      ${details.fileCount}`);
   if (details.pathsSummary !== undefined) io.out(`  skipped    ${details.pathsRefused}: ${details.pathsSummary}`);
-  if (details.replacedLocalFiles > 0) io.out(`  replaces   ${plural(details.replacedLocalFiles, "existing local file")}; a dated copy of each is kept`);
+  if (details.replacedLocalFiles > 0) io.out(`  replaces   at least ${plural(details.replacedLocalFiles, "existing local file")}; a dated copy of each is kept`);
   for (const statement of details.statements) io.out(`  ${statement}`);
 }
 

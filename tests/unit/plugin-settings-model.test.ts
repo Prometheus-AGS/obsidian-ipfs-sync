@@ -110,6 +110,21 @@ describe("settings migration", () => {
     }
   });
 
+  it("drops the legacy auth token tied to the retired node and says credentials must be entered again", () => {
+    for (const rpcUrl of [RETIRED_URL, `${RETIRED_URL}.`]) {
+      const result = loadSettings(oldData({ rpcUrl, authToken: "legacy-secret" }));
+      expect(result.settings.auth).toEqual({ scheme: "none" });
+      expect(JSON.stringify(result.settings)).not.toContain("legacy-secret");
+      expect(result.notices).toHaveLength(1);
+      expect(result.notices[0]).toContain("enter them again");
+    }
+  });
+
+  it("still carries the legacy auth token over when the URL is not the retired node", () => {
+    const result = loadSettings(oldData({ rpcUrl: "https://node.example.org", authToken: "legacy-secret" }));
+    expect(result.settings.auth).toEqual({ scheme: "bearer", token: "legacy-secret" });
+  });
+
   it("adds the retired-node notice after the key notice when both apply", () => {
     const result = loadSettings(oldData({ rpcUrl: RETIRED_URL, keyName: "consult-capture" }));
     expect(result.notices).toHaveLength(2);

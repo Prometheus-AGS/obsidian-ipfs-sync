@@ -27,7 +27,7 @@ export interface EndpointSettings {
   readonly port?: number;
 }
 
-/** One scheme with its own fields; the scheme applies to both endpoints. Secrets are stored in plain text. */
+/** One scheme with its own fields. The node block applies to the RPC endpoint (and to the gateway as `gatewayAuth` defines). Secrets are stored in plain text. */
 export type AuthSettings =
   | { readonly scheme: "none" }
   | { readonly scheme: "basic"; readonly user: string; readonly password: string }
@@ -76,6 +76,13 @@ export interface PluginSettings {
   readonly publicationKey: string;
   readonly mfsRoot: string;
   readonly auth: AuthSettings;
+  /**
+   * The gateway's own credential. Absent means "Same as node": the shared configuration builder decides (the gateway
+   * inherits `auth` only when its origin equals the RPC origin, otherwise none). Present means explicit, and
+   * `{ scheme: "none" }` is an explicit "no credential". Sent to the gateway only. Plain text, in the same file as `auth`.
+   * Stored data without it loads as absent; the node credential is never copied into it.
+   */
+  readonly gatewayAuth?: AuthSettings;
   /** Additions to the default exclusions (the defaults themselves are not stored). */
   readonly userExclusions: readonly string[];
   /** IDs of IPNS keys this plugin created or the operator adopted. Never filled by migration. */

@@ -22,6 +22,7 @@ export interface ObsidianHostOptions {
   readonly maxReadMb?: number;
 }
 
+/** `net.fetch` calls the transport directly: it does not go through `requestEndpoint`, so it does not enforce the redirect refusal. */
 function createNet(transport: Transport): HostNet {
   return {
     fetch: async (request) => {

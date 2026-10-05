@@ -11,16 +11,42 @@ import {
   parseGroup,
   valuesFrom,
   visibleAuthFields,
+  visibleGatewayAuthFields,
+  GATEWAY_AUTH_CHOICES,
   type EditableFieldId,
   type FieldId,
   type FieldValues,
+  type GatewayAuthChoice,
+  type GatewayAuthFieldId,
 } from "./settings-fields";
+import { GATEWAY_AUTH_NOTICE } from "./settings-tab-copy";
 import { AUTH_SCHEMES, type PluginSettings } from "./settings-model";
 import type { SettingsStore } from "./settings-store";
-import { exclusionsWithConfigDir, validateSettings, type FieldError, type SettingsField } from "./settings-to-config";
+import {
+  exclusionsWithConfigDir,
+  gatewayAuthWarnings,
+  nodeCredentialWithheldFromGateway,
+  validateSettings,
+  type FieldError,
+  type SettingsField,
+} from "./settings-to-config";
 
 export { ADOPT_CONSEQUENCES, type AdoptState, type KeyStateView } from "./key-adoption";
-export { errorKeyOf, FIELD_IDS, PULL_FIELD_IDS, SECRET_FIELDS, type EditableFieldId, type FieldId, type PullFieldId } from "./settings-fields";
+export {
+  errorKeyOf,
+  FIELD_IDS,
+  GATEWAY_AUTH_CHOICES,
+  GATEWAY_AUTH_FIELD_IDS,
+  GATEWAY_AUTH_SAME,
+  GATEWAY_SECRET_FIELDS,
+  PULL_FIELD_IDS,
+  SECRET_FIELDS,
+  type EditableFieldId,
+  type FieldId,
+  type GatewayAuthChoice,
+  type GatewayAuthFieldId,
+  type PullFieldId,
+} from "./settings-fields";
 export type { ActivityView } from "./settings-activity";
 
 /**
@@ -40,6 +66,15 @@ export interface SettingsViewState {
   readonly warnings: readonly string[];
   /** True while a scheme switch or auth edit is incomplete and has not been saved. */
   readonly authPending: boolean;
+  /** The same for the gateway block: a kind was picked and its fields are not all filled in yet. */
+  readonly gatewayAuthPending: boolean;
+  /** Findings about the gateway's own credential that do not block saving, such as an expired JWT. */
+  readonly gatewayWarnings: readonly string[];
+  /**
+   * The plain-language line that says the node credential is not sent to the gateway, or an empty string. Shown only when the
+   * gateway origin differs from the RPC origin, a node credential is set and the block is "Same as node" (from what is stored).
+   */
+  readonly gatewayAuthNotice: string;
   /** Whether a node is set ("Not configured" with an explanation when not) and the retired-default warning, from what is stored. */
   readonly node: NodeStatus;
   /** The "name that will be pulled" line, from what is stored: the entered name, the owned key's ID, or a note that none is available. */
@@ -87,6 +122,8 @@ export interface SettingsViewModel {
   state(): SettingsViewState;
   /** The auth controls to show for the scheme currently in the draft. */
   visibleAuthFields(): readonly FieldId[];
+  /** The gateway controls to show for the kind currently picked in the gateway block (none for "Same as node"). */
+  visibleGatewayAuthFields(): readonly GatewayAuthFieldId[];
   /** Change one field. A valid change is saved; an invalid one leaves the saved value alone and reports the error. */
   edit(field: EditableFieldId, text: string): Promise<EditResult>;
   /** Change the pull ceiling (64 to 8192 megabytes): `edit("pullConfirmAboveMb", text)`. A valid value is saved, an invalid one reports the error under `pullConfirmAboveMb`. */
@@ -119,11 +156,16 @@ function isAuthScheme(text: string): text is AuthScheme {
   return AUTH_SCHEMES.some((scheme) => scheme === text);
 }
 
+function isGatewayChoice(text: string): text is GatewayAuthChoice {
+  return GATEWAY_AUTH_CHOICES.some((choice) => choice === text);
+}
+
 export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsViewModel {
   const now = deps.now ?? ((): Date => new Date());
   let values: FieldValues = valuesFrom(deps.store.get());
   let errors: Errors = {};
   let authPending = false;
+  let gatewayAuthPending = false;
 
   /** Errors and warnings of what is stored now. Errors are shown only for fields the user edited or that are stored invalid. */
   const stored = () => validateSettings(deps.store.get(), now());
@@ -134,6 +176,9 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       errors,
       warnings: stored().warnings,
       authPending,
+      gatewayAuthPending,
+      gatewayWarnings: gatewayAuthWarnings(settings, now()),
+      gatewayAuthNotice: nodeCredentialWithheldFromGateway(settings, now()) ? GATEWAY_AUTH_NOTICE : "",
       node: describeNode(settings),
       pullTarget: describePullTarget(previewPullTarget(settings)),
       pullTargetPreview: previewPullTarget(settings),
@@ -146,12 +191,14 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
 
   async function edit(field: EditableFieldId, text: string): Promise<EditResult> {
     if (field === "authScheme" && !isAuthScheme(text)) return { saved: false, state: snapshot() };
+    if (field === "gatewayAuthScheme" && !isGatewayChoice(text)) return { saved: false, state: snapshot() };
     values = { ...values, [field]: text };
     const group = groupOf(field);
     const keys = errorKeysOf(group);
     const parsed = parseGroup(group, values);
     if (parsed.kind === "incomplete") {
-      authPending = true;
+      if (group === "gatewayAuth") gatewayAuthPending = true;
+      else authPending = true;
       errors = replaceErrors(errors, keys, []);
       return { saved: false, state: snapshot() };
     }
@@ -169,6 +216,7 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
     const saved = await deps.store.update(parsed.apply);
     errors = replaceErrors(errors, keys, []);
     if (group === "auth") authPending = false;
+    if (group === "gatewayAuth") gatewayAuthPending = false;
     deps.onSaved?.(saved);
     return { saved: true, state: snapshot() };
   }
@@ -181,12 +229,14 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
   return {
     state: snapshot,
     visibleAuthFields: () => (isAuthScheme(values.authScheme) ? visibleAuthFields(values.authScheme) : []),
+    visibleGatewayAuthFields: () => (isGatewayChoice(values.gatewayAuthScheme) ? visibleGatewayAuthFields(values.gatewayAuthScheme) : []),
     edit,
     editPullCeiling: (text) => edit("pullConfirmAboveMb", text),
     reset: () => {
       values = valuesFrom(deps.store.get());
       errors = {};
       authPending = false;
+      gatewayAuthPending = false;
       return snapshot();
     },
 

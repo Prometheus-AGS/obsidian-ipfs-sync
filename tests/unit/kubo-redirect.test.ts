@@ -8,7 +8,7 @@ import { REDIRECT_REFUSED_MESSAGE } from "../../src/kubo/http";
 // Review finding H2: a redirect must never carry a request (and its credential) to a host the operator did not configure.
 
 const CID = "bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy";
-const STATUSES = [301, 302, 307, 308] as const;
+const STATUSES = [301, 302, 303, 307, 308] as const;
 
 interface Stub {
   readonly origin: string;
@@ -91,6 +91,14 @@ describe.each(STATUSES)("a %i answer", (status) => {
     const streamError = await failureOf(() => client.gatewayStream(CID, "", { start: 0, length: 8 }));
     expect(streamError.message).toContain(REDIRECT_REFUSED_MESSAGE);
     expect(target.requests).toEqual([]);
+  });
+});
+
+describe("the refusal text", () => {
+  it("tells the operator what to check and that redirects are never followed", () => {
+    expect(REDIRECT_REFUSED_MESSAGE).toContain("scheme");
+    expect(REDIRECT_REFUSED_MESSAGE).toContain("path");
+    expect(REDIRECT_REFUSED_MESSAGE).toContain("never followed");
   });
 });
 

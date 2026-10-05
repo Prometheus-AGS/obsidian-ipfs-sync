@@ -94,7 +94,7 @@ describe("first-pull dialog", () => {
     void confirmFirstPull(app(), { ...DETAILS, replacedLocalFiles: 3 });
     const text = lastDialog().root.textContent();
     expect(text).toContain("Local files that will be replaced");
-    expect(text).toContain("3 (a dated copy of each is kept)");
+    expect(text).toContain("at least 3 (a dated copy of each is kept)");
   });
 
   it("keeps Confirm disabled until the acknowledgement is ticked, and says in text what is missing", async () => {

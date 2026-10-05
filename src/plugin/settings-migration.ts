@@ -72,14 +72,30 @@ function intervalFrom(value: unknown): number {
 
 /** Shown once, in place of carrying the retired built-in node into the new settings (the notice never names the host). */
 const RETIRED_NODE_REMOVED_NOTICE =
-  "IPFS Sync: the built-in node of version 0.2.0 was removed, and your saved settings pointed at it, so the node URLs are now empty. Open the settings and set your own IPFS node.";
+  "IPFS Sync: the built-in node of version 0.2.0 was removed, and your saved settings pointed at it, so the node URLs are now empty. Credentials saved for it were removed too; enter them again for your own node. Open the settings and set your own IPFS node.";
+
+/** A stored endpoint URL (RPC or gateway) names the retired host. */
+function namesRetiredHost(settings: PluginSettings): boolean {
+  return isRetiredDefaultHost(settings.rpc.url) || isRetiredDefaultHost(settings.gateway.url);
+}
+
+/**
+ * Stored data of a known version that still names the retired built-in node: both URLs are emptied and the auth tied to
+ * that endpoint is dropped, so neither the URL nor a credential written for it is kept. Written back now.
+ */
+function clearRetiredNode(settings: PluginSettings, outcome: LoadOutcome): LoadResult {
+  const { gatewayAuth: _dropped, ...rest } = settings;
+  const cleared: PluginSettings = { ...rest, rpc: { url: "" }, gateway: { url: "" }, auth: { scheme: "none" } };
+  return { settings: cleared, outcome, notices: [RETIRED_NODE_REMOVED_NOTICE], persist: true };
+}
 
 function migrateLegacy(stored: Stored): LoadResult {
   const base = defaultSettings();
   const oldUrl = text(stored, "rpcUrl")?.trim().replace(/\/+$/, "");
   const retired = oldUrl !== undefined && isRetiredDefaultHost(oldUrl);
   const url = oldUrl === undefined || oldUrl === "" || retired ? base.rpc.url : oldUrl;
-  const token = text(stored, "authToken")?.trim() ?? "";
+  // A token written for the retired node is never persisted: it would go to whatever node is set next.
+  const token = retired ? "" : (text(stored, "authToken")?.trim() ?? "");
   const { key, notice } = mapKeyName(text(stored, "keyName")?.trim());
   const settings: PluginSettings = {
     ...base,
@@ -119,5 +135,7 @@ export function loadSettings(stored: unknown): LoadResult {
   if (version !== SETTINGS_VERSION && version !== PREVIOUS_SETTINGS_VERSION) return unreadable();
   const parsed = parseStoredSettings(stored);
   if (parsed === undefined) return unreadable();
-  return { settings: parsed, outcome: version === SETTINGS_VERSION ? "current" : "upgraded", notices: [], persist: false };
+  const outcome = version === SETTINGS_VERSION ? "current" : "upgraded";
+  if (namesRetiredHost(parsed)) return clearRetiredNode(parsed, outcome);
+  return { settings: parsed, outcome, notices: [], persist: false };
 }

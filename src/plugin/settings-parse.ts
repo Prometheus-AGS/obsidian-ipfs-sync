@@ -129,6 +129,9 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
   const rpc = parseEndpoint(stored["rpc"]);
   const gateway = parseEndpoint(stored["gateway"]);
   const auth = parseAuth(stored["auth"]);
+  // Absent means "Same as node". A block that is present must be well formed, like the node block.
+  const gatewayAuth = "gatewayAuth" in stored ? parseAuth(stored["gatewayAuth"]) : undefined;
+  const gatewayAuthValid = !("gatewayAuth" in stored) || gatewayAuth !== undefined;
   const kv = parseKv(stored["kv"]);
   const deviceStore = parseDeviceStore(stored["deviceStore"]);
   const pull = parsePullFields(stored);
@@ -138,6 +141,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     rpc !== undefined &&
     gateway !== undefined &&
     auth !== undefined &&
+    gatewayAuthValid &&
     kv !== undefined &&
     deviceStore !== undefined &&
     pull !== undefined &&
@@ -158,6 +162,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     publicationKey,
     mfsRoot,
     auth,
+    ...(gatewayAuth === undefined ? {} : { gatewayAuth }),
     userExclusions,
     ownedKeys,
     publishIntervalMinutes: interval,

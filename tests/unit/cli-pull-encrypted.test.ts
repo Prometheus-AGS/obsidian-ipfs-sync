@@ -91,7 +91,7 @@ describe("first pull", () => {
     const result = await rig.pull([], { confirm: no });
     expect(result.code).toBe(1);
     const shown = `${result.out}\n${result.err}`;
-    expect(shown).toMatch(/replaces\s+1 existing local file\b/);
+    expect(shown).toMatch(/replaces\s+at least 1 existing local file\b/);
     expect(shown).toContain("a dated copy of each is kept");
     expect(await readFile(local, "utf8")).toBe("my own text, different from the node's\n");
     expect(blobGets()).toEqual([]);

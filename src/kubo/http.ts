@@ -85,13 +85,14 @@ async function readDetail(response: Response): Promise<ErrorDetail> {
 
 /** Map an HTTP status to a typed error, or return nothing for a success. */
 export function statusError(endpoint: ResolvedEndpoint, url: string, status: number, detail: string, nodeMessage?: string): Error | undefined {
-  if (status === 401 || status === 403) return new KuboAuthError(endpoint.name, endpoint.baseUrl, status);
+  if (status === 401 || status === 403) return new KuboAuthError(endpoint.name, endpoint.baseUrl, status, endpoint.auth.kind !== "none");
   if (status < 200 || status >= 300) return new KuboHttpError(endpoint.name, url, status, detail, nodeMessage);
   return undefined;
 }
 
 /** The fixed text of a refused redirect. It never carries the `Location` the node named: that is the node's text, not ours. */
-export const REDIRECT_REFUSED_MESSAGE = "the endpoint answered with a redirect, which is never followed";
+export const REDIRECT_REFUSED_MESSAGE =
+  "the endpoint answered with a redirect, which is never followed; check the URL's scheme (http or https) and path, and use the address the node serves directly";
 
 const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
 

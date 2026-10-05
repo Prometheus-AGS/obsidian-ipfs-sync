@@ -2,6 +2,8 @@ import {
   authWarnings,
   buildAuth,
   ConfigError,
+  DEFAULT_MFS_ROOT,
+  DEFAULT_PUBLICATION_KEY,
   assertValidKeyName,
   composeEndpointUrl,
   resolveLocalConfig,
@@ -39,7 +41,13 @@ function rawAuth(auth: AuthSettings): RawAuthInput {
 export function settingsToLayer(settings: PluginSettings): RawConfigLayer {
   return {
     rpc: { url: settings.rpc.url, port: settings.rpc.port },
-    gateway: { url: settings.gateway.url, port: settings.gateway.port },
+    // The gateway's own auth only when the operator set a block (including none). Absent is "Same as node": the shared
+    // builder (`buildSyncConfig`) decides by origin; the plugin adds no rule of its own.
+    gateway: {
+      url: settings.gateway.url,
+      port: settings.gateway.port,
+      ...(settings.gatewayAuth === undefined ? {} : { auth: rawAuth(settings.gatewayAuth) }),
+    },
     publicationKey: settings.publicationKey,
     mfsRoot: settings.mfsRoot,
     auth: rawAuth(settings.auth),
@@ -85,6 +93,7 @@ export type SettingsField =
   | "publicationKey"
   | "mfsRoot"
   | "auth"
+  | "gatewayAuth"
   | "publishIntervalMinutes"
   | "pullName"
   /** A toggle: it never has an error, but it is a field like the others. */
@@ -150,17 +159,49 @@ function pullCeilingError(megabytes: number): FieldError | undefined {
 }
 
 /**
+ * True when a node credential is set, the gateway block is "Same as node", and the shared builder resolved the gateway
+ * to no credential (its origin differs from the RPC origin). The answer comes from `resolveSyncConfig`, not from an
+ * origin comparison of its own, so the tab can never disagree with what is sent. Unset or invalid endpoints say nothing here:
+ * the endpoint fields report those.
+ */
+export function nodeCredentialWithheldFromGateway(settings: PluginSettings, now: Date): boolean {
+  if (settings.gatewayAuth !== undefined) return false;
+  try {
+    // Only the endpoints and the node credential matter; the other fields are given valid defaults so they cannot hide the answer.
+    const layer = { ...settingsToLayer(settings), mfsRoot: DEFAULT_MFS_ROOT, publicationKey: DEFAULT_PUBLICATION_KEY };
+    const config = resolveSyncConfig([layer], now);
+    return config.rpc.auth.kind !== "none" && config.gateway.auth.kind === "none";
+  } catch {
+    // Not resolvable (an endpoint is empty or malformed, or the node credential is incomplete): nothing to explain here.
+    return false;
+  }
+}
+
+/** Warnings about the gateway's own credential, such as an expired JWT. Empty for "Same as node" (the node warning covers it). */
+export function gatewayAuthWarnings(settings: PluginSettings, now: Date): readonly string[] {
+  if (settings.gatewayAuth === undefined) return [];
+  try {
+    return authWarnings("gateway", buildAuth(rawAuth(settings.gatewayAuth), "gateway auth"), now);
+  } catch {
+    // An invalid block is reported as a field error by `validateSettings`.
+    return [];
+  }
+}
+
+/**
  * Every field checked on its own with the shared validators, so an error is shown beside the field
  * that caused it. Messages come from the validators and never contain a secret value.
  */
 export function validateSettings(settings: PluginSettings, now: Date): SettingsValidation {
   const authFailure = attempt("auth", () => buildAuth(rawAuth(settings.auth), "auth"));
+  const gatewayAuth = settings.gatewayAuth;
   const errors = [
     endpointError("rpc", settings.rpc),
     endpointError("gateway", settings.gateway),
     attempt("publicationKey", () => assertValidKeyName(settings.publicationKey)),
     attempt("mfsRoot", () => validateMfsRoot(settings.mfsRoot)),
     authFailure,
+    gatewayAuth === undefined ? undefined : attempt("gatewayAuth", () => buildAuth(rawAuth(gatewayAuth), "gateway auth")),
     intervalError(settings.publishIntervalMinutes),
     pullNameError(settings.pullName),
     readCapError(settings.maxReadMb),

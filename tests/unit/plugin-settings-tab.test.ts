@@ -153,6 +153,7 @@ describe("settings tab: keyboard order", () => {
       "RPC port",
       "Gateway URL",
       "Gateway port",
+      "Gateway authentication",
       "Publication key name",
       "MFS root",
       "Auto-publish interval (minutes)",

@@ -44,12 +44,17 @@ export class KuboError extends Error {
   }
 }
 
-/** The endpoint answered 401 or 403. */
+/** Added when a gateway without its own credential answers 401 or 403. Fixed text: it names no secret and no node text. */
+const GATEWAY_NO_CREDENTIAL_HINT =
+  "the node credential is not sent to a gateway on a different address; set a gateway credential in the plugin settings under 'Gateway authentication', or for the CLI with the IPFS_SYNC_GATEWAY_AUTH_* variables";
+
+/** The endpoint answered 401 or 403. `credentialSent` is false when the request carried no credential. */
 export class KuboAuthError extends KuboError {
   readonly status: number;
 
-  constructor(endpoint: EndpointName, url: string, status: number) {
-    super(endpoint, url, `credentials rejected by the ${endpoint} endpoint ${url} (HTTP ${status})`);
+  constructor(endpoint: EndpointName, url: string, status: number, credentialSent = true) {
+    const hint = endpoint === "gateway" && !credentialSent ? ` -- ${GATEWAY_NO_CREDENTIAL_HINT}` : "";
+    super(endpoint, url, `credentials rejected by the ${endpoint} endpoint ${url} (HTTP ${status})${hint}`);
     this.status = status;
   }
 }

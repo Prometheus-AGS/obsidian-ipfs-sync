@@ -12,7 +12,8 @@ export const RETIRED_DEFAULT_WARNING =
 
 function hostOf(url: string): string | undefined {
   try {
-    return new URL(url.trim()).hostname.toLowerCase();
+    // A trailing dot is the absolute (FQDN) form of the same host.
+    return new URL(url.trim()).hostname.replace(/\.+$/, "").toLowerCase();
   } catch {
     return undefined;
   }
