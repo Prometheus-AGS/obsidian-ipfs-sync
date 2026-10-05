@@ -1,11 +1,12 @@
-import { assertMfsMutationPath, validateMfsRoot } from "../core/config";
-import { ABANDON_CONFIRMATION, abandonVault, describeAbandonFloor, type AbandonFloor } from "../sync/vault-keys";
+import { ConfigError, assertMfsMutationPath, validateMfsRoot } from "../core/config";
+import { DeviceStoreError } from "../sync/device-store";
+import { ABANDON_CONFIRMATION, VaultKeysError, abandonVault, describeAbandonFloor, type AbandonFloor } from "../sync/vault-keys";
 import type { AbandonDialogRequest, AbandonOutcome } from "./abandon-vault-dialog";
 import { createPluginDeviceStore } from "./device-store-plugin";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
 import type { SessionKeys } from "./session-keys";
-import { describeDialogError } from "./session-dialogs";
+import { UNEXPECTED_TEXT } from "./session-dialogs";
 import type { SettingsStore } from "./settings-store";
 import { settingsToLocalConfig } from "./settings-to-config";
 import { busyNotice, type SyncLock } from "./sync-lock";
@@ -41,6 +42,23 @@ export interface AbandonFlow {
 }
 
 export const NOTHING_TO_ABANDON = "this device holds no key-slot copy, state or journal for this MFS root, so nothing was moved. Check the MFS root in the settings.";
+
+/**
+ * The only failure lines the action returns. The dialog shows them and, when it was closed after Confirm, passes them on as the outcome's
+ * `failure` ("fixed, safe text"), so no error message is ever read: a `ConfigError` echoes the typed MFS root, and a device-store or file
+ * error can carry a path.
+ */
+export const ABANDON_FAILURES = {
+  invalidRoot: "the MFS root in the settings is not valid, so nothing was moved. Check it in the settings.",
+  local: "this device's files for the MFS root could not all be moved. Check the .ipfs-sync folder in the vault before trying again.",
+  unexpected: UNEXPECTED_TEXT,
+} as const;
+
+function failureLine(error: unknown): string {
+  if (error instanceof ConfigError) return ABANDON_FAILURES.invalidRoot;
+  if (error instanceof VaultKeysError || error instanceof DeviceStoreError) return ABANDON_FAILURES.local;
+  return ABANDON_FAILURES.unexpected;
+}
 
 /** Number of files a call moved, and the backup note the dialog passes back. */
 function backupNote(backupDir: string, count: number, floor: AbandonFloor): string {
@@ -78,7 +96,7 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
       );
       return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + reread };
     } catch (error) {
-      return { ok: false, reason: describeDialogError(error) };
+      return { ok: false, reason: failureLine(error) };
     } finally {
       release();
     }

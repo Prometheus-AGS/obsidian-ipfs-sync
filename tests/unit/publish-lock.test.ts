@@ -320,6 +320,51 @@ describe("lock records", () => {
   it("describes a lock without its token", () => {
     expect(describeLock(other({ pid: 7, host: "box" }), 1_800_000_000_000 + 5_000)).toBe("process 7 on box, last heartbeat 5 s ago");
   });
+
+  // R5-L6 (b): the host is free text from the lock file (any process or machine that shares the folder can write it).
+  describe("the host is truncated to 64 characters and escaped with the shared table", () => {
+    const NOW_MS = 1_800_000_000_000;
+    const describeHost = (host: string): string => describeLock(other({ pid: 7, host }), NOW_MS + 5_000);
+
+    it("keeps a host of exactly 64 characters whole", () => {
+      const host = "h".repeat(64);
+      expect(describeHost(host)).toBe(`process 7 on ${host}, last heartbeat 5 s ago`);
+    });
+
+    it.each([65, 200, 5000])("cuts a host of %i characters to 64 and marks the cut", (length) => {
+      const text = describeHost("h".repeat(length));
+      expect(text).toContain(`on ${"h".repeat(64)}`);
+      expect(text).not.toContain("h".repeat(65));
+      expect(text.length).toBeLessThan(120);
+      expect(text).toMatch(/, last heartbeat 5 s ago$/);
+    });
+
+    it.each([
+      ["a terminal escape", "\u001b[2J", "\\u001b[2J"],
+      ["a line break", "a\nb", "a\\u000ab"],
+      ["a carriage return", "a\rb", "a\\u000db"],
+      ["a bidirectional override", "a‮b", "a\\u202eb"],
+      ["a C1 control", "a\u009bb", "a\\u009bb"],
+      ["a zero-width space", "a​b", "a\\u200bb"],
+    ])("escapes %s in the host", (_label, host, escaped) => {
+      const text = describeHost(host);
+      expect(text).toBe(`process 7 on ${escaped}, last heartbeat 5 s ago`);
+      for (const raw of ["\u001b", "\n", "\r", "‮", "\u009b", "​"]) expect(text).not.toContain(raw);
+    });
+
+    it("cuts before it escapes, so an escape is never split and the host part stays bounded", () => {
+      const text = describeHost("\u001b".repeat(200));
+      expect(text).toContain("\\u001b".repeat(64));
+      expect(text).not.toContain("\\u001b".repeat(65));
+      expect(text).not.toMatch(/\\u00(?!1b)/);
+    });
+
+    it("counts a character above the basic plane as one", () => {
+      const host = "😀".repeat(64);
+      expect(describeHost(host)).toBe(`process 7 on ${host}, last heartbeat 5 s ago`);
+      expect(describeHost("😀".repeat(65))).not.toContain("😀".repeat(65));
+    });
+  });
 });
 
 describe("publish lock races (N3-03): compare-and-replace heartbeat", () => {

@@ -18,12 +18,12 @@ export interface CliIo {
 }
 
 /**
- * A question can be asked only where both ends are a terminal: standard input to answer on, and standard output to show the consequence text that
- * the commands print there before they ask (the question itself is written to standard error). With either end redirected, the person answering
- * could not have seen what they are answering (review round 4, A-L1), so the run is one that cannot ask.
+ * A question can be asked only where all three ends are a terminal: standard input to answer on, standard output to show the consequence text that
+ * the commands print there before they ask, and standard error, where the question itself is written. With any end redirected, the person answering
+ * could not have seen what they are answering (review round 4, A-L1; round 5, R5-L3), so the run is one that cannot ask.
  */
 function canAsk(): boolean {
-  return process.stdin.isTTY === true && process.stdout.isTTY === true;
+  return process.stdin.isTTY === true && process.stdout.isTTY === true && process.stderr.isTTY === true;
 }
 
 async function askOnTerminal(question: string): Promise<boolean> {
@@ -70,7 +70,7 @@ function stripPerLine(text: string): string {
 }
 
 /**
- * The process streams. `confirm` and `prompt` exist only when standard input AND standard output are terminals: a run without both is then a run
+ * The process streams. `confirm` and `prompt` exist only when standard input, standard output AND standard error are terminals: a run without both is then a run
  * that cannot ask, and the commands that need a yes (keys change-passphrase, keys increase-cost, prune-history, abandon) refuse before they send
  * anything unless the explicit flag was given. Standard output is stripped like standard error, because a node chooses entry names and version strings.
  */

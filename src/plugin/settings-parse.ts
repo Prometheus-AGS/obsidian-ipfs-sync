@@ -124,9 +124,10 @@ function parsePullFields(stored: Stored): PullFields | undefined {
  * The publish interval is a whole number of minutes, 0 or more (0 = off). A stored number that is not (a fraction, a negative, NaN
  * or infinity) loads as the default 0, auto-publish off, instead of making the whole file unreadable: the rest of the settings
  * (credentials, owned keys, sequence floor) stay, and nothing starts publishing by itself. A value above the cap is kept; the timer holds it at the cap.
+ * `null` is the same damage: `JSON.stringify` writes NaN and infinity as `null`. Every other type stays unreadable.
  */
-function wholeMinutes(stored: number): number {
-  return Number.isInteger(stored) && stored >= 0 ? stored : 0;
+function wholeMinutes(stored: number | null): number {
+  return stored !== null && Number.isInteger(stored) && stored >= 0 ? stored : 0;
 }
 
 /**
@@ -158,7 +159,7 @@ export function parseStoredSettings(stored: Stored): PluginSettings | undefined 
     typeof mfsRoot === "string" &&
     isStringList(userExclusions) &&
     isStringList(ownedKeys) &&
-    typeof interval === "number";
+    (typeof interval === "number" || interval === null);
   if (!valid) return undefined;
   const lastPull = parsePullSummary(stored["lastPull"]);
   const lastPublish = parsePublishSummary(stored["lastPublish"]);

@@ -41,6 +41,28 @@ describe("a name that resolves to a root longer than a CID", () => {
     expect(await resolveRootCid({ nameResolve: async () => `/ipfs/${OK}` }, "k51abc")).toBe(OK);
   });
 
+  // R5-L6 (a): the message is fixed text. Nothing the node answered (nor the name) is in it, whatever the value looks like.
+  it.each([
+    ["a plain string", "not a root"],
+    ["terminal escapes", "\u001b[2J\u001b[31mforged‮"],
+    ["a long string", "x".repeat(5000)],
+    ["a path of another kind", "/ipns/k51other"],
+    ["an empty string", ""],
+  ])("resolveRootCid with %s as the answer throws one fixed message that carries neither the answer nor the name", async (_label, answer) => {
+    const errors = await Promise.all(
+      ["k51abc", "k51\u001bname"].map((name) => resolveRootCid({ nameResolve: async () => answer }, name).catch((caught: unknown) => caught)),
+    );
+    for (const error of errors) {
+      expect(error).toBeInstanceOf(PullSourceError);
+      const message = (error as Error).message;
+      if (answer !== "") expect(message).not.toContain(answer.slice(0, 10));
+      expect(message).not.toContain("forged");
+      expect(message).not.toContain("k51");
+      expect(message).not.toContain("\u001b");
+    }
+    expect((errors[0] as Error).message).toBe((errors[1] as Error).message);
+  });
+
   it("the commit adapter refuses a name value, a root stat and a current stat above the bound, and echoes nothing", async () => {
     const node = commitNodeWith({
       nameResolve: async () => `/ipfs/${LONG}`,

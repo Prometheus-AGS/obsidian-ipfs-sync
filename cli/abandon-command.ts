@@ -26,15 +26,16 @@ export interface AbandonContext {
 /** The word typed on a terminal. The plugin's dialog accepts the same word, compared the same way. */
 export const ABANDON_WORD = "abandon";
 
-/** The local files `abandon` moves, in the order `abandonVault` moves them. */
-const LOCAL_KINDS = ["keyslots", "state", "journal"] as const;
+/** The local files `abandon` moves, in the order `abandonVault` moves them: all four kinds it looks for (`maintenance` is a pending rewrap or prune). */
+const LOCAL_KINDS = ["keyslots", "state", "journal", "maintenance"] as const;
 
 /** Failures `abandon` reports as a plain message with exit code 1. */
 const REPORTED_FAILURES = [VaultKeysError, PublishRefusedError, HostPathError, DeviceStoreError] as const;
 
 const CONSEQUENCES: readonly string[] = [
-  "This device keeps a backup of its local key-slot copy, sync state and journal for this MFS root (moved, not deleted).",
+  "This device keeps a backup of its local key-slot copy, sync state, journal and key-management journal for this MFS root (moved, not deleted).",
   "Nothing on the node is changed or deleted. This command sends no request to it.",
+  "A pending key-slot rewrap or history prune is dropped from this device. Its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared tree. To withdraw it, run `ipfs-sync keys discard` before you abandon.",
   "You can then create a new vault, with `ipfs-sync init`, in an empty MFS root (use a new --mfs-root).",
 ];
 
@@ -66,7 +67,7 @@ async function confirmAbandon(ctx: AbandonContext): Promise<boolean> {
 }
 
 /**
- * `ipfs-sync abandon <vault>`: move this MFS root's local key-slot copy, sync state and journal into a backup folder
+ * `ipfs-sync abandon <vault>`: move this MFS root's local key-slot copy, sync state, journal and key-management journal into a backup folder
  * under `<vault>/.ipfs-sync/abandoned-*`. It never sends a request to the node and never deletes anything (the spec's
  * "abandon this vault" action). The confirmation is the typed word on a terminal, or the explicit `--yes-abandon`.
  * The publish lock is held while files move, so a publish running on this vault cannot be writing them.
@@ -82,7 +83,7 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
     ctx.io.out(`  vault     ${vault}`);
     ctx.io.out(`  mfs root  ${mfsRoot}`);
     if (found.length === 0) {
-      ctx.io.err("ipfs-sync: abandon: this device holds no key-slot copy, state or journal for this MFS root (check --mfs-root); nothing was moved");
+      ctx.io.err("ipfs-sync: abandon: this device holds no key-slot copy, state, journal or key-management journal for this MFS root (check --mfs-root); nothing was moved");
       return EXIT_CHECK_FAILED;
     }
     for (const line of CONSEQUENCES) ctx.io.out(`  - ${line}`);

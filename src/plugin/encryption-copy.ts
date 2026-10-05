@@ -55,8 +55,9 @@ export const ABANDON_COPY = {
   title: "Abandon this vault?",
   intro: "Use this only if the node has lost the key slots file for this vault.",
   consequences: [
-    "This device keeps a backup of its local key slots copy and its sync state.",
+    "This device keeps a backup of its local key slots copy, its sync state and any key-management journal.",
     "Nothing on the node is changed or deleted.",
+    "A pending key-slot rewrap or history prune is dropped from this device. Its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared tree. To withdraw it, run ipfs-sync keys discard on the command line before you abandon; the plugin has no discard action.",
     "You can then create a new vault in an empty MFS root.",
   ],
   confirmName: `Type "${ABANDON_PHRASE}" to confirm`,

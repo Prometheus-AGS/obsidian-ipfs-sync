@@ -1,4 +1,5 @@
 import { Modal, type App } from "obsidian";
+import { escapeForDisplay } from "../sync/path-policy";
 import { addParagraph } from "./encryption-dialog-controls";
 import { errorLine, liveRegion, markProblem } from "./settings-tab-controls";
 import { STALE_LOCK_COPY as COPY } from "./stale-lock-copy";
@@ -47,7 +48,8 @@ export class ClearStaleLockDialog extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     addParagraph(contentEl, COPY.intro);
-    addParagraph(contentEl, `${COPY.stale} ${this.request.description}.`);
+    // The description is built from the lock file (`describeLock` cuts and escapes the host); escaping again is idempotent and keeps this dialog safe whoever builds it.
+    addParagraph(contentEl, `${COPY.stale} ${escapeForDisplay(this.request.description)}.`);
     const list = contentEl.createEl("ul");
     list.id = ID.consequences;
     for (const line of COPY.consequences) list.createEl("li", { text: line });

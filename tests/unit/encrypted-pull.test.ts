@@ -839,7 +839,10 @@ describe("hostile text and the path policy", () => {
     const b = newPuller();
     const stop = stopOf(await runPull(rig, b));
     expect(stop.reason).toBe("target-unresolved");
-    expect(stop.message).toContain("\\u009b\\u202e");
+    // R5-L6 (a): the node's answer is no longer echoed at all (escaped or not); the message is the fixed text of `resolveRootCid`.
+    expect(stop.message).toContain("did not resolve to a published root");
+    expect(stop.message).not.toContain("not-a-root");
+    expect(stop.message).not.toContain("\\u009b");
     expect(stop.message).not.toContain(csi);
     expect(stop.message).not.toContain(rlo);
   });

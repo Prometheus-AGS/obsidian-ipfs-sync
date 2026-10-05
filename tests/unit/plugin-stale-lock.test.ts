@@ -253,6 +253,46 @@ describe("the plugin: command and settings section", () => {
     await vi.waitFor(() => expect(Notice.shown.map((n) => n.message)).toContain(STALE_LOCK_COPY.cleared));
   });
 
+  // R5-L6 (b): the lock file's host is free text; it reaches the dialog truncated to 64 characters and escaped.
+  describe("a hostile host in the lock file", () => {
+    const hostile = (host: string, time = STALE): Uint8Array<ArrayBuffer> => encodeLock({ token: "old", pid: 0, host, time });
+
+    it.each([
+      ["a terminal escape", "evil\u001b[2Jhost", "evil\\u001b[2Jhost"],
+      ["a bidirectional override", "a‮b", "a\\u202eb"],
+      ["a line break", "a\nFORGED: line", "a\\u000aFORGED: line"],
+    ])("the control's description escapes %s", async (_label, host, escaped) => {
+      const adapter = new MemoryAdapter();
+      adapter.put(LOCK, hostile(host));
+      const view = await control(adapter).inspect();
+      expect(view).toMatchObject({ kind: "stale" });
+      const description = (view as { description: string }).description;
+      expect(description).toContain(escaped);
+      expect(description).not.toMatch(/[\u0000-\u001f\u007f-\u009f‪-‮]/);
+    });
+
+    it("the control's description cuts a long host to 64 characters (fresh and stale alike)", async () => {
+      for (const time of [STALE, FRESH]) {
+        const adapter = new MemoryAdapter();
+        adapter.put(LOCK, hostile("h".repeat(5000), time));
+        const view = await control(adapter).inspect();
+        const description = (view as { description: string }).description;
+        expect(description).toContain("h".repeat(64));
+        expect(description).not.toContain("h".repeat(65));
+      }
+    });
+
+    it("the dialog shows the description with the unsafe characters escaped even when it is handed raw ones", () => {
+      const app = new App(new MemoryAdapter());
+      const dialog = new ClearStaleLockDialog(app as unknown as ObsidianApp, { description: "process 0 on a\u001b[2Jb‮c, last heartbeat 999 s ago", clear: async () => ({ ok: true }) }, () => undefined);
+      dialog.onOpen();
+      const text = (dialog as unknown as { contentEl: FakeEl }).contentEl.textContent();
+      expect(text).toContain("a\\u001b[2Jb\\u202ec");
+      expect(text).not.toContain("\u001b");
+      expect(text).not.toContain("‮");
+    });
+  });
+
   it("the dialog puts Cancel first and shows a refusal as text", async () => {
     const adapter = new MemoryAdapter();
     const app = new App(adapter);

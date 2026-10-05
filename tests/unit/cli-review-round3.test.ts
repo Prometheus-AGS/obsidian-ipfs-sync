@@ -298,9 +298,11 @@ describe("a run without a terminal cannot be asked (C-L2)", () => {
     });
   });
 
-  it("offers them when standard input and standard output are terminals (round 4, A-L1: both)", () => {
+  it("offers them when standard input, standard output and standard error are terminals (round 4, A-L1; round 5, R5-L3: all three)", () => {
     const original = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+    const originalErr = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
     Object.defineProperty(process.stdout, "isTTY", { value: true, configurable: true });
+    Object.defineProperty(process.stderr, "isTTY", { value: true, configurable: true });
     try {
       withTty(true, () => {
         const io = createProcessIo();
@@ -310,6 +312,8 @@ describe("a run without a terminal cannot be asked (C-L2)", () => {
     } finally {
       if (original === undefined) Reflect.deleteProperty(process.stdout, "isTTY");
       else Object.defineProperty(process.stdout, "isTTY", original);
+      if (originalErr === undefined) Reflect.deleteProperty(process.stderr, "isTTY");
+      else Object.defineProperty(process.stderr, "isTTY", originalErr);
     }
   });
 

@@ -1,3 +1,4 @@
+import { escapeForDisplay } from "./path-policy";
 import { lockHeld, lockLost, lockUnreadable } from "./publish-refusals";
 
 /**
@@ -83,10 +84,20 @@ export function decodeLock(bytes: Uint8Array): LockRecord | undefined {
   }
 }
 
-/** Fixed-format facts for a message: process id, host name and age. The token is never shown. */
+/** The longest host name `describeLock` shows, in characters (code points). The host is free text any writer of the lock file chose. */
+export const LOCK_HOST_DISPLAY_MAX = 64;
+
+/** The host cut to `LOCK_HOST_DISPLAY_MAX` characters (marked when cut), then escaped with the shared display table. */
+function displayHost(host: string): string {
+  const characters = Array.from(host);
+  const cut = characters.length > LOCK_HOST_DISPLAY_MAX;
+  return `${escapeForDisplay(cut ? characters.slice(0, LOCK_HOST_DISPLAY_MAX).join("") : host)}${cut ? "..." : ""}`;
+}
+
+/** Fixed-format facts for a message: process id, host name (cut and escaped) and age. The token is never shown. */
 export function describeLock(record: LockRecord, now: number): string {
   const seconds = Math.max(0, Math.round((now - record.time) / 1000));
-  return `process ${record.pid} on ${record.host}, last heartbeat ${seconds} s ago`;
+  return `process ${record.pid} on ${displayHost(record.host)}, last heartbeat ${seconds} s ago`;
 }
 
 export function isStaleLock(record: LockRecord, ctx: Pick<LockContext, "now" | "host" | "isProcessAlive">): boolean {

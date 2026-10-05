@@ -144,6 +144,45 @@ describe("ipfs-sync abandon", () => {
     expect(s.out.join("\n")).toContain("2 files moved");
   });
 
+  describe("R5-M1: every file kind abandonVault moves is previewed and counted", () => {
+    const ALL_KINDS = ["keyslots", "state", "journal", "maintenance"] as const;
+
+    it("names all four kinds in the preview and moves all four", async () => {
+      await writeFile(stateFile("maintenance"), "maintenance-body");
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      const text = s.out.join("\n");
+      for (const kind of ALL_KINDS) expect(text).toContain(`will move .ipfs-sync/${kind}.${digest}.json`);
+      expect(text).toContain("4 files moved");
+      const backup = join(vault, ".ipfs-sync", (await backupDirs())[0] ?? "");
+      expect(await readFile(join(backup, "maintenance.json"), "utf8")).toBe("maintenance-body");
+      expect(await exists(stateFile("maintenance"))).toBe(false);
+    });
+
+    it.each(ALL_KINDS)("a vault whose only local file is the %s file previews it and abandons (not 'nothing to move')", async (only) => {
+      for (const kind of ["keyslots", "state", "journal"]) await rm(stateFile(kind));
+      await writeFile(stateFile(only), `${only}-body`);
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      expect(s.out.join("\n")).toContain(`will move .ipfs-sync/${only}.${digest}.json`);
+      expect(s.out.join("\n")).toContain("1 file moved");
+      expect(s.err.join("\n")).not.toContain("holds no");
+      const backup = join(vault, ".ipfs-sync", (await backupDirs())[0] ?? "");
+      expect(await readFile(join(backup, `${only}.json`), "utf8")).toBe(`${only}-body`);
+    });
+
+    it("says before asking that a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard withdraws it", async () => {
+      const s = sink(["nope"]);
+      await abandon(s);
+      const text = s.out.join("\n").replace(/\s+/g, " ");
+      expect(text).toMatch(/pending key-slot rewrap or history prune/);
+      expect(text).toMatch(/dropped/);
+      expect(text).toMatch(/not withdrawn/);
+      expect(text).toMatch(/may stay in the shared tree/);
+      expect(text).toContain("ipfs-sync keys discard");
+    });
+  });
+
   it("reports that there is nothing to abandon for a root this device does not know, exit 1, no backup folder", async () => {
     const s = sink(["abandon"]);
     const code = await runCli(["abandon", vault, "--mfs-root", "/obsidian-vault-sync/unknown-root"], deps(), s.io);

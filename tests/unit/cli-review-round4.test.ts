@@ -7,11 +7,13 @@ import { escapeNodeText } from "../../src/kubo";
 
 type Tty = boolean | undefined;
 
-function withStreams(stdin: Tty, stdout: Tty, run: () => void): void {
+function withStreams(stdin: Tty, stdout: Tty, stderr: Tty, run: () => void): void {
   const originalIn = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
   const originalOut = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
+  const originalErr = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
   Object.defineProperty(process.stdin, "isTTY", { value: stdin, configurable: true });
   Object.defineProperty(process.stdout, "isTTY", { value: stdout, configurable: true });
+  Object.defineProperty(process.stderr, "isTTY", { value: stderr, configurable: true });
   try {
     run();
   } finally {
@@ -19,22 +21,29 @@ function withStreams(stdin: Tty, stdout: Tty, run: () => void): void {
     else Object.defineProperty(process.stdin, "isTTY", originalIn);
     if (originalOut === undefined) Reflect.deleteProperty(process.stdout, "isTTY");
     else Object.defineProperty(process.stdout, "isTTY", originalOut);
+    if (originalErr === undefined) Reflect.deleteProperty(process.stderr, "isTTY");
+    else Object.defineProperty(process.stderr, "isTTY", originalErr);
   }
 }
 
-describe("a question is asked only where both ends are a terminal (A-L1)", () => {
-  const cases: readonly (readonly [string, Tty, Tty, boolean])[] = [
-    ["stdin and stdout are terminals", true, true, true],
-    ["only stdin is a terminal", true, false, false],
-    ["only stdin is a terminal (stdout unknown)", true, undefined, false],
-    ["only stdout is a terminal", false, true, false],
-    ["only stdout is a terminal (stdin unknown)", undefined, true, false],
-    ["neither is a terminal", false, false, false],
-    ["neither is known", undefined, undefined, false],
+describe("a question is asked only where stdin, stdout and stderr are all terminals (A-L1, R5-L3)", () => {
+  const cases: readonly (readonly [string, Tty, Tty, Tty, boolean])[] = [
+    ["stdin, stdout and stderr are terminals", true, true, true, true],
+    ["stderr (where the question is written) is redirected", true, true, false, false],
+    ["stderr is unknown", true, true, undefined, false],
+    ["only stdin is a terminal", true, false, false, false],
+    ["stdin and stderr are terminals, stdout is not", true, false, true, false],
+    ["only stdin is a terminal (stdout unknown)", true, undefined, undefined, false],
+    ["only stdout is a terminal", false, true, false, false],
+    ["stdout and stderr are terminals, stdin is not", false, true, true, false],
+    ["only stdout is a terminal (stdin unknown)", undefined, true, undefined, false],
+    ["only stderr is a terminal", false, false, true, false],
+    ["neither is a terminal", false, false, false, false],
+    ["neither is known", undefined, undefined, undefined, false],
   ];
 
-  it.each(cases)("%s: offered=%s", (_label, stdin, stdout, offered) => {
-    withStreams(stdin, stdout, () => {
+  it.each(cases)("%s: offered=%s", (_label, stdin, stdout, stderr, offered) => {
+    withStreams(stdin, stdout, stderr, () => {
       const io = createProcessIo();
       expect(io.confirm !== undefined).toBe(offered);
       expect(io.prompt !== undefined).toBe(offered);

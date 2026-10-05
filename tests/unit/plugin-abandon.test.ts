@@ -1,7 +1,9 @@
 import type { App as ObsidianApp, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
-import { createAbandonFlow, NOTHING_TO_ABANDON, type AbandonFlowDeps } from "../../src/plugin/abandon-flow";
+import { ConfigError } from "../../src/core/config";
+import { DeviceStoreError } from "../../src/sync/device-store";
+import { ABANDON_FAILURES, createAbandonFlow, NOTHING_TO_ABANDON, type AbandonFlowDeps } from "../../src/plugin/abandon-flow";
 import { AbandonVaultDialog } from "../../src/plugin/abandon-vault-dialog";
 import { ABANDON_COPY } from "../../src/plugin/encryption-copy";
 import { defaultSettings } from "../../src/plugin/settings-model";
@@ -9,7 +11,7 @@ import type { SettingsStore } from "../../src/plugin/settings-store";
 import { bytesToBase64 } from "../../src/plugin/base64";
 import { createSyncLock } from "../../src/plugin/sync-lock";
 import { SEQUENCE_FLOOR_FILE, SEQUENCE_FLOOR_VERSION, encodeFloor } from "../../src/sync/sequence-floor";
-import { rootDigest } from "../../src/sync/vault-keys";
+import { VaultKeysError, rootDigest } from "../../src/sync/vault-keys";
 import { byId, type FakeEl } from "../support/fake-dom";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, type Plugin as StubPlugin } from "../support/obsidian-stub";
@@ -183,6 +185,84 @@ describe("abandon flow", () => {
     expect(d.lock).not.toHaveBeenCalled();
   });
 
+  // R5-L6 (c): the text returned by the action, and so the post-close `failure`, comes from a closed set of fixed lines; no error message is read.
+  describe("a failure is a fixed line, never an error message", () => {
+    const HOSTILE = "\u001b[2JFORGED /Users/someone/secret-path";
+    const throwing = (error: unknown): SettingsStore =>
+      ({
+        get: () => {
+          throw error;
+        },
+      }) as unknown as SettingsStore;
+    const FIXED = new Set<string>(Object.values(ABANDON_FAILURES));
+
+    it.each([
+      ["a ConfigError that echoes the typed root", new ConfigError("unsafe-mfs-path", `refusing to modify "${HOSTILE}"`), ABANDON_FAILURES.invalidRoot],
+      ["a VaultKeysError", new VaultKeysError("abandon-not-confirmed", HOSTILE), ABANDON_FAILURES.local],
+      ["a DeviceStoreError", new DeviceStoreError(HOSTILE), ABANDON_FAILURES.local],
+      ["a plain Error", new Error(HOSTILE), ABANDON_FAILURES.unexpected],
+      ["a thrown string", HOSTILE, ABANDON_FAILURES.unexpected],
+      ["a thrown object", { message: HOSTILE }, ABANDON_FAILURES.unexpected],
+    ])("%s becomes one fixed line", async (_label, error, expected) => {
+      const d = deps({ store: throwing(error) });
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toEqual({ ok: false, reason: expected });
+      expect(FIXED.has((result as { reason: string }).reason)).toBe(true);
+      expect(JSON.stringify(result)).not.toContain("FORGED");
+      expect(JSON.stringify(result)).not.toContain("secret-path");
+    });
+
+    it("an MFS root with hostile text in the settings is refused with the fixed line, not the typed root", async () => {
+      const bad = { get: () => ({ ...defaultSettings(), mfsRoot: `/elsewhere${HOSTILE}` }) } as unknown as SettingsStore;
+      const d = deps({ store: bad });
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toEqual({ ok: false, reason: ABANDON_FAILURES.invalidRoot });
+    });
+
+    it("the dialog closed after Confirm reports the fixed line as its failure", async () => {
+      const bad = { get: () => ({ ...defaultSettings(), mfsRoot: `/elsewhere${HOSTILE}` }) } as unknown as SettingsStore;
+      const app = new StubApp(new MemoryAdapter()) as unknown as ObsidianApp;
+      const finished = vi.fn();
+      const d = deps({
+        store: bad,
+        openDialog: (request, onFinish) => {
+          const dialog = new AbandonVaultDialog(app, request, (outcome) => {
+            finished(outcome);
+            onFinish(outcome);
+          });
+          dialog.open();
+          return dialog;
+        },
+      });
+      void createAbandonFlow(d.all).open();
+      const dialog = Modal.instances.at(-1) as unknown as { contentEl: FakeEl; close(): void };
+      const field = byId(dialog.contentEl, "ipfs-sync-abandon-confirm");
+      if (field === undefined) throw new Error("no confirmation field");
+      field.value = "abandon";
+      await field.dispatch("input");
+      const pressed = button(dialog.contentEl, ABANDON_COPY.confirm).dispatch("click");
+      dialog.close();
+      await pressed;
+      await flush();
+      expect(finished).toHaveBeenCalledTimes(1);
+      expect(finished).toHaveBeenCalledWith({ abandoned: false, failure: ABANDON_FAILURES.invalidRoot });
+    });
+  });
+
+  // R5-M1: a device whose only local file is a maintenance journal still abandons; the move is not 'nothing to abandon'.
+  it.each(["keyslots", "state", "journal", "maintenance"] as const)("moves a device whose only local file is the %s file", async (only) => {
+    const d = deps();
+    const digest = await rootDigest(defaultSettings().mfsRoot);
+    d.adapter.put(`.ipfs-sync/${only}.${digest}.json`, `${only}-body`);
+    void createAbandonFlow(d.all).open();
+    const result = await d.request()?.abandon();
+    expect(result).toMatchObject({ ok: true });
+    expect((result as { backupNote: string }).backupNote).toContain("1 file moved");
+    expect([...d.adapter.files.keys()].some((path) => path.endsWith(`/${only}.json`) && path.includes("abandoned-"))).toBe(true);
+  });
+
   describe("sequence floor", () => {
     const VAULT_ID = "e".repeat(32);
 
@@ -220,6 +300,17 @@ describe("abandon flow", () => {
       const result = await d.request()?.abandon();
       expect((result as { backupNote: string }).backupNote).toContain("sequence floor kept: none");
     });
+  });
+
+  it("R5-M1: the dialog's consequences say a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard withdraws it", () => {
+    const text = ABANDON_COPY.consequences.join(" ").replace(/\s+/g, " ");
+    expect(text).toMatch(/pending key-slot rewrap or history prune/);
+    expect(text).toMatch(/dropped/);
+    expect(text).toMatch(/not withdrawn/);
+    expect(text).toMatch(/may stay in the shared tree/);
+    expect(text).toContain("ipfs-sync keys discard");
+    // The existing statements stay.
+    expect(text).toContain("Nothing on the node is changed or deleted");
   });
 
   it("closes an open dialog when disposed", () => {

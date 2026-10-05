@@ -35,7 +35,7 @@ export const UNLOCK_WRONG_TEXT = "That passphrase did not open this vault. Check
 export const UNLOCK_FORMAT_TEXT = "That is not a valid passphrase. Check it and try again.";
 export const CLOSE_AND_RETRY_TEXT = "This attempt is over. Close this dialog and start again from the plugin.";
 export const ENDED_TEXT = "The vault was locked or the plugin was stopped before this finished. Nothing was changed.";
-const UNEXPECTED_TEXT = "an unexpected error occurred; see the developer console for details";
+export const UNEXPECTED_TEXT = "an unexpected error occurred; see the developer console for details";
 
 /** Errors whose messages the shared layers promise are fixed text without secrets. Any other error shows a generic line. */
 const SAFE_ERRORS = [ConfigError, CryptoError, VaultKeysError, VaultSetupRefusedError, PublishRefusedError, RootStateError, KuboError] as const;

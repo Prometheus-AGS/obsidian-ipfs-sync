@@ -61,7 +61,45 @@ describe("the default config file and the exit codes (A-L11)", () => {
     const exit = flat.slice(flat.indexOf("Exit codes:"));
     expect(exit).toMatch(/keys change-passphrase, keys increase-cost, keys discard, prune-history and abandon/);
     expect(exit).toMatch(/neither a terminal[^.]*nor its confirming flag exits 2 before any request/);
-    expect(exit).toMatch(/standard input and standard output/);
+    expect(exit).toMatch(/standard input, standard output and standard error must all be one/);
     expect(exit).toMatch(/asked and declined exits 1/);
+  });
+});
+
+describe("--accept-first-pull covers the replace consequence on a true first pull (R5-L4)", () => {
+  const entry = (): string => optionEntry("--accept-first-pull");
+  const pullEntry = (): string => flat.slice(flat.indexOf("pull <vault> Bring"), flat.indexOf("abandon <vault> Abandon"));
+
+  it("the option entry says a true first pull into a non-empty directory replaces differing files, keeps dated copies, and is covered by this flag", () => {
+    expect(entry()).toMatch(/true first pull/i);
+    expect(entry()).toMatch(/non-empty directory/);
+    expect(entry()).toMatch(/replace/);
+    expect(entry()).toMatch(/dated cop(y|ies)/);
+    expect(entry()).toMatch(/covers/);
+  });
+
+  it("the pull entry says the same and still sends the no-state case to --accept-replace", () => {
+    const pull = pullEntry();
+    expect(pull).toMatch(/true first pull[^.]*non-empty directory[^.]*--accept-first-pull[^.]*(replace|replaces)/);
+    expect(pull).toMatch(/dated cop(y|ies)/);
+    expect(pull).toMatch(/needs --accept-replace \(not --accept-first-pull\)/);
+  });
+});
+
+describe("abandon: what it moves and what it leaves (R5-M1)", () => {
+  const abandon = (): string => flat.slice(flat.indexOf("abandon <vault> Abandon"), flat.indexOf("keys change-passphrase <vault> Replace"));
+
+  it("names all four local files, maintenance included", () => {
+    const text = abandon();
+    for (const name of ["keyslots.<h>.json", "state.<h>.json", "journal.<h>.json", "maintenance.<h>.json"]) expect(text).toContain(name);
+  });
+
+  it("says a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard is the command that withdraws it", () => {
+    const text = abandon();
+    expect(text).toMatch(/pending (key-slot )?rewrap or (history )?prune/);
+    expect(text).toMatch(/dropped/);
+    expect(text).toMatch(/not withdrawn/);
+    expect(text).toMatch(/may stay in the shared tree/);
+    expect(text).toMatch(/keys discard[^.]*withdraws/);
   });
 });

@@ -422,10 +422,35 @@ describe("B-L4: the publish interval is a whole number of minutes", () => {
     expect(loadSettings(stored(value)).settings.publishIntervalMinutes).toBe(value);
   });
 
-  it("still treats a non-number as unreadable", () => {
+  it("still treats a non-number (other than null) as unreadable", () => {
     expect(loadSettings(stored("5")).outcome).toBe("unreadable");
-    expect(loadSettings(stored(null)).outcome).toBe("unreadable");
   });
+
+  // R5-L5: JSON.stringify turns NaN and Infinity into null, so a stored null is a damaged number, not a different type.
+  it("loads a stored null (what JSON.stringify makes of NaN or Infinity) as 0 and keeps the rest of the file", () => {
+    const result = loadSettings(stored(null));
+    expect(result.outcome).not.toBe("unreadable");
+    expect(result.settings.publishIntervalMinutes).toBe(0);
+    expect(result.settings.rpc.url).toBe("https://node.test");
+    expect(result.settings.mfsRoot).toBe(testNodeSettings().mfsRoot);
+  });
+
+  it("round trips NaN and Infinity through JSON text to 0", () => {
+    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const reread: unknown = JSON.parse(JSON.stringify(stored(value)));
+      const result = loadSettings(reread);
+      expect(result.outcome).not.toBe("unreadable");
+      expect(result.settings.publishIntervalMinutes).toBe(0);
+      expect(result.settings.rpc.url).toBe("https://node.test");
+    }
+  });
+
+  it.each([["a string", "5"], ["an object", {}], ["a boolean", true], ["an array", []], ["undefined (absent)", undefined]])(
+    "keeps %s unreadable",
+    (_label, value) => {
+      expect(loadSettings(stored(value)).outcome).toBe("unreadable");
+    },
+  );
 
   describe("the timer", () => {
     afterEach(() => vi.unstubAllGlobals());

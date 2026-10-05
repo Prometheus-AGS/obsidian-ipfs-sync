@@ -46,6 +46,8 @@ Commands:
                           it on purpose (--allow-rollback with --root-cid or --manifest). Reads only (name resolve,
                           gateway); writes nothing to the node. The first pull of a vault on this device shows the
                           sequence, date and device the vault key holder chose and asks (or needs --accept-first-pull).
+                          On a true first pull into a non-empty directory, --accept-first-pull also covers the replace
+                          consequence: files that differ from the node's copy are replaced and a dated copy is kept.
                           A pull into a directory that holds no state for a vault this device already knows (a copy
                           restored without its .ipfs-sync folder, or a second directory) replaces every file that differs
                           from the node's copy by the node's text and keeps a dated copy of the local text; it asks when
@@ -54,13 +56,17 @@ Commands:
                           Output lists integrity-failed files, files not fetched and skipped paths apart. ${PULL_SCOPE_HELP} A root that holds a plaintext
                           manifest.json and no key slots is refused (exit 2): plaintext publications are no longer
                           supported, and nothing is written.
-  abandon <vault>         Abandon this device's vault for the MFS root: move the local key-slot copy, sync state and
-                          journal (.ipfs-sync/keyslots.<h>.json, state.<h>.json, journal.<h>.json) into
-                          .ipfs-sync/abandoned-<h>-<time>/, keeping them as a backup. Use it when a refusal says to
-                          abandon this vault (the node lost the key slots, or its state cannot be repaired). It never
-                          contacts the node and deletes nothing; afterwards create a new vault with init in an empty
-                          MFS root (a new --mfs-root). On a terminal it shows what will move and asks you to type the
-                          word "abandon"; without a terminal it does nothing unless --yes-abandon is given.
+  abandon <vault>         Abandon this device's vault for the MFS root: move the local key-slot copy, sync state,
+                          journal and key-management journal (.ipfs-sync/keyslots.<h>.json, state.<h>.json,
+                          journal.<h>.json, maintenance.<h>.json) into .ipfs-sync/abandoned-<h>-<time>/, keeping
+                          them as a backup. Use it when a refusal says to abandon this vault (the node lost the key
+                          slots, or its state cannot be repaired). It never contacts the node and deletes nothing;
+                          afterwards create a new vault with init in an empty MFS root (a new --mfs-root). A pending
+                          key-slot rewrap or history prune is dropped from this device, but its write to the node is
+                          not withdrawn: a rewritten key-slot file may stay in the shared tree, and keys discard is the
+                          command that withdraws it (run it before you abandon). On a terminal it shows what will move
+                          and asks you to type the word "abandon"; without a terminal it does nothing unless
+                          --yes-abandon is given.
   keys change-passphrase <vault>
                           Replace the vault's key slot by one under a NEW generated passphrase (never one you choose),
                           wrapping the same vault key. Nothing is re-encrypted; manifest.enc and the sequence do not change.
@@ -173,7 +179,10 @@ Options:
   --expect-vault-id <id>  pull, keys accept-slots: refuse unless the vault id (32 lowercase hex characters) matches; checked before any key
                           derivation.
   --accept-first-pull     pull: the non-interactive yes to the first-pull question only (a vault this device has never pulled).
-                          Without a terminal a first pull is refused without it. It does not answer the --accept-replace question below.
+                          Without a terminal a first pull is refused without it. On a true first pull into a non-empty
+                          directory it also covers the replace consequence: files that differ from the node's copy are
+                          replaced by the node's text, and a dated copy of each local text is kept. It does not answer the
+                          --accept-replace question below.
   --accept-replace        pull: the non-interactive yes to the question of a pull into a directory with no state for a vault
                           this device already knows, where files that differ from the node's copy are replaced. Without a
                           terminal that pull stops (exit 1) without it.
@@ -221,7 +230,7 @@ Precedence: flags > environment > config file > defaults.
 
 Exit codes: 0 ok, 1 a check, publish or pull failed, 2 usage, unsafe configuration or a refused pull destination
 (no request is sent). A command that needs a yes (keys change-passphrase, keys increase-cost, keys discard, prune-history and
-abandon) and has neither a terminal (standard input and standard output must both be one) nor its confirming flag exits 2 before
+abandon) and has neither a terminal (standard input, standard output and standard error must all be one) nor its confirming flag exits 2 before
 any request; a confirmation that is asked and declined exits 1. For pull, 1 also means: a file failed verification or was not fetched, a path was skipped as unsafe
 (a name another platform can write, or a path no honest publisher produces), or the pull stopped at a check (wrong
 passphrase, rollback, fork, a held lock, a first pull that was not confirmed); 0 also covers paths skipped as expected

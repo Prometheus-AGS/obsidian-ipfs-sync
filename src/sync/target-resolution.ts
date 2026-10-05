@@ -7,6 +7,7 @@ import { PullSourceError, PullTargetError } from "./pull-errors";
 export const CID_MAX_LENGTH = 128;
 /** A resolved root path is captured at any length so a too-long identifier gets its own fixed refusal below. */
 const ROOT_PATH = /^\/ipfs\/([A-Za-z0-9]{10,})$/;
+const NOT_A_PUBLISHED_ROOT = "the name did not resolve to a published root (an IPFS path with a CID); nothing was written";
 
 /** IPNS key IDs and CIDs share one alphanumeric token rule (`isCidToken`). Anything else never reaches a request. */
 export function isIpnsName(value: string): boolean {
@@ -39,7 +40,8 @@ export async function chooseIpnsName(client: Pick<KuboClient, "keyList">, input:
 export async function resolveRootCid(client: Pick<KuboClient, "nameResolve">, ipnsName: string): Promise<string> {
   const resolved = await client.nameResolve(ipnsName);
   const match = ROOT_PATH.exec(resolved);
-  if (match?.[1] === undefined) throw new PullSourceError(`name ${ipnsName} resolved to "${resolved}", which is not a published root`);
+  // Fixed text: neither the node's answer nor the name is echoed (both can carry text the node chose), so the message is safe to show as it is.
+  if (match?.[1] === undefined) throw new PullSourceError(NOT_A_PUBLISHED_ROOT);
   if (match[1].length > CID_MAX_LENGTH) throw new PullSourceError("the name resolved to a root identifier longer than a CID can be; nothing was written");
   return match[1];
 }
