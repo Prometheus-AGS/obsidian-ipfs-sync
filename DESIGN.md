@@ -538,8 +538,17 @@ store (`createSettingsStore`) calls `UnreadableBackup.save` before that first sa
 named to a free name if one exists. A copy that fails fails the save, so the original stays and memory does not run ahead
 of disk. This is a copy of a secret store with no encryption and no expiry; the notice tells the user to delete it.
 `MAX_PUBLISH_INTERVAL_MINUTES` is 35,000 (a timer holds about 35,791 minutes), applied by validation and, for an older
-stored value, by `rearmAutoPublish`. The abandon and clear-stale-lock dialogs no longer report a cancel when Escape closes
-them mid-run: they report the real result.
+stored value, by `rearmAutoPublish`. The interval is a whole number of minutes: `wholeMinutes` in `settings-parse.ts` loads a
+stored fraction, negative or non-finite value as 0 (off) instead of making the file unreadable, so credentials, owned keys and
+the floor stay; `rearmAutoPublish` treats a non-finite or non-positive value as off. The abandon and clear-stale-lock dialogs no
+longer report a cancel when Escape closes them mid-run: they report the real result, and a failure after the dialog is gone
+reaches the user as a notice (`AbandonOutcome.failure`, fixed text for a thrown error). Round 4: any change of origin in the
+node or gateway block blanks that block's unsaved draft credential and puts its picker back to the stored kind
+(`originChanged` from `clearCredentialOnOriginChange`), not only a change that cleared a stored credential. The settings store
+clears its pending-copy flag only after the save succeeds, and the unreadable-file copy is read back before the save
+(`readsBack` in `unreadable-backup.ts`). One redirect sentence (`SECRETS_REDIRECT_NOTE`) sits in the Authentication section
+below the credential fields while a node or gateway credential kind is chosen; with only a gateway credential it is not beside
+the gateway fields, and `styles.css` does not exist, so it has no rule.
 
 Which endpoint gets the credential is decided in `src/core/config/build-config.ts`. The global auth is the RPC credential.
 The gateway inherits it only when the gateway origin (scheme, host and port) equals the RPC origin; on any other origin it
@@ -712,8 +721,8 @@ is shared by every path of one host. This control was not rendered in Obsidian o
   does not stop a CLI publish on the same vault folder. A lock file that cannot be parsed has no known age and is
   not clearable from the plugin: use `ipfs-sync publish --break-lock` on a computer. `--break-lock` deletes a live lock
   if it is run while a plugin publish is running. These actions have not run in Obsidian.
-- **Vault writes by the CLI host bridge.** `cli/node-host-bridge.ts` now creates directories 0700 and files 0600 for
-  vault writes, and writes through a temporary file. A crash can leave `.<name>.<pid>.<uuid>.tmp` inside a vault
+- **Vault writes by the CLI host bridge.** `cli/node-host-bridge.ts` creates files 0600 and the `.ipfs-sync` state folder
+  0700 (other folders keep the platform default; see section 8.8), and writes through a temporary file. A crash can leave `.<name>.<pid>.<uuid>.tmp` inside a vault
   directory.
 - **Plugin setup writes only the local copy.** Setup creates the local key-slot copy; the next publish writes
   `keyslots.json` to the node. The plugin cannot repair a vault; use the CLI.
@@ -834,11 +843,29 @@ the value is never echoed. A `./ipfs-sync.config.json` that was found, not asked
 (`assertImplicitFileDoesNotSteerCredential`, `cli/load-config.ts`); `--config` lifts the check. A credential on a
 non-loopback `http:` endpoint gives a warning (`plainHttpWarnings`, `src/core/config/build-config.ts`). The state folder
 must not be a symbolic link for any command that takes a vault (`cli/state-folder-link.ts`, called from `assertDirectory`
-and from the key-value store and lock file on every operation), and `.ipfs-sync/` is created 0700. Standard input that is
-not a terminal gives `CliIo` no `confirm` or `prompt`, so the commands that need a yes refuse before sending anything.
-Node-supplied text is escaped in `status`, `escapeNodeText` covers zero-width and invisible code points, and a root CID
-over 128 characters is refused where it enters (`src/sync/target-resolution.ts`, `commit-node.ts`, `src/kubo/ipns.ts`),
-because the local record would write it and then refuse to read it back.
+and from the key-value store and lock file on every operation), and `.ipfs-sync/` is created 0700. Standard input and
+standard output must both be terminals (`canAsk` in `cli/io.ts`) for `CliIo` to have a `confirm` or `prompt`; with either
+redirected the commands that need a yes refuse before sending anything, because the consequence text goes to standard output
+before the question. Node-supplied text is escaped in `status`, and `escapeNodeText` and the CLI's output stripping share one
+code-point table (`isUnsafeCodePoint`, `src/kubo/errors.ts`).
+
+**One CID rule (review round 4).** `isCidToken` in `src/sync/local-record.ts` (10 to 128 alphanumeric characters) is asked by
+every reader of a local file, every writer of one (`assertPersistableCid` in `writeJournal`, `writeMaintenanceJournal` and
+`writeRootState`: a value the readers would refuse is not persisted) and every place a node value becomes a CID
+(`src/sync/target-resolution.ts`, `commit-node.ts`, `maintenance-node.ts`). `rootOfPath` accepts only `/ipfs/<cid>`; any
+other shape is refused with fixed text. The gateway layer has its own copy of the bound (`src/kubo/gateway.ts` cannot import the
+sync layer). Earlier rounds fixed one value at a time and each fix passed its own example. The rule is now one function. Any
+place that still tests a CID against its own pattern is the next gap, and no search for such a place has been run.
+
+**Addresses (round 4).** `displayAddress` returns "invalid address" unless the parsed protocol is `http:` or `https:` and the
+host is not empty, so `user:secret@host:5001` (scheme `user:`) is not echoed; the "must use http or https" error is fixed text
+without the scheme. The explicit-port check runs on `parserView` of the text (tabs and line breaks removed, leading and
+trailing controls and spaces stripped, backslash read as slash), so it sees what the URL parser sees. A plain `http:`
+credential warning exempts `localhost`, `127.0.0.0/8` and `[::1]` only (`.localhost` names are no longer exempt).
+
+**CLI host bridge directory modes.** `fs.write`, `mkdir`, `rename` and `append` take the per-path mode: the state folder and
+everything below it is 0700 (the first path segment is compared by `foldKey`, so a case variant counts), other
+folders keep the platform default. Files are 0600.
 
 ### 8.9 The publish guard, its removal and the release gate
 
@@ -945,7 +972,10 @@ In order, and what each step may write:
    required when the verdict is not `first-pull` but the directory has no state for this root (`run.state === undefined`
    in `authorize`): the device holds a floor, the folder holds no baseline, and every differing file is a conflict. It asks
    only when the preview count is above zero, and it shows `NO_STATE_PULL_STATEMENT` in place of the no-baseline statement.
-   `--accept-first-pull` skips it; a run with no way to ask stops with `first-pull-not-confirmed`. The CLI passes the vault
+   Each question has its own flag, read in `confirmFirstPull`: `--accept-first-pull` (`acceptFirstPull`) skips only the
+   true first pull, and this no-state question needs `--accept-replace` (`acceptReplace`). A run with no way to ask stops
+   with `first-pull-not-confirmed` and names the flag that fits (`NO_STATE_NOT_CONFIRMED_MESSAGE` names `--accept-replace`). A
+   script that passed `--accept-first-pull` for the second case stops here now. The CLI passes the vault
    path as `destination` and prints it; the plugin does not pass one. Only then are the key-slot copy and, for a first pull or a
    newer manifest, the floor written. Nothing is written before this step except the lock and the sweep.
 7. Plan: for every manifest path, the path policy first, then the symbolic-link prefix walk, then the three-way rule on

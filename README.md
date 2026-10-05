@@ -99,7 +99,9 @@ What the plugin does today:
 
 - Commands (`Ctrl/Cmd+P`): **IPFS Sync: Publish vault**, **IPFS Sync: Pull vault**,
   **IPFS Sync: Restore an older version**, **IPFS Sync: Resolve fork** and **IPFS Sync: Show status**. Two ribbon icons
-  run Publish and Pull. An optional auto-publish interval (minutes, 0 = off, at most 35,000) is set in the settings tab.
+  run Publish and Pull. An optional auto-publish interval (a whole number of minutes, 0 = off, at most 35,000) is set in the settings tab.
+  A stored value that is a fraction, negative or not a finite number loads as 0 (off) and the rest of the settings,
+  credentials included, are kept.
 - **Publish is encrypted and needs the vault passphrase.** On a device with no vault, Publish opens the setup dialog;
   only its **Create vault** button creates one. The dialog shows the generated passphrase once, in five groups of
   five, asks you to save it in a password manager and type it again, and states that a lost passphrase means the data
@@ -186,11 +188,20 @@ What the plugin does today:
 - **An unreadable `data.json` is copied before it is replaced.** The first save after an unreadable load would replace
   the file with defaults. Before it does, the plugin copies the file to `data.json.unreadable-<UTC timestamp>` in the
   plugin folder and shows a notice with the path. **The copy is plain text and holds the same secrets as the
-  original** (credentials, owned keys, the sequence floor record); delete it when you no longer need it. If the copy
-  cannot be written, the save is refused and the original stays.
+  original** (credentials, owned keys, the sequence floor record); delete it when you no longer need it. The copy is
+  read back and compared byte for byte before the save goes ahead. If it cannot be written or does not read back
+  identical, the save is refused and the original stays. The plugin's note that a copy is still owed clears only after the
+  save succeeds, so a failed save makes the next attempt copy again.
 - **A credential does not follow an address change.** Changing the node URL or port to another origin blanks the stored
   node credential. Changing the gateway origin drops the gateway credential; an explicit None is kept. A plain line
-  under the field says so. Typing the new address does not carry the old secret to the new host.
+  under the field says so. Typing the new address does not carry the old secret to the new host. Any change of origin
+  also blanks the credential you typed but have not saved for that block (node or gateway), and puts that block's kind
+  picker back to what is stored, so a half-typed secret cannot be completed and saved for the new host.
+- **One sentence about redirects sits under the credential fields**, in the Authentication section, while a node or
+  gateway credential kind is chosen: "Requests may follow redirects the plugin cannot see, so use a node address you
+  trust and prefer Basic or Bearer over a custom header." It is below the node and gateway fields together. With only a
+  gateway credential it is not beside the gateway fields. It has the class `ipfs-sync-redirect-note` and no style rule,
+  because `styles.css` does not exist. The note is a warning, not a control: see "Redirects" below.
 - **Editing an address, port or credential does not ask the node about the key.** The key row then says it was not
   checked since the settings changed; press **Check again**. Opening the tab still checks. The settings tab is emptied
   when it closes, so a typed secret does not stay in the page.
@@ -218,8 +229,8 @@ fetch each file from the immutable tree the authenticated manifest names (never 
 last. A pull that dies earlier leaves whole, verified files and the old state.
 
 - **Flags** (all in `--help`): `--name`, `--root-cid`, `--manifest`, `--allow-rollback`, `--resolve-fork`,
-  `--expect-min-sequence`, `--expect-vault-id`, `--accept-first-pull`, `--max-bytes`, `--accept-large`,
-  `--list-versions`. `--allow-plaintext-v1` and `--manifest-file` are gone and are rejected as unknown options.
+  `--expect-min-sequence`, `--expect-vault-id`, `--accept-first-pull`, `--accept-replace`, `--max-bytes`,
+  `--accept-large`, `--list-versions`. `--allow-plaintext-v1` and `--manifest-file` are gone and are rejected as unknown options.
 - **The record and the floor.** This device records the highest manifest sequence it accepted, in
   `.ipfs-sync/state.<h>.json` and in a sequence floor outside the vault (CLI: `sequence-floor.json` in a per-user
   directory; plugin: the `deviceStore` section of the plugin data). A node that serves a lower sequence than the record
@@ -239,8 +250,10 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   for the vault's root, even if this device already holds a sequence floor for the vault, and at least one local file
   differs from the node's copy. Without state nothing is a baseline, so every differing file takes the node's text and a
   dated copy of the local text is kept. The question says so, in a fixed statement, and the CLI also prints the
-  destination path ("into"). An empty folder, or one whose files all match, is not asked. `--accept-first-pull` skips the
-  question; a run that cannot ask stops with `first-pull-not-confirmed` and writes nothing. The uncomfortable part: every
+  destination path ("into"). An empty folder, or one whose files all match, is not asked. `--accept-replace` skips the
+  question; `--accept-first-pull` does not. Each flag answers only its own question, so a script that passes
+  `--accept-first-pull` for a first pull no longer replaces files in a folder it has no state for. A run that cannot ask
+  stops with `first-pull-not-confirmed` (exit 1) and writes nothing. The uncomfortable part: every
   recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) puts you back here with no baseline, and
   the baseline is what protects you from what the node serves. Abandon keeps the sequence floor; deleting the floor too
   removes the rest.
@@ -366,7 +379,7 @@ node dist/cli/ipfs-sync.mjs publish <vault> [--repair] [--recover-slots] [--brea
     [--allow-mass-removal]
 node dist/cli/ipfs-sync.mjs pull <vault> [--name <ipns-id>] [--root-cid <cid> | --manifest <cid>]
     [--allow-rollback | --resolve-fork] [--expect-min-sequence <n>] [--expect-vault-id <id>]
-    [--accept-first-pull] [--max-bytes <n>] [--accept-large]
+    [--accept-first-pull] [--accept-replace] [--max-bytes <n>] [--accept-large]
 node dist/cli/ipfs-sync.mjs pull <vault> --list-versions
 node dist/cli/ipfs-sync.mjs keys change-passphrase <vault> [--cost standard|high] [--passphrase-file <path>]
     [--accept-no-revocation] [--allow-downgrade]
@@ -383,8 +396,9 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
 - `pull` fetches only files whose sha256 differs, from an encrypted root (see "Pull"), with the same passphrase sources as
   `publish`. `pull` without `--name` uses the ID of the owned `obsidian-vault-sync` key. `--manifest <cid>` or
   `--root-cid <cid>` with `--allow-rollback` restores an earlier version; `--list-versions` shows the newest 20 history
-  entries; `--resolve-fork` merges after a fork. `--accept-first-pull` and `--accept-large` are the non-interactive yes
-  to the first-pull and the large-pull questions; `--max-bytes` sets the ceiling (default 536870912, 512 MiB). Exit
+  entries; `--resolve-fork` merges after a fork. `--accept-first-pull`, `--accept-replace` and `--accept-large` are the
+  non-interactive yes to the first-pull, the replace (a folder with no state for a vault this device knows) and the
+  large-pull questions; each answers only its own. `--max-bytes` sets the ceiling (default 536870912, 512 MiB). Exit
   codes: 0 ok, 1 a file failed or was not fetched, a path was skipped as unsafe, or the pull stopped at a check, 2
   usage or a refused destination (a plaintext root is one). The `keys` commands and `prune-history` are described
   under "Change the passphrase or the cost" and "History growth"; every flag above is in `--help`.
@@ -415,22 +429,42 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   `./ipfs-sync.config.json` if it exists. While a credential is configured by environment or flags, such a file that
   sets `rpc.url` or `gateway.url` is refused (exit 2) unless the same address is set by flag or environment. Pass
   `--config <path>` to use that file on purpose. A file you name is not judged.
-- **A plain `http:` address with a credential gives a warning** when the host is not loopback (`localhost`,
-  `*.localhost`, `127.x.x.x`, `[::1]`). It is a warning, not a refusal: anyone on the network path can read the
-  credential.
+- **A plain `http:` address with a credential gives a warning** when the host is not loopback. Only `localhost`,
+  `127.x.x.x` and `[::1]` are exempt; `name.localhost` is no longer exempt. It is a warning, not a refusal: anyone on
+  the network path can read the credential.
 - **The state folder must not be a symbolic link.** `publish`, `init`, `keys`, `prune-history`, `pull --list-versions`
   and `abandon` refuse a symlinked `<vault>/.ipfs-sync` (exit 2) before any lock, state or request. `pull` already did.
-  The folder is created with mode 0700.
-- **Without a terminal the CLI offers no prompt.** `keys change-passphrase` and `keys increase-cost` without
-  `--accept-no-revocation`, and `prune-history` without `--yes-prune` or `--dry-run`, exit 2 before they send anything.
+  The state folder is created with mode 0700 (its name is matched case-insensitively, so `.Ipfs-Sync` counts on a
+  case-insensitive volume). Folders the CLI creates for pulled notes keep the platform default mode; only the state folder
+  is owner-only. Files are written 0600.
+- **A question is asked only when standard input and standard output are both terminals.** Standard output must be one
+  because the commands print the consequence text there before they ask. With either end redirected or piped the run
+  cannot ask. `keys change-passphrase` and `keys increase-cost` without `--accept-no-revocation`, `prune-history` without
+  `--yes-prune` or `--dry-run`, `keys discard` without `--yes-discard` and `abandon` without `--yes-abandon` then exit 2
+  before they send anything. A confirmation that is asked and declined exits 1. A pull that needs a yes stops with exit 1;
+  the first-pull and replace refusals name their flag (`--accept-first-pull`, `--accept-replace`).
+- **A pending rewrap or prune is finished by running the same command again, and the rest of the command line is
+  ignored.** The rerun needs none of the confirming flags and takes what to finish from the journal. `--cost` and
+  `--passphrase-file` on a `keys` rerun, and `--keep` on a `prune-history` rerun, change nothing.
 - **A passphrase file inside the vault is refused** (exit 2): the next publish would upload it with the notes it
   protects. The check uses real paths, so a link into the vault counts. It covers `--passphrase-file` and
   `IPFS_SYNC_PASSPHRASE_FILE`, except that `init` and `abandon` ignore the variable.
 - **Text from the node is escaped before it is printed.** `status` prints node-supplied names, versions and key IDs
-  escaped, and standard output has control characters stripped per line. The escape now also covers zero-width and other
-  invisible characters (soft hyphen, zero-width space and joiners, word joiner, byte order mark, the tag block).
-  `--show-request` redacts the credential header names of both endpoints. An address that cannot be parsed prints as
-  "invalid address". A root CID longer than 128 characters from the node is refused with fixed text.
+  escaped, and standard output and standard error have unsafe characters replaced by `?`, one per code point. Both use
+  one code-point table (`isUnsafeCodePoint` in `src/kubo/errors.ts`): C0, DEL, C1, bidirectional controls, the line and
+  paragraph separators, zero-width characters, the soft hyphen, the byte order mark and the tag block.
+  `--show-request` redacts the credential header names of both endpoints. An address prints as scheme, host, port and
+  path only when it is `http:` or `https:` with a host. Anything else prints as "invalid address", including text that
+  parses as another scheme (`user:secret@host:5001` reads as scheme `user:`), and the "must use http or https" error
+  no longer names the scheme.
+- **One CID rule for reads and writes.** A root path the node supplies must be `/ipfs/<cid>`; `/ipns/...`, a path below
+  the root, a bare token and text with whitespace are refused with fixed text that does not echo the value. A CID is 10
+  to 128 alphanumeric characters (`isCidToken` in `src/sync/local-record.ts`). The reader of each local file and the
+  writer of the publish journal, the maintenance journal and the root state use that one function, and a writer refuses
+  a value it would refuse to read, before the first write. Gateway CIDs and IPNS names are held to the same 128 bound.
+- **The explicit-port check reads the URL as the parser does.** A port in the URL that conflicts with `--rpc-port` or
+  `--gateway-port` is found even when the address has tabs, line breaks, backslashes or extra slashes that the URL
+  parser ignores or normalises.
 
 The CLI is a plain Node HTTP client against the kubo RPC and gateway — no local IPFS
 daemon needed.
@@ -694,7 +728,10 @@ the delta check and by the idle check that skips unlocking, until the size or th
   copy, sync state, journal and any key-management journal for that root into `.ipfs-sync/abandoned-<h>-<ms>/`. It never
   contacts the node and deletes nothing. It records no latch (there is none any more) and prints the sequence floor it
   keeps. On a terminal you must type `abandon`; without one it does nothing unless you pass `--yes-abandon`. In the plugin, pressing Escape while the abandon (or
-Clear stale publish lock) is running does not stop it; the real result is reported when it ends, not a cancel.
+Clear stale publish lock) is running does not stop it; the real result is reported when it ends, not a cancel. If the
+dialog was closed and the action then failed, a notice says so. For Abandon the notice adds "Check the settings before
+trying again", because the device may be in a partial state, and an error the action threw is shown as the fixed text "an
+unexpected error occurred; see the developer console for details", not as its message.
 
 ### History growth
 

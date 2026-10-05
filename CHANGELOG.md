@@ -70,7 +70,8 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     required when the device holds a sequence floor for the vault but the directory has no state for it, and at least one
     local file differs from the node's copy. It states the destination path (the CLI passes it), "at least N existing
     files will be replaced" and that a dated copy of each is kept, with a fixed statement (`NO_STATE_PULL_STATEMENT`).
-    An empty or identical directory is not asked. `--accept-first-pull` skips it; a run that cannot ask stops with
+    An empty or identical directory is not asked. `--accept-first-pull` skipped it (superseded in the fourth round
+    below: `--accept-replace` now does); a run that cannot ask stops with
     `first-pull-not-confirmed` and writes nothing (`src/sync/encrypted-pull.ts`, `cli/pull-encrypted-command.ts`,
     `src/plugin/first-pull-dialog-model.ts`). Before this, only a pull with no record at all asked. **Every recovery
     path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) leaves a folder with no baseline, and the baseline
@@ -100,6 +101,49 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     (`src/plugin/settings-fields.ts`, `settings-view-model.ts`, `settings-tab.ts`, `settings-store.ts`,
     `unreadable-backup.ts`, `settings-migration.ts`, `settings-model.ts`, `settings-to-config.ts`, `index.ts`, and the
     dialogs).
+- **Fourth independent review round: the rule, not the example (commit `c86445c`).** The third round fixed what the
+  reviewer pointed at. Each fix passed the reviewer's string and missed the next one that a slightly wider check would
+  have caught. This round replaces several narrow checks with shared ones. Tests were written first and failed before the
+  source change, except A-L1 and A-L2, where the review reports say otherwise. Touched and importing test files pass one at a
+  time and typecheck is clean in both configs. The full suite, the heavy CLI-spawning files and the guard tests have not
+  run on this commit. Nothing ran in Obsidian.
+  - **`--accept-replace` is new, and `--accept-first-pull` no longer answers the replace question.** A pull into a folder
+    with no state for a vault this device already knows, where files that differ from the node's copy would be replaced,
+    needs `--accept-replace` when it cannot ask. `--accept-first-pull` answers only the true first pull. **A script or cron
+    job that passes `--accept-first-pull` to cover the stateless case stops (`first-pull-not-confirmed`, exit 1, nothing
+    written) until it passes `--accept-replace`.** The message names the flag (`cli/args.ts`, `cli/run.ts`,
+    `cli/pull-encrypted-command.ts`, `src/sync/encrypted-pull.ts`, `cli/help-text.ts`).
+  - **A confirmation is offered only when standard input and standard output are both terminals** (`canAsk` in
+    `cli/io.ts`). Before, standard input alone decided, so with output piped the consequence text went where the person
+    answering could not see it. With either end redirected the contract is "no terminal": the explicit flag, or exit 2 before
+    any request for `keys change-passphrase`, `keys increase-cost`, `keys discard`, `prune-history` and `abandon` (a pull
+    that needs a yes exits 1). A question that is asked and declined exits 1.
+  - **One CID validator for reads and writes** (`isCidToken` and `assertPersistableCid`, `src/sync/local-record.ts`). A
+    root path the node supplies must be `/ipfs/<cid>` with a CID of 10 to 128 alphanumeric characters, and is refused
+    otherwise with fixed text (`rootOfPath` in `src/sync/commit-node.ts`: `/ipns/...`, a path below the root, a bare token and
+    whitespace are all refused). `filesStat` CIDs go through the same function. The publish journal, the maintenance
+    journal and the root state refuse to persist a value they would refuse to read, before the first write. Gateway CIDs
+    and IPNS names are bounded at 128 (`src/kubo/gateway.ts`, `src/sync/target-resolution.ts`).
+  - **`displayAddress` and the protocol error.** Anything that is not `http:` or `https:` with a host prints "invalid
+    address", including text that parses as another scheme (`user:secret@host:5001`). The "must use http or https" error
+    no longer names the parsed scheme, because the scheme could be part of the secret (`src/core/config/endpoint.ts`).
+  - **CLI output and files.** `fs.write` takes the per-path directory mode: folders for pulled notes keep the platform
+    default (before, every directory it created was 0700), and only the `.ipfs-sync` state folder is 0700, matched
+    case-insensitively (`cli/node-host-bridge.ts`). Output stripping (`cli/io.ts`) shares one code-point table with
+    `escapeNodeText` (`isUnsafeCodePoint`, `src/kubo/errors.ts`). The plain-http credential warning exempts only
+    `localhost`, `127.x.x.x` and `[::1]`; `*.localhost` is no longer exempt (`src/core/config/build-config.ts`). The
+    explicit-port conflict check sees the URL as the parser does: tabs, line breaks, backslashes, extra slashes and
+    surrounding control characters (`parserView`, `src/core/config/endpoint.ts`).
+  - **Help text** now covers the resume rule for a pending rewrap or prune journal (re-running takes what to finish from the
+    journal and ignores the rest of the command line, including `--cost`, `--passphrase-file` and `--keep`), the refusal of
+    an implicitly loaded config file, `--accept-replace`, and the exit codes (`cli/help-text.ts`).
+  - **Plugin.** Closing Abandon or Clear stale lock while it runs no longer hides a failure: a notice reports it, dialog
+    handles are tracked per dialog, and a thrown error in Abandon is shown as fixed text. Any change of origin blanks that
+    block's draft credential and returns its picker to the stored kind. The publish interval is a whole number of minutes:
+    a stored fraction, negative or non-finite value loads as 0 (off) and the credentials are kept. The unreadable
+    `data.json` copy is read back before the save, and the pending flag clears only after the save succeeds. One sentence
+    about redirect risk sits under the credential fields (Authentication section); with only a gateway credential it is not
+    beside the gateway fields. A missing space in the unreadable-file notice was added (`src/plugin/*`).
 
 ### Added
 
@@ -136,6 +180,24 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
 - **LOW findings of the delta review, not fixed.** The first-pull preview hashes files twice (the review's wording; the
   second hash is the stage's own). The count can drift while the dialog is open. The origin rule shares one credential across all paths of one
   host.
+- **What the fourth review round deliberately left.** Each item is known and unfixed.
+  - Operands after `--` are echoed when they are reported.
+  - A secret embedded in a URL path (as opposed to userinfo, query or fragment) is shown by `displayAddress`.
+  - An implicitly loaded config file still applies its other fields (`mfsRoot`, `publicationKey`, `ownedKeys`, ports).
+    Only `rpc.url` and `gateway.url` are judged.
+  - Bare tokens from `name/resolve` are refused. A node that answers with a bare CID instead of `/ipfs/<cid>` now fails
+    publish and pull. No such node was tried.
+  - The shared pull test rigs (`tests/helpers/encrypted-pull-rig.ts`, `pull-stage-rig.ts`) default `acceptFirstPull` to
+    true and leave `acceptReplace` off, so a stateless-pull test must pass `acceptReplace` itself. Two integration tests
+    had to be changed for that.
+  - `styles.css` does not exist, so the redirect sentence under the credential fields has a class and no style rule. It
+    has never been rendered in Obsidian.
+  - A-L: the cron job pattern is fixed only for the stateless case. A cron job that passes `--accept-first-pull` for
+    a first pull is unchanged; one that relied on it for a folder with no state stops until `--accept-replace` is added.
+  - **Every fix since the first review was found by a code-reading review that executed nothing, and the next round will
+    probably find more.** The pattern is stable: a fix covers the string the reviewer named, the next reviewer finds the
+    next string the narrower check passes. This round moved from per-string checks to shared validators to break that, but
+    no search for remaining local patterns was run, and the full test suite has not run on this commit.
 - **Dead code left in place.** `warnAboutRetiredDefault` in `src/plugin/index.ts` and the `retiredDefaultNoticeShown`
   field remain. Load now clears the retired host, so the one-time notice they gate cannot fire from stored data.
 - **Obsidian's `requestUrl` redirect behaviour is untested.** It is to be probed on the phone and desktop runs. It may
