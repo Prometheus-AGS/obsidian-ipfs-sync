@@ -4,6 +4,7 @@ import {
   FIRST_PULL_GATEWAY_STATEMENT,
   FIRST_PULL_KEY_HOLDER_STATEMENT,
   FIRST_PULL_NO_BASELINE_STATEMENT,
+  NO_STATE_PULL_STATEMENT,
   type FirstPullDetails,
 } from "../../src/sync/encrypted-pull";
 import { confirmFirstPull } from "../../src/plugin/first-pull-dialog";
@@ -83,6 +84,26 @@ describe("first-pull dialog", () => {
     expect(root.find((el) => el.tag === "img" || el.tag === "b" || el.tag === "script")).toBeUndefined();
   });
 
+  it("shows the destination as text when the pull supplies one, and no destination line when it does not (review round 3, S-M1)", () => {
+    void confirmFirstPull(app(), DETAILS);
+    expect(lastDialog().root.textContent()).not.toContain("Destination");
+    void confirmFirstPull(app(), { ...DETAILS, destination: "/Users/ann/<b>notes</b>" });
+    const { root } = lastDialog();
+    const dt = root.findAll((el) => el.tag === "dt").map((el) => el.text);
+    const dd = root.findAll((el) => el.tag === "dd").map((el) => el.text);
+    expect(dt).toContain("Destination");
+    expect(dd[dt.indexOf("Destination")]).toBe("/Users/ann/<b>notes</b>");
+    expect(root.find((el) => el.tag === "b")).toBeUndefined();
+  });
+
+  it("shows the no-state statement as text next to the destination", () => {
+    void confirmFirstPull(app(), { ...DETAILS, destination: "Field notes", statements: [FIRST_PULL_KEY_HOLDER_STATEMENT, NO_STATE_PULL_STATEMENT] });
+    const { root } = lastDialog();
+    expect(root.textContent()).toContain(NO_STATE_PULL_STATEMENT);
+    expect(root.textContent()).not.toContain(FIRST_PULL_NO_BASELINE_STATEMENT);
+    expect(root.findAll((el) => el.tag === "dd").map((el) => el.text)).toContain("Field notes");
+  });
+
   it("lists skipped paths with the count when the pull reports some", () => {
     void confirmFirstPull(app(), { ...DETAILS, pathsRefused: 4, pathsSummary: '"CON.md" (reserved name) and 3 more' });
     expect(lastDialog().root.textContent()).toContain('4: "CON.md" (reserved name) and 3 more');
@@ -132,11 +153,12 @@ describe("first-pull dialog", () => {
     expect(await escaped).toBe(false);
   });
 
-  it("puts the acknowledgement first in reading order, then Cancel, then Confirm, with initial focus on the acknowledgement", () => {
+  it("puts the acknowledgement first in reading order, then Cancel, then Confirm, with initial focus on Cancel (review round 3, P-L1)", () => {
     void confirmFirstPull(app(), DETAILS);
     const { root } = lastDialog();
     expect(focusOrder(root).map((el) => labelOf(root, el) || el.text)).toEqual([FIRST_PULL_COPY.acknowledge, FIRST_PULL_COPY.cancel]);
-    expect(byId(root, "ipfs-sync-first-pull-acknowledge")?.focused).toBe(true);
+    expect(byId(root, "ipfs-sync-first-pull-acknowledge")?.focused).toBe(false);
+    expect(focusOrder(root).filter((el) => el.focused).map((el) => el.text)).toEqual([FIRST_PULL_COPY.cancel]);
     expect(root.findAll((el) => el.tag === "button").map((el) => el.text)).toEqual([FIRST_PULL_COPY.cancel, FIRST_PULL_COPY.confirm]);
   });
 });

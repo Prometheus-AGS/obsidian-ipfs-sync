@@ -93,10 +93,7 @@ const OPTIONS = {
   "owned-key": { type: "string", multiple: true },
   auth: { type: "string" },
   "auth-user": { type: "string" },
-  "auth-password": { type: "string" },
-  "auth-token": { type: "string" },
   "auth-header-name": { type: "string" },
-  "auth-header-value": { type: "string" },
   "show-request": { type: "boolean" },
   "break-lock": { type: "boolean" },
   repair: { type: "boolean" },
@@ -136,10 +133,7 @@ interface FlagValues {
   readonly "owned-key"?: string[];
   readonly auth?: string;
   readonly "auth-user"?: string;
-  readonly "auth-password"?: string;
-  readonly "auth-token"?: string;
   readonly "auth-header-name"?: string;
-  readonly "auth-header-value"?: string;
 }
 
 function endpointFlags(url: string | undefined, port: string | undefined): RawEndpointInput | undefined {
@@ -150,10 +144,10 @@ function authFlags(values: FlagValues): RawAuthInput | undefined {
   const auth: RawAuthInput = {
     scheme: values["auth"],
     user: values["auth-user"],
-    password: values["auth-password"],
-    token: values["auth-token"],
+    password: undefined,
+    token: undefined,
     headerName: values["auth-header-name"],
-    headerValue: values["auth-header-value"],
+    headerValue: undefined,
   };
   return Object.values(auth).every((v) => v === undefined) ? undefined : auth;
 }
@@ -180,8 +174,29 @@ function rejectPassphraseFlag(argv: readonly string[]): void {
   }
 }
 
+/** The credential flags that were removed, with the environment variable that replaces each. A credential on the command line shows in the process list and the shell history. */
+const REFUSED_CREDENTIAL_FLAGS: Readonly<Record<string, string>> = {
+  "--auth-password": "IPFS_SYNC_AUTH_PASSWORD",
+  "--auth-token": "IPFS_SYNC_AUTH_TOKEN",
+  "--auth-header-value": "IPFS_SYNC_AUTH_HEADER_VALUE",
+};
+
+/** `--auth-password`, `--auth-token` and `--auth-header-value` (either spelling) are refused by name; the value is never echoed. */
+function rejectCredentialFlags(argv: readonly string[]): void {
+  const end = argv.indexOf("--");
+  const flags = end === -1 ? argv : argv.slice(0, end);
+  for (const [flag, variable] of Object.entries(REFUSED_CREDENTIAL_FLAGS)) {
+    if (flags.some((arg) => arg === flag || arg.startsWith(`${flag}=`))) {
+      throw new UsageError(
+        `unknown option ${flag}: credentials are never taken from the command line, where the process list and the shell history show them; set ${variable} in the environment (per endpoint: ${variable.replace("IPFS_SYNC_AUTH_", "IPFS_SYNC_RPC_AUTH_")} or ${variable.replace("IPFS_SYNC_AUTH_", "IPFS_SYNC_GATEWAY_AUTH_")})`,
+      );
+    }
+  }
+}
+
 function parseStrict(argv: readonly string[]) {
   rejectPassphraseFlag(argv);
+  rejectCredentialFlags(argv);
   try {
     return parseArgs({ args: [...argv], options: OPTIONS, allowPositionals: true, strict: true });
   } catch (error) {

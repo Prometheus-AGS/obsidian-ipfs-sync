@@ -10,7 +10,8 @@ import { runInit } from "./init-command";
 import { EXIT_OK, EXIT_USAGE, type CliIo } from "./io";
 import { KEYS_SUBCOMMANDS, runKeys, type KeysSubcommand } from "./keys-command";
 import { DEFAULT_CONFIG_PATH, loadLocalConfig, loadSyncConfig, type ConfigDeps } from "./load-config";
-import { readVaultPassphrase, type FileHost, type PromptTerminal } from "./passphrase-input";
+import { passphraseFileInsideVault } from "./passphrase-file";
+import { PASSPHRASE_FILE_ENV, readVaultPassphrase, type FileHost, type PromptTerminal } from "./passphrase-input";
 import { runPrune } from "./prune-command";
 import { runPublish } from "./publish-command";
 import { runPull } from "./pull-command";
@@ -136,6 +137,20 @@ function checkPruneFlags(args: ParsedArgs): void {
   if (dryRun && yesPrune) throw new UsageError("--dry-run and --yes-prune exclude each other: a dry run removes nothing, so there is nothing to confirm; nothing was sent");
 }
 
+/**
+ * A passphrase file inside the vault folder would be published with the notes it protects. Both the file `--passphrase-file` is to create and the
+ * one `IPFS_SYNC_PASSPHRASE_FILE` names are judged by their real location; `init` and `abandon` ignore the variable and are not judged on it.
+ */
+async function checkPassphraseFileOutsideVault(args: ParsedArgs, vaultPath: string | undefined, env: CliDeps["env"]): Promise<void> {
+  if (vaultPath === undefined) return;
+  const readsEnvironment = args.command !== "init" && args.command !== "abandon";
+  for (const file of [args.passphraseFile, readsEnvironment ? env[PASSPHRASE_FILE_ENV] : undefined]) {
+    if (file !== undefined && (await passphraseFileInsideVault(vaultPath, file))) {
+      throw new UsageError("the passphrase file is inside the vault folder, where the next publish would upload it; keep it outside the vault; nothing was sent");
+    }
+  }
+}
+
 /** `--yes-abandon` belongs to `abandon` only. */
 function checkAbandonFlags(args: ParsedArgs): void {
   if (args.command !== "abandon" && args.yesAbandon) throw new UsageError("--yes-abandon is only valid for the abandon command");
@@ -163,6 +178,7 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
   checkDiscardFlags(args);
   checkKeysFlags(args);
   checkPruneFlags(args);
+  await checkPassphraseFileOutsideVault(args, vaultPath, deps.env);
   if (args.command === "abandon" && vaultPath !== undefined) {
     // Local only, and the escape hatch for a node that is gone: no RPC or gateway URL is needed, no client is created, no request can be sent.
     const local = await loadLocalConfig(args, deps);

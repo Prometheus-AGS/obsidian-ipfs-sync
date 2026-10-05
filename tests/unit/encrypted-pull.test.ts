@@ -18,6 +18,7 @@ import { lockHeld } from "../../src/sync/publish-refusals";
 import { rootFileNames } from "../../src/sync/root-files";
 import { SEQUENCE_FLOOR_FILE, readFloor } from "../../src/sync/sequence-floor";
 import { keySlotsCopyPath } from "../../src/sync/vault-keys";
+import { createMemoryDeviceStore } from "../helpers/memory-device-store";
 import { createMemoryHost } from "../helpers/memory-host";
 import { KEY, ROOT, blobPaths, type Rig } from "../helpers/publish-rig";
 import {
@@ -244,6 +245,107 @@ describe("the first-pull confirmation", () => {
     });
     expect(shown?.target).toBe("root-cid");
     expect(shown?.statements.join(" ")).toContain("does not verify the returned bytes");
+  });
+});
+
+describe("a device that holds a floor pulling into a directory with no state for the vault (review round 3, S-M1)", () => {
+  const DIFFERING = "my own text, different from the node's\n";
+
+  /** A device that has pulled the vault once (floor written), then a second directory that holds a differing file and no state. */
+  async function floorThenStatelessDirectory(populate: boolean): Promise<{ rig: Rig; second: ReturnType<typeof newPuller>; host: ReturnType<typeof createMemoryHost> }> {
+    const rig = await vault();
+    const first = newPuller();
+    verifiedOf(await runPull(rig, first));
+    const host = createMemoryHost();
+    if (populate) host.put("Daily/2026-09-30.md", DIFFERING, 5000);
+    return { rig, second: newPuller(host, first.store), host };
+  }
+
+  it("asks, counts the files it will replace and names the destination, and a decline writes nothing", async () => {
+    const { rig, second, host } = await floorThenStatelessDirectory(true);
+    let shown: FirstPullDetails | undefined;
+    const stop = stopOf(
+      await runPull(rig, second, {
+        options: { acceptFirstPull: false, destination: "/tmp/other-dir" },
+        deps: {
+          confirmFirstPull: async (details) => {
+            shown = details;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(stop.reason).toBe("first-pull-declined");
+    expect(shown?.replacedLocalFiles).toBe(1);
+    expect(shown?.destination).toBe("/tmp/other-dir");
+    expect(shown?.statements.join(" ")).toContain("no state for this vault");
+    expect(host.mutations).toEqual([]);
+    expect(second.staged).toEqual([]);
+  });
+
+  it("a non-interactive run without --accept-first-pull stops before writing, with a message that does not claim the vault is unknown", async () => {
+    const { rig, second, host } = await floorThenStatelessDirectory(true);
+    const stop = stopOf(await runPull(rig, second, { options: { acceptFirstPull: false } }));
+    expect(stop.reason).toBe("first-pull-not-confirmed");
+    expect(stop.message).toContain("--accept-first-pull");
+    expect(host.mutations).toEqual([]);
+  });
+
+  it("--accept-first-pull is unchanged: the pull goes on without asking", async () => {
+    const { rig, second } = await floorThenStatelessDirectory(true);
+    let asked = false;
+    const verified = verifiedOf(
+      await runPull(rig, second, {
+        options: { acceptFirstPull: true },
+        deps: {
+          confirmFirstPull: async () => {
+            asked = true;
+            return true;
+          },
+        },
+      }),
+    );
+    expect(asked).toBe(false);
+    expect(verified.verdict.kind).not.toBe("first-pull");
+  });
+
+  it("does not ask when the directory has no differing file (an empty destination is unchanged)", async () => {
+    const { rig, second } = await floorThenStatelessDirectory(false);
+    let asked = false;
+    const verified = verifiedOf(
+      await runPull(rig, second, {
+        options: { acceptFirstPull: false },
+        deps: {
+          confirmFirstPull: async () => {
+            asked = true;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(asked).toBe(false);
+    expect(verified.firstPullConfirmed).toBe(false);
+  });
+
+  it("does not ask when the directory already has its state", async () => {
+    const rig = await vault();
+    const store = createMemoryDeviceStore();
+    const b = newPuller(rig.host, store);
+    verifiedOf(await runPull(rig, b)); // floor written; the publisher's own directory holds its state
+    rig.host.put("Daily/2026-09-30.md", DIFFERING, 6000);
+    let asked = false;
+    verifiedOf(
+      await runPull(rig, newPuller(rig.host, store), {
+        options: { acceptFirstPull: false },
+        deps: {
+          confirmFirstPull: async () => {
+            asked = true;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(asked).toBe(false);
   });
 });
 

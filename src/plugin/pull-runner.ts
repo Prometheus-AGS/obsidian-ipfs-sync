@@ -100,6 +100,8 @@ export interface PullRunnerDeps {
   readonly store: SettingsStore;
   /** `app.vault.adapter`. */
   readonly adapter: VaultAdapter;
+  /** `app.vault.getName()`: the name the first-pull dialog shows as the destination; never a path. Absent: a fixed label. */
+  readonly vaultName?: string;
   /** `app.vault.configDir`: added to the exclusions when it is not `.obsidian`. */
   readonly configDir?: string;
   readonly bus: SyncEventBus;
@@ -194,6 +196,10 @@ function verdictFor(outcome: PullOutcome): PassphraseVerdict {
   if (outcome.kind === "completed" || outcome.kind === "unfinished") return { ok: true };
   return { ok: false, reason: outcome.notice };
 }
+
+/** What the first-pull dialog calls the place the pull writes into: the vault's name, never its path on disk. */
+const DEFAULT_DESTINATION = "This Obsidian vault";
+const destinationOf = (vaultName: string | undefined): string => (vaultName === undefined || vaultName.trim() === "" ? DEFAULT_DESTINATION : vaultName);
 
 const isWrongPassphraseError = (error: unknown): boolean => error instanceof CryptoError && error.code === "wrong-passphrase-or-damaged-slot";
 
@@ -306,6 +312,7 @@ export function createPullRunner(deps: PullRunnerDeps): PullRunner {
         flags,
         ...keys,
         configDir: deps.configDir,
+        destination: destinationOf(deps.vaultName),
         extraExclusions,
         confirmAboveBytes: settings.pullConfirmAboveMb * MIB,
       },

@@ -6,6 +6,7 @@ import { describeNode, type NodeStatus } from "./node-status";
 import { previewPullTarget, type PullTargetPreview } from "./pull-target";
 import { describePublish, describePull, describePullTarget, type ActivityView } from "./settings-activity";
 import {
+  clearCredentialOnOriginChange,
   errorKeysOf,
   groupOf,
   parseGroup,
@@ -20,7 +21,7 @@ import {
   type GatewayAuthChoice,
   type GatewayAuthFieldId,
 } from "./settings-fields";
-import { GATEWAY_AUTH_NOTICE } from "./settings-tab-copy";
+import { GATEWAY_AUTH_NOTICE, GATEWAY_CREDENTIAL_CLEARED, RPC_CREDENTIAL_CLEARED } from "./settings-tab-copy";
 import { AUTH_SCHEMES, type PluginSettings } from "./settings-model";
 import type { SettingsStore } from "./settings-store";
 import {
@@ -76,6 +77,9 @@ export interface SettingsViewState {
    * gateway origin differs from the RPC origin, a node credential is set and the block is "Same as node" (from what is stored).
    */
   readonly gatewayAuthNotice: string;
+  /** Said after an edit moved the RPC (or the gateway) address to another origin and the credential saved for the old one was cleared. Empty otherwise; holds no secret. */
+  readonly rpcCredentialNotice: string;
+  readonly gatewayCredentialNotice: string;
   /** Whether a node is set ("Not configured" with an explanation when not) and the retired-default warning, from what is stored. */
   readonly node: NodeStatus;
   /** The "name that will be pulled" line, from what is stored: the entered name, the owned key's ID, or a note that none is available. */
@@ -178,6 +182,8 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
   let errors: Errors = {};
   let authPending = false;
   let gatewayAuthPending = false;
+  let rpcCleared = false;
+  let gatewayCleared = false;
 
   /** Errors and warnings of what is stored now. Errors are shown only for fields the user edited or that are stored invalid. */
   const stored = () => validateSettings(deps.store.get(), now());
@@ -191,6 +197,8 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       gatewayAuthPending,
       gatewayWarnings: gatewayAuthWarnings(settings, now()),
       gatewayAuthNotice: nodeCredentialWithheldFromGateway(settings, now()) ? GATEWAY_AUTH_NOTICE : "",
+      rpcCredentialNotice: rpcCleared ? RPC_CREDENTIAL_CLEARED : "",
+      gatewayCredentialNotice: gatewayCleared ? GATEWAY_CREDENTIAL_CLEARED : "",
       node: describeNode(settings),
       pullTarget: describePullTarget(previewPullTarget(settings)),
       pullTargetPreview: previewPullTarget(settings),
@@ -226,10 +234,32 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       return { saved: false, state: snapshot() };
     }
     // Apply the group to the latest stored settings, so a concurrent change elsewhere is kept.
-    const saved = await deps.store.update(parsed.apply);
+    // A credential saved for one origin is dropped when the address moves to another, in the same write.
+    let cleared = false;
+    const saved = await deps.store.update((current) => {
+      const next = clearCredentialOnOriginChange(current, parsed.apply(current), group);
+      cleared = next.cleared;
+      return next.settings;
+    });
     errors = replaceErrors(errors, keys, []);
-    if (group === "auth") authPending = false;
-    if (group === "gatewayAuth") gatewayAuthPending = false;
+    if (group === "auth") {
+      authPending = false;
+      rpcCleared = false;
+    }
+    if (group === "gatewayAuth") {
+      gatewayAuthPending = false;
+      gatewayCleared = false;
+    }
+    if (cleared && group === "rpc") {
+      values = { ...withBlankedFields(values, visibleAuthFields(isAuthScheme(values.authScheme) ? values.authScheme : "none")), authScheme: "none" };
+      authPending = false;
+      rpcCleared = true;
+    }
+    if (cleared && group === "gateway") {
+      values = { ...withBlankedFields(values, visibleGatewayAuthFields(isGatewayChoice(values.gatewayAuthScheme) ? values.gatewayAuthScheme : "same")), gatewayAuthScheme: "same" };
+      gatewayAuthPending = false;
+      gatewayCleared = true;
+    }
     deps.onSaved?.(saved);
     return { saved: true, state: snapshot() };
   }
@@ -250,6 +280,8 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       errors = {};
       authPending = false;
       gatewayAuthPending = false;
+      rpcCleared = false;
+      gatewayCleared = false;
       return snapshot();
     },
 

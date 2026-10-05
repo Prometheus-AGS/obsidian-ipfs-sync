@@ -1,4 +1,4 @@
-import { parsePort, type AuthScheme } from "../core/config";
+import { composeEndpointUrl, parsePort, type AuthScheme } from "../core/config";
 import { parsePullName } from "./pull-target";
 import { parseReadCapMb } from "./read-cap";
 import { AUTH_SCHEMES, emptyAuth, isValidPullConfirmAboveMb, PULL_CONFIRM_RANGE_MESSAGE, type AuthSettings, type PluginSettings } from "./settings-model";
@@ -190,6 +190,43 @@ export function visibleGatewayAuthFields(choice: GatewayAuthChoice): readonly Ga
     case "header":
       return ["gatewayAuthHeaderName", "gatewayAuthHeaderValue"];
   }
+}
+
+/**
+ * The scheme, host and port an endpoint talks to, or its trimmed URL text when that cannot be composed. A credential saved for one
+ * origin is never kept for another, so two endpoints with the same origin (different paths) are the same place.
+ */
+export function endpointOrigin(endpoint: { readonly url: string; readonly port?: number | undefined }): string {
+  const url = endpoint.url.trim();
+  if (url === "") return "";
+  try {
+    return new URL(composeEndpointUrl("rpc", url, endpoint.port)).origin;
+  } catch {
+    return url;
+  }
+}
+
+export interface CredentialClearing {
+  readonly settings: PluginSettings;
+  /** A stored credential was dropped because its endpoint moved to another origin. */
+  readonly cleared: boolean;
+}
+
+/**
+ * A credential is saved for one origin. When an edit moves the endpoint it belongs to (RPC for the node block, gateway for the gateway
+ * block) to another origin, the credential is dropped so nothing typed for the old host is ever sent to the new one.
+ */
+export function clearCredentialOnOriginChange(before: PluginSettings, after: PluginSettings, group: FieldGroup): CredentialClearing {
+  if (group === "rpc" && endpointOrigin(before.rpc) !== endpointOrigin(after.rpc)) {
+    return { settings: { ...after, auth: emptyAuth("none") }, cleared: before.auth.scheme !== "none" };
+  }
+  if (group === "gateway" && endpointOrigin(before.gateway) !== endpointOrigin(after.gateway)) {
+    // An explicit "none" holds no secret and is a choice the operator made: it stays.
+    if (before.gatewayAuth === undefined || before.gatewayAuth.scheme === "none") return { settings: after, cleared: false };
+    const { gatewayAuth: _dropped, ...rest } = after;
+    return { settings: rest, cleared: true };
+  }
+  return { settings: after, cleared: false };
 }
 
 /** A copy of the values with the named fields emptied. */

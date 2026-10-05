@@ -163,6 +163,8 @@ export interface EncryptedPluginOptions {
   readonly confirmCost?: (costs: readonly KdfParams[]) => Promise<boolean>;
   /** No passphrase prompt and no dialogs: the way a bare runner (or a quiet run) has them. */
   readonly bare?: boolean;
+  /** `app.vault.getName()`: what the first-pull dialog shows as the destination. */
+  readonly vaultName?: string;
 }
 
 /** Device B: a plugin pull runner over a fresh memory vault, pulling the publish rig's node through a ranged client. */
@@ -186,6 +188,7 @@ export function pluginOver(publisher: Rig, options: EncryptedPluginOptions = {})
     ...(options.session === undefined ? {} : { session: options.session }),
     ...(options.confirmCost === undefined ? {} : { confirmCost: options.confirmCost }),
     ...(options.bare === true ? {} : { passphrase, dialogs }),
+    ...(options.vaultName === undefined ? {} : { vaultName: options.vaultName }),
   });
   const host = (): ReturnType<typeof createObsidianHostBridge> => createObsidianHostBridge({ adapter });
   return {

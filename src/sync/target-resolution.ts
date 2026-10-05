@@ -4,6 +4,9 @@ import { PullSourceError, PullTargetError } from "./pull-errors";
 
 /** IPNS key IDs and CIDs: a plain alphanumeric token. Anything else never reaches a request. */
 const TOKEN = /^[A-Za-z0-9]{10,}$/;
+/** The longest CID the local record reads back (`CID_TOKEN` in `local-record.ts`): a longer one would be written to a state or journal file this build then refuses. */
+export const CID_MAX_LENGTH = 128;
+const CID_SHAPE = /^[A-Za-z0-9]{10,128}$/;
 const ROOT_PATH = /^\/ipfs\/([A-Za-z0-9]{10,})$/;
 
 export function isIpnsName(value: string): boolean {
@@ -11,7 +14,7 @@ export function isIpnsName(value: string): boolean {
 }
 
 export function isCid(value: string): boolean {
-  return TOKEN.test(value);
+  return CID_SHAPE.test(value);
 }
 
 export interface TargetInput {
@@ -37,5 +40,6 @@ export async function resolveRootCid(client: Pick<KuboClient, "nameResolve">, ip
   const resolved = await client.nameResolve(ipnsName);
   const match = ROOT_PATH.exec(resolved);
   if (match?.[1] === undefined) throw new PullSourceError(`name ${ipnsName} resolved to "${resolved}", which is not a published root`);
+  if (match[1].length > CID_MAX_LENGTH) throw new PullSourceError("the name resolved to a root identifier longer than a CID can be; nothing was written");
   return match[1];
 }

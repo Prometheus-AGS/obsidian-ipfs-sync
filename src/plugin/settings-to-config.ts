@@ -18,7 +18,7 @@ import {
 import { isSet, NODE_NOT_SET_NOTICE } from "./node-status";
 import { parsePullName, PULL_NAME_MESSAGE } from "./pull-target";
 import { isValidReadCapMb, READ_CAP_RANGE_MESSAGE } from "./read-cap";
-import { isValidPullConfirmAboveMb, PULL_CONFIRM_RANGE_MESSAGE, type AuthSettings, type EndpointSettings, type PluginSettings } from "./settings-model";
+import { isValidPullConfirmAboveMb, MAX_PUBLISH_INTERVAL_MINUTES, PULL_CONFIRM_RANGE_MESSAGE, type AuthSettings, type EndpointSettings, type PluginSettings } from "./settings-model";
 
 /**
  * Settings model -> the raw config layer the CLI resolves too, so the plugin gets the same
@@ -140,9 +140,12 @@ function attempt(field: SettingsField, check: () => unknown): FieldError | undef
 }
 
 function intervalError(minutes: number): FieldError | undefined {
-  return Number.isInteger(minutes) && minutes >= 0
-    ? undefined
-    : { field: "publishIntervalMinutes", message: "the publish interval must be a whole number of minutes, 0 or more" };
+  if (!Number.isInteger(minutes) || minutes < 0) {
+    return { field: "publishIntervalMinutes", message: "the publish interval must be a whole number of minutes, 0 or more" };
+  }
+  return minutes > MAX_PUBLISH_INTERVAL_MINUTES
+    ? { field: "publishIntervalMinutes", message: `the publish interval must be ${MAX_PUBLISH_INTERVAL_MINUTES} minutes or less` }
+    : undefined;
 }
 
 function pullNameError(name: string): FieldError | undefined {

@@ -123,6 +123,11 @@ export const GATEWAY_AUTH_SAME_LABEL = "Same as node";
 export const GATEWAY_AUTH_NOTICE =
   "The node credential is not sent to the gateway because its address differs. Set a gateway credential below if it needs one.";
 
+/** Shown next to the address after an edit moved it to another host or port and the credential saved for the old one was cleared. Hold no secret. */
+export const RPC_CREDENTIAL_CLEARED = "The node credential was cleared because the address changed. Enter it again for the new node.";
+export const GATEWAY_CREDENTIAL_CLEARED =
+  "The gateway credential was cleared because the gateway address changed. Enter it again if the new gateway needs one.";
+
 export const GATEWAY_AUTH_INCOMPLETE = "Not saved yet: fill in every gateway field for this kind.";
 
 export const AUTH_SCHEME_LABELS: Readonly<Record<AuthScheme, string>> = {
@@ -177,6 +182,7 @@ export const EXCLUSIONS_COPY = {
 export const KEYS_COPY = {
   stateName: "Publication key",
   checking: "Asking the node...",
+  stale: "Not checked since the settings changed. Press Check again to ask the node.",
   refreshButton: "Check again",
   ownedName: "Owned key IDs",
   ownedDesc: "Keys this plugin created or you adopted. The plugin publishes only to keys listed here.",

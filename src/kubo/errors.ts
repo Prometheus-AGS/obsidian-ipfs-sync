@@ -8,14 +8,24 @@ import type { EndpointName } from "../core/config";
 const UNSAFE_RANGES: readonly (readonly [number, number])[] = [
   [0x0000, 0x001f],
   [0x007f, 0x009f],
+  [0x00ad, 0x00ad], // soft hyphen
   [0x061c, 0x061c],
+  [0x200b, 0x200d], // zero-width space, non-joiner, joiner
   [0x200e, 0x200f],
   [0x2028, 0x2029],
   [0x202a, 0x202e],
+  [0x2060, 0x2060], // word joiner
   [0x2066, 0x2069],
+  [0xfeff, 0xfeff], // byte order mark / zero-width no-break space
+  [0xe0000, 0xe007f], // the tag block: invisible characters that can carry hidden text
 ];
 
-const isUnsafeUnit = (unit: number): boolean => UNSAFE_RANGES.some(([low, high]) => unit >= low && unit <= high);
+const isUnsafeCodePoint = (codePoint: number): boolean => UNSAFE_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high);
+
+/** `\uXXXX` for a code point of the basic plane, `\u{X}` for one above it. */
+function escapeCodePoint(codePoint: number): string {
+  return codePoint <= 0xffff ? `\\u${codePoint.toString(16).padStart(4, "0")}` : `\\u{${codePoint.toString(16)}}`;
+}
 
 /**
  * Text the node (or a proxy in front of it) supplied, made safe to print: each unsafe character becomes a backslash, `u` and four
@@ -24,9 +34,9 @@ const isUnsafeUnit = (unit: number): boolean => UNSAFE_RANGES.some(([low, high])
  */
 export function escapeNodeText(text: string): string {
   let out = "";
-  for (let index = 0; index < text.length; index++) {
-    const unit = text.charCodeAt(index);
-    out += isUnsafeUnit(unit) ? `\\u${unit.toString(16).padStart(4, "0")}` : text.charAt(index);
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    out += isUnsafeCodePoint(codePoint) ? escapeCodePoint(codePoint) : character;
   }
   return out;
 }

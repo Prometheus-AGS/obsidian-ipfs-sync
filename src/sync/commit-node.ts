@@ -7,6 +7,7 @@ import { historyFileName } from "./history-names";
 import { assertNameUnmoved } from "./name-recheck";
 import { MANIFEST_READ_CAP, readFileIfPresent, statIfPresent, type NodeReadClient } from "./node-reader";
 import { publicationKeyChanged, remoteObjectInvalid } from "./publish-refusals";
+import { CID_MAX_LENGTH } from "./target-resolution";
 
 /**
  * The adapter between the commit protocol's narrow node port and the shared kubo client. Reads are bounded
@@ -35,7 +36,16 @@ const READABLE_ROOT = /^[A-Za-z0-9]{10,128}$/;
 
 /** `/ipfs/<cid>` as the bare CID; a path of another shape is kept whole, so it can only ever differ from a CID. */
 function rootOfPath(path: string): string {
-  return path.startsWith("/ipfs/") ? path.slice("/ipfs/".length) : path;
+  return boundedCid(path.startsWith("/ipfs/") ? path.slice("/ipfs/".length) : path, "the name's value");
+}
+
+/**
+ * A CID the node supplied, refused above the length the local record reads back (`CID_TOKEN`, 128): a longer one would be written to a journal or
+ * a state file that this build then refuses (review round 3, S-M2). The refusal is fixed text; the value is not echoed.
+ */
+function boundedCid(value: string, what: string): string {
+  if (value.length > CID_MAX_LENGTH) throw remoteObjectInvalid(what);
+  return value;
 }
 
 /** The history file of one snapshot: `manifests/<16-digit sequence>-<cid>.enc`. Legacy unprefixed names are read by listings, never written. */
@@ -66,14 +76,17 @@ export function createCommitNode(config: CommitNodeConfig): CommitNode {
   };
   return {
     resolveName,
-    currentCid: async () => (await statIfPresent(client, `${mfsRoot}/current`))?.cid,
+    currentCid: async () => {
+      const cid = (await statIfPresent(client, `${mfsRoot}/current`))?.cid;
+      return cid === undefined ? undefined : boundedCid(cid, "the current tree");
+    },
     readManifestFile: () => readFileIfPresent(client, `${mfsRoot}/manifest.enc`, "manifest.enc", MANIFEST_READ_CAP),
     readManifestFileAt: async (rootCid) =>
       READABLE_ROOT.test(rootCid) ? readFileIfPresent(client, `/ipfs/${rootCid}/manifest.enc`, "manifest.enc", MANIFEST_READ_CAP) : undefined,
     writeManifestFile: (bytes) => write(`${mfsRoot}/manifest.enc`, bytes, "manifest.enc"),
     readHistoryFile: (sequence, rootCid) => readFileIfPresent(client, historyPath(mfsRoot, sequence, rootCid), "a history file", MANIFEST_READ_CAP),
     writeHistoryFile: (sequence, rootCid, bytes) => write(historyPath(mfsRoot, sequence, rootCid), bytes, "a history file"),
-    rootCid: async () => (await client.filesStat(mfsRoot)).cid,
+    rootCid: async () => boundedCid((await client.filesStat(mfsRoot)).cid, "the vault root"),
     pinRoot: async (rootCid) => {
       config.beforeWrite();
       await client.pinAdd(rootCid);

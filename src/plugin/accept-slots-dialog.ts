@@ -213,8 +213,8 @@ export class AcceptSlotsDialog extends Modal {
       result = { ok: false, reason: UNEXPECTED_ERROR_TEXT, retryable: false };
     }
     this.apply(this.model.settleCheck(result));
-    const reviewed = result.ok && this.model.state().canAccept;
-    this.afterStep(reviewed ? this.acceptButton : result.ok || !result.retryable ? this.cancelButton : field);
+    // Cancel takes the focus on the review too (Accept is one Tab away, never the default), as the prune dialog does.
+    this.afterStep(result.ok || !result.retryable ? this.cancelButton : field);
   }
 
   private async acceptSlots(): Promise<void> {

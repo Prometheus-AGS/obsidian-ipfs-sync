@@ -29,6 +29,7 @@ export interface AbandonDialogRequest {
 export class AbandonVaultDialog extends Modal {
   private readonly model: AbandonModel = createAbandonModel();
   private settled = false;
+  private closing = false;
   private field: HTMLInputElement | undefined;
   private failureEl: HTMLElement | undefined;
   private cancelButton: HTMLButtonElement | undefined;
@@ -69,9 +70,11 @@ export class AbandonVaultDialog extends Modal {
     this.cancelButton.focus();
   }
 
+  /** Closing while the abandon runs does not stop it: the real result is reported when it ends, not a cancel. */
   onClose(): void {
     this.contentEl.empty();
-    this.finish({ abandoned: false });
+    this.closing = true;
+    if (!this.model.state().busy) this.finish({ abandoned: false });
   }
 
   private apply(state: AbandonState): void {
@@ -95,11 +98,12 @@ export class AbandonVaultDialog extends Modal {
     }
     if (result.ok) {
       this.finish({ abandoned: true, ...(result.backupNote === undefined ? {} : { backupNote: result.backupNote }) });
-      this.close();
+      if (!this.closing) this.close();
       return;
     }
     this.apply(this.model.fail(result.reason));
-    this.cancelButton?.focus();
+    if (this.closing) this.finish({ abandoned: false });
+    else this.cancelButton?.focus();
   }
 
   private finish(outcome: AbandonOutcome): void {

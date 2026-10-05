@@ -134,6 +134,16 @@ describe("settings migration", () => {
     expect(result.settings.auth).toEqual({ scheme: "bearer", token: "legacy-secret" });
   });
 
+  it("drops the legacy auth token when the legacy URL is absent or empty, so it never goes to whichever node is set next (review round 3, P-L6)", () => {
+    const { rpcUrl: _omitted, ...withoutUrl } = oldData({ authToken: "legacy-secret" });
+    for (const stored of [withoutUrl, oldData({ rpcUrl: "", authToken: "legacy-secret" }), oldData({ rpcUrl: "  /", authToken: "legacy-secret" })]) {
+      const result = loadSettings(stored);
+      expect(result.settings.rpc).toEqual({ url: "" });
+      expect(result.settings.auth).toEqual({ scheme: "none" });
+      expect(JSON.stringify(result.settings)).not.toContain("legacy-secret");
+    }
+  });
+
   it("adds the retired-node notice after the key notice when both apply", () => {
     const result = loadSettings(oldData({ rpcUrl: RETIRED_URL, keyName: "consult-capture" }));
     expect(result.notices).toHaveLength(2);

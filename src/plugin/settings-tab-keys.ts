@@ -47,10 +47,21 @@ export class KeysSection {
     if (generation === this.generation) this.drawStatus(statusEl, view);
   }
 
-  private drawStatus(parent: HTMLElement, view: KeyStateView | undefined): void {
+  /**
+   * An address or credential edit changed what the node would be asked. Nothing is sent: the answer on screen is dropped as out of
+   * date, and "Check again" asks the node with what is saved.
+   */
+  markStale(): void {
+    const statusEl = this.statusEl;
+    if (statusEl === undefined) return;
+    this.generation += 1;
+    this.drawStatus(statusEl, undefined, COPY.stale);
+  }
+
+  private drawStatus(parent: HTMLElement, view: KeyStateView | undefined, pending: string = COPY.checking): void {
     parent.empty();
     const state = new Setting(parent).setName(COPY.stateName);
-    state.setDesc(view === undefined ? COPY.checking : `${STATE_LABEL[view.state]}. ${keyReasonSentence(view.detail)}`);
+    state.setDesc(view === undefined ? pending : `${STATE_LABEL[view.state]}. ${keyReasonSentence(view.detail)}`);
     state.descEl.setAttr("aria-live", "polite");
     state.addButton((button) => {
       button.setButtonText(COPY.refreshButton);

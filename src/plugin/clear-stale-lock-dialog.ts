@@ -22,6 +22,7 @@ export interface ClearLockDialogRequest {
 export class ClearStaleLockDialog extends Modal {
   private settled = false;
   private busy = false;
+  private closing = false;
   private cancelButton: HTMLButtonElement | undefined;
   private confirmButton: HTMLButtonElement | undefined;
   private failureEl: HTMLElement | undefined;
@@ -53,9 +54,11 @@ export class ClearStaleLockDialog extends Modal {
     this.cancelButton.focus();
   }
 
+  /** Closing while the lock is being cleared does not stop it: the real result is reported when it ends, not a cancel. */
   onClose(): void {
     this.contentEl.empty();
-    this.finish({ cleared: false });
+    this.closing = true;
+    if (!this.busy) this.finish({ cleared: false });
   }
 
   private async confirm(): Promise<void> {
@@ -70,13 +73,14 @@ export class ClearStaleLockDialog extends Modal {
     }
     if (result.ok) {
       this.finish({ cleared: true });
-      this.close();
+      if (!this.closing) this.close();
       return;
     }
     this.failureEl?.setText(errorLine(`${COPY.failed}: ${result.reason}`));
     if (this.failureEl !== undefined) markProblem(this.failureEl, true);
     this.busy = false;
-    this.cancelButton?.focus();
+    if (this.closing) this.finish({ cleared: false });
+    else this.cancelButton?.focus();
   }
 
   private finish(outcome: ClearLockOutcome): void {

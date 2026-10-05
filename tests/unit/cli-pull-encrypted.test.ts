@@ -97,6 +97,11 @@ describe("first pull", () => {
     expect(blobGets()).toEqual([]);
   });
 
+  it("names the destination directory in the prompt text (review round 3, S-M1)", async () => {
+    const result = await rig.pull([], { confirm: no });
+    expect(`${result.out}\n${result.err}`).toMatch(new RegExp(`into\\s+${rig.vaultB.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  });
+
   it("shows no replace line when the directory holds none of the vault's files", async () => {
     const result = await rig.pull([], { confirm: no });
     expect(`${result.out}\n${result.err}`).not.toMatch(/replaces\s+\d/);

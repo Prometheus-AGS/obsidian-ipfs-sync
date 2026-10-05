@@ -63,8 +63,10 @@ describe("composeEndpointUrl", () => {
       } catch (error) {
         message = String(error);
       }
-      expect(message).not.toMatch(/pa|ss|se\/cr|cr\?et|et#x|user|p@a/);
-      expect(message).toContain("<redacted>");
+      // Round 3 (K-L4): an unparsable URL is not echoed at all; the fixed phrase "invalid address" replaces the redacted echo
+      // (and its "ss" is why the pattern now names the password fragments, not "pa" and "ss" alone).
+      expect(message).not.toMatch(/pa#ss|pa\/ss|pa\?ss|se\/cr|cr\?et|et#x|user|p@a|u:p/);
+      expect(message).toContain("invalid address");
     },
   );
 

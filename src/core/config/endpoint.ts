@@ -25,16 +25,14 @@ const INVALID_ADDRESS = "invalid address";
 export function displayAddress(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed === "") return "";
+  // Parse first: the parts that may be shown (protocol, host, path) come from the parsed URL, so userinfo, query and fragment are never
+  // in the output whatever characters they hold. Text that does not parse is not echoed at all.
   try {
-    const parsed = new URL(redactUserinfo(trimmed));
+    const parsed = new URL(trimmed);
     return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/+$/, "")}`;
   } catch {
     return INVALID_ADDRESS;
   }
-}
-
-function safeText(raw: string): string {
-  return redactUserinfo(raw);
 }
 
 /** Parse a port from a number or numeric string. Empty or missing means "unset". */
@@ -52,7 +50,7 @@ function parseHttpUrl(name: EndpointName, raw: string): URL {
   try {
     parsed = new URL(raw);
   } catch {
-    throw new ConfigError("invalid-url", `${name} URL is not a valid URL: "${safeText(raw)}"`);
+    throw new ConfigError("invalid-url", `${name} URL is not a valid URL: ${INVALID_ADDRESS}`);
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new ConfigError("invalid-url", `${name} URL must use http or https, got "${parsed.protocol}"`);

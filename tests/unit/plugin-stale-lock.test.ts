@@ -267,6 +267,26 @@ describe("the plugin: command and settings section", () => {
     expect(buttons[1]?.disabled).toBe(true); // as in the adopt dialog: read why, then cancel
   });
 
+  it("the dialog reports the real result, not a cancel, when it is closed while the lock is being cleared (review round 3, P-L2)", async () => {
+    let release: (result: { ok: true }) => void = () => undefined;
+    const pending = new Promise<{ ok: true }>((resolve) => {
+      release = resolve;
+    });
+    const finished = vi.fn();
+    const app = new App(new MemoryAdapter());
+    const dialog = new ClearStaleLockDialog(app as unknown as ObsidianApp, { description: "process 0 on h, last heartbeat 999 s ago", clear: () => pending }, finished);
+    dialog.open();
+    const content = (dialog as unknown as { contentEl: FakeEl }).contentEl;
+    const confirm = content.find((el) => el.tag === "button" && el.text === STALE_LOCK_COPY.confirm);
+    await confirm?.dispatch("click");
+    dialog.close();
+    expect(finished).not.toHaveBeenCalled();
+    release({ ok: true });
+    await flush();
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(finished).toHaveBeenCalledWith({ cleared: true });
+  });
+
   function tabOver(adapter: MemoryAdapter) {
     const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { settings: testNodeSettings(), outcome: "current", notices: [], persist: false });
     const vm = createSettingsViewModel({ store, now: () => new Date(NOW), listNodeKeys: async () => [] });

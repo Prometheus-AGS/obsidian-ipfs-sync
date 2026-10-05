@@ -34,6 +34,7 @@ export function firstPullView(details: FirstPullDetails): ConfirmView {
       { label: COPY.publishedName, value: publishedText(details.publishedAt) },
       { label: COPY.deviceName, value: details.device },
       { label: COPY.filesName, value: String(details.fileCount) },
+      ...(details.destination === undefined ? [] : [{ label: COPY.destinationName, value: details.destination }]),
       ...(skipped === undefined ? [] : [skipped]),
       ...(details.replacedLocalFiles > 0 ? [{ label: COPY.replacedName, value: `${COPY.replacedLowerBound} ${details.replacedLocalFiles} ${COPY.replacedNote}` }] : []),
     ],

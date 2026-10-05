@@ -124,9 +124,11 @@ function migrateLegacy(stored: Stored): LoadResult {
   const oldUrl = text(stored, "rpcUrl")?.trim().replace(/\/+$/, "");
   const retired = oldUrl !== undefined && isRetiredDefaultHost(oldUrl);
   const credentialed = oldUrl !== undefined && !retired && hasUserinfo(oldUrl);
-  const url = oldUrl === undefined || oldUrl === "" || retired || credentialed ? base.rpc.url : oldUrl;
-  // A token written for the retired node, or for an address that held credentials, is never persisted: it would go to whatever node is set next.
-  const token = retired || credentialed ? "" :(text(stored, "authToken")?.trim() ?? "");
+  const carried = oldUrl !== undefined && oldUrl !== "" && !retired && !credentialed;
+  const url = carried ? oldUrl : base.rpc.url;
+  // A token is kept only with the address it was written for. With no address carried over (absent, empty, retired or credentialed)
+  // it would go to whatever node is set next, so it is never persisted.
+  const token = carried ? (text(stored, "authToken")?.trim() ?? "") : "";
   const { key, notice } = mapKeyName(text(stored, "keyName")?.trim());
   const settings: PluginSettings = {
     ...base,
@@ -147,7 +149,10 @@ function migrateLegacy(stored: Stored): LoadResult {
 }
 
 const UNREADABLE_NOTICE =
-  "IPFS Sync: the stored settings could not be read, so defaults are in use. The stored data is left untouched until you change a setting.";
+  "IPFS Sync: the stored settings could not be read, so defaults are in use. The stored data is left untouched until you change a setting. " +
+  "Changing a setting saves the defaults over that file, which holds your credentials, your owned keys and the sequence floor record." +
+  "Before that happens a copy of the file is saved in the plugin folder as data.json.unreadable-followed by the UTC date and time. " +
+  "The copy is plain text and holds the same secrets as the original, so delete it when you no longer need it.";
 
 function unreadable(): LoadResult {
   return { settings: defaultSettings(), outcome: "unreadable", notices: [UNREADABLE_NOTICE], persist: false };

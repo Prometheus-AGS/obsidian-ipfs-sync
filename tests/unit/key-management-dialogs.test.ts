@@ -406,6 +406,15 @@ describe("accept-slots dialog", () => {
     expect(button(root, ACCEPT_SLOTS_COPY.acceptButton).disabled).toBe(false);
   });
 
+  it("puts the focus on Cancel, not Accept, once the slots are reviewed (review round 3, P-M2)", async () => {
+    const { root } = openAccept();
+    await type(must(root, "ipfs-sync-accept-current"), OLD);
+    await button(root, ACCEPT_SLOTS_COPY.checkButton).dispatch("click");
+    await flush();
+    expect(button(root, ACCEPT_SLOTS_COPY.acceptButton).disabled).toBe(false);
+    expect(focusedNames(root)).toEqual([KEY_DIALOG_COPY.cancel]);
+  });
+
   it("shows both costs and needs a ticked confirmation when the incoming slot is cheaper", async () => {
     const { root, accept } = openAccept({ checkSlots: async () => ({ ok: true, review: { current: HIGH, incoming: STANDARD, changes: true } }) });
     await type(must(root, "ipfs-sync-accept-current"), OLD);

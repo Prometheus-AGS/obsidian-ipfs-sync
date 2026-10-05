@@ -102,6 +102,14 @@ describe("plugin entry", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("holds a stored interval above the cap at the cap, so the timer delay cannot overflow", async () => {
+    const setInterval = vi.fn(() => 7);
+    vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });
+    await loadPlugin({ ...testNodeSettings(), publishIntervalMinutes: 999_999 });
+    expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 35_000 * 60_000);
+    expect(35_000 * 60_000).toBeLessThanOrEqual(2_147_483_647);
+  });
+
   it("does not arm a timer when the interval is 0", async () => {
     const setInterval = vi.fn(() => 1);
     vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });

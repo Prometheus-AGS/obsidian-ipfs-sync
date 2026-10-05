@@ -7,7 +7,7 @@ import { formatPassphrase, generatePassphrase } from "../../src/crypto";
 import type { PullReport } from "../../src/plugin/pull-notices";
 import type { PullOutcome } from "../../src/plugin/pull-runner";
 import { createPublishRunner, type PublishOutcome } from "../../src/plugin/publish-runner";
-import { FIRST_PULL_GATEWAY_STATEMENT } from "../../src/sync/encrypted-pull";
+import { FIRST_PULL_GATEWAY_STATEMENT, NO_STATE_PULL_STATEMENT } from "../../src/sync/encrypted-pull";
 import { encodeLock } from "../../src/sync/publish-lock";
 import { currentRoot, forgeManifest, pointNameAt, publishAgain, publishedOnce, resetNodeTrace, servedRoot } from "../helpers/encrypted-pull-rig";
 import { REFERENCE_TEXT, heldVault, pluginOver, type EncryptedPluginRig } from "../helpers/plugin-pull-encrypted-rig";
@@ -112,6 +112,38 @@ describe("plugin decrypting pull: unlock and first pull", () => {
     expect(b.passphrase.requests).toEqual([]);
     expect(b.dialogs.firstPulls).toHaveLength(1);
     expect(b.texts()).toEqual(sourceTexts(publisher));
+  });
+
+  it("names the vault the pull writes into on the first-pull details, without a path, and falls back to a fixed label", async () => {
+    const publisher = await publishedOnce();
+    const named = pluginOver(publisher, { vaultName: "Field notes" });
+    await named.pull();
+    expect(named.dialogs.firstPulls[0]?.destination).toBe("Field notes");
+
+    const unnamed = pluginOver(publisher);
+    await unnamed.pull();
+    expect(unnamed.dialogs.firstPulls[0]?.destination).toBe("This Obsidian vault");
+  });
+
+  it("asks again when the device holds a floor but this vault has no state and a note differs, showing the destination and the no-state statement; unattended it refuses and writes nothing", async () => {
+    const publisher = await publishedOnce();
+    const held = await heldVault(publisher);
+    const first = pluginOver(publisher, { vaultName: "Field notes", session: { provider: () => held } });
+    expect((await first.pull()).kind).toBe("completed");
+    for (const path of [...first.adapter.files.keys()]) if (path.startsWith(".ipfs-sync/") && !path.endsWith("publish.lock")) first.adapter.files.delete(path);
+    first.adapter.put(DAILY, "local edit that differs", 9000);
+    const edited = filesOf(first);
+
+    const quiet = await first.pull({ unattended: true });
+    expect(quiet).toMatchObject({ kind: "stopped", reason: "first-pull-not-confirmed" });
+    expect(filesOf(first)).toEqual(edited);
+    expect(first.adapter.text(DAILY)).toBe("local edit that differs");
+
+    await first.pull();
+    const asked = first.dialogs.firstPulls.at(-1);
+    expect(first.dialogs.firstPulls).toHaveLength(2);
+    expect(asked?.destination).toBe("Field notes");
+    expect(asked?.statements).toContain(NO_STATE_PULL_STATEMENT);
   });
 
   it("declining the first pull writes no file, no state, no floor entry and no key-slot copy", async () => {

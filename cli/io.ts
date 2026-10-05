@@ -54,12 +54,22 @@ export function promptText(question: string): string {
   return `${stripControlCharacters(question)} [y/N] `;
 }
 
+/** Standard output carries multi-line text (the help, a listing), so line breaks stay; every other control character in a line is replaced. */
+function stripPerLine(text: string): string {
+  return text.split("\n").map(stripControlCharacters).join("\n");
+}
+
+/**
+ * The process streams. `confirm` and `prompt` exist only when standard input is a terminal: a run without one is then a run that cannot ask,
+ * and the commands that need a yes (keys change-passphrase, keys increase-cost, prune-history, abandon) refuse before they send anything unless
+ * the explicit flag was given. Standard output is stripped like standard error, because a node chooses entry names and version strings.
+ */
 export function createProcessIo(): CliIo {
+  const interactive = process.stdin.isTTY === true;
   return {
-    confirm: askOnTerminal,
-    prompt: readLineOnTerminal,
+    ...(interactive ? { confirm: askOnTerminal, prompt: readLineOnTerminal } : {}),
     out: (text) => {
-      process.stdout.write(`${text}\n`);
+      process.stdout.write(`${stripPerLine(text)}\n`);
     },
     err: (text) => {
       process.stderr.write(`${stripControlCharacters(text)}\n`);

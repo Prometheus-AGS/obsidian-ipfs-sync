@@ -25,6 +25,8 @@ import { IpfsSyncSettingTab } from "./settings-tab";
 import { requestUrlTransport } from "./request-url-transport";
 import { createStaleLockControl } from "./stale-lock";
 import { createStaleLockFlow, type StaleLockFlow } from "./stale-lock-flow";
+import { MAX_PUBLISH_INTERVAL_MINUTES } from "./settings-model";
+import { createUnreadableBackup, type UnreadableBackup } from "./unreadable-backup";
 import { openSettingsStore, type SettingsStore } from "./settings-store";
 import { retiredDefaultNotice } from "./node-status";
 import { settingsToConfig } from "./settings-to-config";
@@ -72,7 +74,7 @@ export default class IpfsSyncPlugin extends Plugin {
   /** Reasons already explained by an unattended (auto-publish) run, so it never repeats itself. */
   private readonly explained = new Set<string>();
   async onload(): Promise<void> {
-    const { store, load } = await openSettingsStore(this);
+    const { store, load } = await openSettingsStore(this, this.unreadableBackup());
     this.store = store;
     for (const message of load.notices) new Notice(message, NOTICE_MS);
     await this.warnAboutRetiredDefault();
@@ -146,6 +148,7 @@ export default class IpfsSyncPlugin extends Plugin {
       store,
       adapter,
       configDir: this.app.vault.configDir,
+      vaultName: this.app.vault.getName(),
       bus: this.bus,
       lock,
       flushEditors: () => flushOpenEditors(this.app.workspace, adapter),
@@ -229,11 +232,31 @@ export default class IpfsSyncPlugin extends Plugin {
     this.dialogs.dispose();
   }
 
+  /**
+   * The copy made before the first save replaces an unreadable `data.json` with defaults. It says, once, where the copy is and that it is
+   * plain text with the same secrets as the original.
+   */
+  private unreadableBackup(): UnreadableBackup {
+    const folder = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    const copy = createUnreadableBackup({ adapter: this.app.vault.adapter, dataPath: `${folder}/data.json`, now: () => new Date() });
+    return {
+      save: async (fallbackText) => {
+        const path = await copy.save(fallbackText);
+        new Notice(
+          `IPFS Sync: your unreadable settings file was copied to ${path} before it was replaced with defaults. The copy is plain text and holds the same secrets as the original; delete it when you no longer need it.`,
+          NOTICE_MS,
+        );
+        return path;
+      },
+    };
+  }
+
   /** (Re)start the auto-publish timer from the stored interval; 0 turns it off. Call after the interval changes. */
   rearmAutoPublish(): void {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
-    const minutes = this.store.get().publishIntervalMinutes;
+    // A stored value above the cap (an older file) is held at it: a longer delay overflows the timer and fires in a tight loop.
+    const minutes = Math.min(this.store.get().publishIntervalMinutes, MAX_PUBLISH_INTERVAL_MINUTES);
     if (minutes <= 0) return;
     this.timer = window.setInterval(() => void this.publishVault({ quiet: true }), minutes * MS_PER_MINUTE);
     this.registerInterval(this.timer);

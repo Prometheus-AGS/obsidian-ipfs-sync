@@ -110,6 +110,9 @@ export interface PluginSettings {
   readonly deviceStore: Readonly<Record<string, string>>;
 }
 
+/** The longest auto-publish interval: a timer holds at most 2147483647 ms (about 35791 minutes) and fires in a tight loop above that. */
+export const MAX_PUBLISH_INTERVAL_MINUTES = 35_000;
+
 export function defaultSettings(): PluginSettings {
   return {
     version: SETTINGS_VERSION,

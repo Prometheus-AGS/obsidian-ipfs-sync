@@ -2,7 +2,7 @@ import { statfs } from "node:fs/promises";
 import { createSyncEventBus } from "../src/core/events";
 import { describeKdfCost, wipe, type KdfParams } from "../src/crypto";
 import { gatewayBlobSource } from "../src/sync/blob-source";
-import type { EncryptedPullOutcome, FirstPullDetails, PullTarget } from "../src/sync/encrypted-pull";
+import { NO_STATE_PULL_STATEMENT, type EncryptedPullOutcome, type FirstPullDetails, type PullTarget } from "../src/sync/encrypted-pull";
 import type { FreeBytes } from "../src/sync/encrypted-pull-fetch";
 import { pullEncryptedVault, type LargePullDetails, type PullStageResult, type PullVaultDeps, type PullVaultOptions } from "../src/sync/encrypted-pull-stage";
 import { escapeForDisplay } from "../src/sync/path-policy";
@@ -49,7 +49,9 @@ const plural = (count: number, word: string): string => `${count} ${word}${count
 
 /** What a first pull shows before it asks. All of it is escaped by the engine or format-checked. */
 function printFirstPull(io: CliIo, details: FirstPullDetails): void {
-  io.out("first pull of this vault (all of it was chosen by whoever holds the vault key):");
+  const stateless = details.statements.includes(NO_STATE_PULL_STATEMENT);
+  io.out(`${stateless ? "pull of this vault into a directory with no state for it" : "first pull of this vault"} (all of it was chosen by whoever holds the vault key):`);
+  if (details.destination !== undefined) io.out(`  into       ${details.destination}`);
   io.out(`  target     ${details.target}`);
   io.out(`  sequence   ${details.sequence}`);
   io.out(`  published  ${details.publishedAt}`);
@@ -72,7 +74,7 @@ function questions(ctx: PullContext): Pick<PullVaultDeps, "confirmFirstPull" | "
   return {
     confirmFirstPull: async (details) => {
       printFirstPull(io, details);
-      return confirm("Pull this vault into this directory for the first time?");
+      return confirm(details.statements.includes(NO_STATE_PULL_STATEMENT) ? "Pull this vault into this directory?" : "Pull this vault into this directory for the first time?");
     },
     confirmCost: (costs) => confirm(costQuestion(costs)),
     confirmLargePull: (details: LargePullDetails) =>
@@ -152,9 +154,10 @@ function report(io: CliIo, outcome: EncryptedPullOutcome<PullStageResult>): numb
   return result.settlement.needsAttention ? EXIT_CHECK_FAILED : EXIT_OK;
 }
 
-function buildOptions(ctx: PullContext, passphrase: PullVaultOptions["passphrase"]): PullVaultOptions {
+function buildOptions(ctx: PullContext, passphrase: PullVaultOptions["passphrase"], vault: string): PullVaultOptions {
   const { config, flags } = ctx;
   return {
+    destination: vault,
     mfsRoot: config.mfsRoot,
     keyName: config.publicationKey,
     ownedKeys: config.ownedKeys,
@@ -194,7 +197,7 @@ export async function runEncryptedPull(ctx: PullContext, vault: string): Promise
         bus,
         ...questions(ctx),
       },
-      buildOptions(ctx, passphrase),
+      buildOptions(ctx, passphrase, vault),
     );
     return report(ctx.io, outcome);
   } finally {

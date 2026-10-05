@@ -145,10 +145,9 @@ Options:
                           --dry-run is given.
   --auth <scheme>         none | basic | bearer | header.
   --auth-user <user>      basic: user.
-  --auth-password <pw>    basic: password.
-  --auth-token <token>    bearer: static token or JWT.
   --auth-header-name <n>  header: header name.
-  --auth-header-value <v> header: header value.
+                          The password, token and header value are not options: they would show in the process list and shell
+                          history. Set IPFS_SYNC_AUTH_PASSWORD, IPFS_SYNC_AUTH_TOKEN or IPFS_SYNC_AUTH_HEADER_VALUE instead.
   --name <id>             pull, keys accept-slots: IPNS key ID to read from (default: the ID of the owned key given by --key).
   --root-cid <cid>        pull, keys accept-slots: use this immutable root instead of the name. The client does not verify the
                           bytes the gateway returns against the CID; authenticity rests on the vault key.

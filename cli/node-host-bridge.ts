@@ -4,6 +4,7 @@ import { basename, dirname, join } from "node:path";
 import type { Bytes, HostBridge, HostFs, HostFsEntry, HostFsLstat, HostFsStat, HostKv } from "../src/core/host-bridge";
 import { HostNotImplementedError, HostPathError } from "../src/sync/host-errors";
 import { assertParentInsideRoot } from "./realpath-guard";
+import { assertStateFolderUnlinked } from "./state-folder-link";
 
 export { HostPathError };
 
@@ -79,11 +80,17 @@ async function readSlice(absolute: string, offset: number, length: number): Prom
   }
 }
 
+/** Directories under the state folder hold the record, the journal and the key-slot copy: owner-only. Everywhere else the default mode applies. */
+function directoryMode(path: string): number | undefined {
+  return path === KV_DIRECTORY || path.startsWith(`${KV_DIRECTORY}/`) ? KV_DIRECTORY_MODE : undefined;
+}
+
 function createFs(root: string): HostFs {
   const at = (path: string): string => resolveInside(root, path);
   /** Resolve a mutation target and prove its parent's realpath is inside the vault's, before anything is created. */
   const mutableAt = async (path: string): Promise<string> => {
     const target = at(path);
+    if (directoryMode(path) !== undefined) await assertStateFolderUnlinked(root);
     await assertParentInsideRoot(root, target, path);
     return target;
   };
@@ -99,19 +106,19 @@ function createFs(root: string): HostFs {
     },
     mkdir: async (path) => {
       const target = await mutableAt(path);
-      await mkdir(target, { recursive: true });
+      await mkdir(target, { recursive: true, mode: directoryMode(path) });
     },
     remove: async (path) => rm(await mutableAt(path), { force: true }),
     lstat: async (path) => lstatOrUndefined(at(path)),
     rename: async (from, to) => {
       const source = await mutableAt(from);
       const target = await mutableAt(to);
-      await mkdir(dirname(target), { recursive: true });
+      await mkdir(dirname(target), { recursive: true, mode: directoryMode(to) });
       await rename(source, target);
     },
     append: async (path, data) => {
       const target = await mutableAt(path);
-      await mkdir(dirname(target), { recursive: true });
+      await mkdir(dirname(target), { recursive: true, mode: directoryMode(path) });
       await appendFile(target, data);
     },
   };
@@ -157,8 +164,10 @@ async function replaceAtomically(target: string, value: Bytes): Promise<void> {
 function createKv(root: string): HostKv {
   return {
     get: async (key) => {
+      const path = kvPath(root, key);
+      await assertStateFolderUnlinked(root);
       try {
-        return await readFile(kvPath(root, key));
+        return await readFile(path);
       } catch (error) {
         if (isMissing(error)) return undefined;
         throw error;
@@ -167,13 +176,20 @@ function createKv(root: string): HostKv {
     set: async (key, value) => {
       const target = kvPath(root, key);
       const temp = join(dirname(target), `.${key}.${process.pid}.tmp`);
+      // Before the first mkdir and before the chmod: both would act on the target of a link.
+      await assertStateFolderUnlinked(root);
       await mkdir(dirname(target), { recursive: true, mode: KV_DIRECTORY_MODE });
       await chmod(dirname(target), KV_DIRECTORY_MODE);
       await writeDurably(temp, value);
       await rename(temp, target);
     },
-    delete: async (key) => rm(kvPath(root, key), { force: true }),
+    delete: async (key) => {
+      const target = kvPath(root, key);
+      await assertStateFolderUnlinked(root);
+      await rm(target, { force: true });
+    },
     list: async (prefix) => {
+      await assertStateFolderUnlinked(root);
       try {
         const names = await readdir(join(root, KV_DIRECTORY));
         return names.filter((name) => KV_KEY.test(name) && name.startsWith(prefix)).sort();

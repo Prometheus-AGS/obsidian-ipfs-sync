@@ -62,9 +62,24 @@ function resolveEndpoint(
   return inherited.withheld ? { name, baseUrl, auth: inherited.auth, credentialWithheld: true } : { name, baseUrl, auth: inherited.auth };
 }
 
+const LOOPBACK_IPV4 = /^127(?:\.\d{1,3}){3}$/;
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "[::1]" || LOOPBACK_IPV4.test(hostname);
+}
+
+/** A credential sent over unencrypted http to a host that is not this machine is readable on the way (review round 3, K-L2). A warning, not a refusal. */
+function plainHttpWarnings(endpoint: ResolvedEndpoint): readonly string[] {
+  if (endpoint.auth.kind === "none") return [];
+  const url = new URL(endpoint.baseUrl);
+  if (url.protocol !== "http:" || isLoopbackHost(url.hostname)) return [];
+  return [`${endpoint.name} credential is sent over plain http to ${url.host}; anyone on the network path can read it. Use an https address`];
+}
+
 function collectWarnings(rpc: ResolvedEndpoint, gateway: ResolvedEndpoint, now: Date): readonly string[] {
-  if (rpc.auth === gateway.auth) return authWarnings("auth", rpc.auth, now);
-  return [...authWarnings("rpc", rpc.auth, now), ...authWarnings("gateway", gateway.auth, now)];
+  const plain = [...plainHttpWarnings(rpc), ...plainHttpWarnings(gateway)];
+  if (rpc.auth === gateway.auth) return [...authWarnings("auth", rpc.auth, now), ...plain];
+  return [...authWarnings("rpc", rpc.auth, now), ...authWarnings("gateway", gateway.auth, now), ...plain];
 }
 
 /** Validate a merged layer into a SyncConfig. Throws ConfigError before any request is possible. */
