@@ -47,7 +47,8 @@ const SECRET_HEADERS = ["authorization", "x-api-key", "cookie", "proxy-authoriza
 function describeHeaders(headers) {
   const lines = [];
   for (const [name, value] of Object.entries(headers)) {
-    const shown = SECRET_HEADERS.includes(name) || /key|token|secret|auth/i.test(name) ? `<present sha256:${short(String(value))}>` : String(value).slice(0, 80);
+    const limit = name === "user-agent" ? 240 : 80;
+    const shown = SECRET_HEADERS.includes(name) || /key|token|secret|auth/i.test(name) ? `<present sha256:${short(String(value))}>` : String(value).slice(0, limit);
     lines.push(`${name}: ${shown}`);
   }
   return lines.sort();
@@ -68,6 +69,7 @@ createServer(async (request, response) => {
   next += 1;
   const location = `http://${targetHost}:${portB}${request.url}${request.url.includes("?") ? "&" : "?"}s=${status}`;
   console.log(`[${stamp()}] A  ${request.method} ${request.url}  body ${bodyBytes} B  -> ${status} to ${location}`);
+  if (request.headers["sec-fetch-mode"] === "navigate") console.log("            NOTE: a page visit by a browser (sec-fetch-mode: navigate), not a request made by the plugin");
   console.log(`            headers A received: ${describeHeaders(request.headers).join(" | ")}`);
   response.writeHead(status, { Location: location, "Content-Length": "0" });
   response.end();
