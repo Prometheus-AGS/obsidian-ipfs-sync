@@ -519,8 +519,16 @@ picker away from a kind clears that kind's draft secret fields (`src/plugin/sett
 `.ipfs-sync/` is named by a hash of `mfsRoot`, not by the node, so a new empty node meets the old local key-slot copy and
 state. `openVault` in `src/sync/vault-keys.ts` finds a copy, finds no key slots on the node and finds local state, and
 throws `lost-slots`: a publish is refused, fail closed, with no new key generated. Abandon is the way out. It keeps the
-sequence floor and moves the key slots, state, journal and maintenance files aside. It deletes nothing, and that is the
-uncomfortable part: a refusal that has a one-click exit teaches users to click past refusals. `pullName` is not cleared
+sequence floor and moves four local files aside: the key-slot copy, the state, the publish journal and the
+key-management (maintenance) journal. It deletes nothing, and that is the uncomfortable part: a refusal that has a
+one-click exit teaches users to click past refusals. A second uncomfortable part: the maintenance journal is the one
+record the tool needs to clean up after a rewrap or prune, and abandon can drop it. The node-side write is not withdrawn
+(a rewritten key-slot file may stay in the shared tree). Earlier text said `keys discard` withdraws it; that was wrong.
+`keys discard` withdraws a key-slot file only for a rewrap that has not yet published (`withdrawMaintenanceWrite`,
+`src/sync/republish-root.ts`: it returns false for a prune and for a journal at `published` or later). For a prune, or a
+rewrap that has published, it forgets the record and takes nothing back (`discardStatements`,
+`src/sync/key-management-text.ts`). Run it before abandon when you want an unpublished rewrap withdrawn, because abandon
+drops the record that would let it. The dialog says so (`ABANDON_COPY`, `src/plugin/encryption-copy.ts`). `pullName` is not cleared
 by the reset, so the user should clear it when switching nodes. Status keeps the old publish's root CID and time until
 the next publish (`lastPublished` in `src/plugin/sync-status.ts`, which reads the per-root record).
 
@@ -539,10 +547,13 @@ named to a free name if one exists. A copy that fails fails the save, so the ori
 of disk. This is a copy of a secret store with no encryption and no expiry; the notice tells the user to delete it.
 `MAX_PUBLISH_INTERVAL_MINUTES` is 35,000 (a timer holds about 35,791 minutes), applied by validation and, for an older
 stored value, by `rearmAutoPublish`. The interval is a whole number of minutes: `wholeMinutes` in `settings-parse.ts` loads a
-stored fraction, negative or non-finite value as 0 (off) instead of making the file unreadable, so credentials, owned keys and
-the floor stay; `rearmAutoPublish` treats a non-finite or non-positive value as off. The abandon and clear-stale-lock dialogs no
+stored fraction, negative or non-finite value, and `null` (how JSON stores NaN and infinity), as 0 (off) instead of making the
+file unreadable, so credentials, owned keys and the floor stay; any other type stays unreadable; `rearmAutoPublish` treats a non-finite or non-positive value as off. The abandon and clear-stale-lock dialogs no
 longer report a cancel when Escape closes them mid-run: they report the real result, and a failure after the dialog is gone
-reaches the user as a notice (`AbandonOutcome.failure`, fixed text for a thrown error). Round 4: any change of origin in the
+reaches the user as a notice (`AbandonOutcome.failure`). Since round 5 the abandon action returns one of three fixed lines
+(`ABANDON_FAILURES` in `src/plugin/abandon-flow.ts`: invalid MFS root, local files not all moved, unexpected error) and never
+reads an error's message. Since round 6 a move that stops part-way returns the count line instead, and a live lock held by another process returns the
+busy notice. Since round 7 a lock file that is unreadable or unsupported does not block abandon, unless a second read shows a live holder, which is round 8 (see section 8.7, "Reachable actions"). Round 4: any change of origin in the
 node or gateway block blanks that block's unsaved draft credential and puts its picker back to the stored kind
 (`originChanged` from `clearCredentialOnOriginChange`), not only a change that cleared a stored credential. The settings store
 clears its pending-copy flag only after the save succeeds, and the unreadable-file copy is read back before the save
@@ -686,11 +697,44 @@ is shared by every path of one host. This control was not rendered in Obsidian o
   lock (see the next two items). The abandon action
   (`abandonVault` in `src/sync/vault-keys.ts`) is reachable as `ipfs-sync abandon <vault>` (`cli/abandon-command.ts`;
   `--yes-abandon` confirms without a terminal) and, in the plugin, as the command "Abandon this vault" and a button in
-  the Encryption section (`src/plugin/abandon-flow.ts`). It moves the local key-slot copy, state, journal and any
-  maintenance journal for the MFS root to `.ipfs-sync/abandoned-<h>-<ms>/`, records no latch, prints the sequence floor it
-  keeps, never contacts the node and deletes nothing. The CLI holds the cross-process `publish.lock` while it moves files; the plugin holds only the in-process
-  sync lock (`src/plugin/abandon-flow.ts`), so a CLI publish running against the same vault folder is not stopped by a
-  plugin abandon. Refusal messages quote
+  the Encryption section (`src/plugin/abandon-flow.ts`). It previews and moves four local files for the MFS root (the
+  key-slot copy, the state, the publish journal and the maintenance journal) to `.ipfs-sync/abandoned-<h>-<ms>/`, records no
+  latch, prints the sequence floor it keeps, never contacts the node and deletes nothing. A pending rewrap or prune is
+  dropped; its node-side write is not withdrawn, so a rewritten key-slot file may stay in the shared tree and other devices
+  that then publish to that root see changed key slots. `ipfs-sync keys discard` withdraws a key-slot file only for a
+  rewrap that has not yet published; for a prune, or a rewrap that has published, it forgets the record and takes nothing
+  back. Run it before abandon if you want that withdrawal. The plugin has no discard action, so that step is on the
+  command line. Abandon stays allowed as the escape hatch. Since round 6 both the CLI and the plugin take the
+  cross-process `publish.lock` while files move (`acquireAbandonLock` in `src/sync/publish-lock.ts`; `moveUnderLock` in
+  `src/plugin/abandon-flow.ts`), and the plugin also holds its in-process sync lock. Since round 8 the lock policy is
+  this. A live lock held by another process (`lock-held`) gives the busy result and moves nothing. A lock file that is
+  unreadable (`lock-unreadable`: junk, over 64 KiB, or, for abandon only, a read error on the path such as a directory at
+  `publish.lock` or a file with no read permission) or unsupported (`lock-unsupported`: no hard links) does not block
+  abandon by itself, but the classification came from one failed call, so `acquireAbandonLock` reads the lock once more
+  (`liveHolder`). A record that decodes and is not stale is a live holder, including one on a volume without hard links
+  where the plugin's rename-based lock can be live: the result is `lock-held` and nothing moves. Only a lock that is still
+  unreadable, absent or stale lets abandon run with no lock, and it says so in one fixed line
+  (`ABANDON_WITHOUT_LOCK_LINE`, `src/sync/vault-keys.ts`: "the publish lock could not be used, so abandon ran without it;
+  make sure no publish is running"). The CLI prints it before the move; the plugin appends it to the success note and,
+  since round 8, to a partial-move result (`MoveOutcome` in `src/plugin/abandon-flow.ts` carries `ranWithoutLock` with the
+  partial-move error). The cost: with a broken lock a running publish is not excluded, and the line is the only warning;
+  abandon fails open on a broken lock. Any other acquisition error is passed on unchanged. A takeover that moved a live
+  lock aside and then fails to put it back with `lock-unsupported` (no hard links) refuses as `lock-held` and keeps the
+  moved file under its `.taken` name (`takeOver`). The lock is released through `releaseQuietly`, which swallows release
+  errors, so a failing release cannot replace the abandon result or a partial-move error; `release()` sets its done flag
+  only after the remove succeeded, so a second call retries. The heartbeat has a stopped flag and a set of beats in flight:
+  `release()` stops the timer, awaits the beats in flight (`settled`), then reads and removes, so a late beat cannot
+  recreate the lock. `writeIfToken` takes an `isStopped` argument that the CLI's lock file honors; the plugin's adapter
+  lock file ignores it and relies on release awaiting the beat, so a write that hangs would hold release (there is no
+  timeout). The plugin settles its session inside a guard (`settleSession`): if locking or re-reading the session throws,
+  the result keeps the move outcome and adds "reload the plugin". If the move finds no files, the CLI prints the same
+  "nothing was moved" message as for none at the start and exits 1. A failing or unusable device store does not
+  block the move: `floorKept` (`src/sync/vault-keys.ts`) turns any store error into `unavailable` and the four files
+  still move; `not-looked-up` means the vault id is no longer on the device. A rename that fails after the first file
+  moved throws `AbandonPartialMoveError` (counts only: "N of M files were moved. Run abandon again to move the rest into a new backup folder."); the
+  plugin locks the session and refreshes status, the CLI exits 1 without operating-system text, and a rerun moves the rest
+  into a new backup folder (the first files stay in the first one).
+  With no terminal and no `--yes-abandon` the CLI exits 2 even when nothing is there to move. Refusal messages quote
   `ABANDON_HOW` (`src/sync/abandon-hint.ts`). The abandon dialogs have never run in Obsidian.
 - **Legacy 0.2.0 markers (history).** Before the guard removal, `pull` refused the three marker contents release 0.2.0
   wrote or accepted (`fixture copy created by ipfs-sync pull`, empty, `marker`) and `publish` used that wording only for
@@ -843,10 +887,16 @@ the value is never echoed. A `./ipfs-sync.config.json` that was found, not asked
 (`assertImplicitFileDoesNotSteerCredential`, `cli/load-config.ts`); `--config` lifts the check. A credential on a
 non-loopback `http:` endpoint gives a warning (`plainHttpWarnings`, `src/core/config/build-config.ts`). The state folder
 must not be a symbolic link for any command that takes a vault (`cli/state-folder-link.ts`, called from `assertDirectory`
-and from the key-value store and lock file on every operation), and `.ipfs-sync/` is created 0700. Standard input and
-standard output must both be terminals (`canAsk` in `cli/io.ts`) for `CliIo` to have a `confirm` or `prompt`; with either
-redirected the commands that need a yes refuse before sending anything, because the consequence text goes to standard output
-before the question. Node-supplied text is escaped in `status`, and `escapeNodeText` and the CLI's output stripping share one
+and from the key-value store and lock file on every operation), and `.ipfs-sync/` is created 0700. Standard input,
+standard output and standard error must all be terminals (`canAsk` in `cli/io.ts`) for `CliIo` to have a `confirm` or `prompt`;
+with any of them redirected the commands that need a yes refuse before sending anything, because the consequence text goes to
+standard output and the question to standard error. The unresolved-name pull error is fixed text (no node answer, no name
+echoed; `resolveRootCid`, `src/sync/target-resolution.ts`). The lock file's host name is free text, so `describeLock`
+(`src/sync/publish-lock.ts`) cuts a bounded prefix of it to 64 characters (`LOCK_HOST_DISPLAY_MAX`, marked when cut),
+escapes backslashes and double quotes, escapes the rest with the shared table and shows it in double quotes, so it cannot
+end its own quotes and write the words that follow. `decodeLock` keeps at most 255 characters of the host
+(`LOCK_HOST_MAX`) and reads no file over 64 KiB (`LOCK_MAX_BYTES`); such a file is rejected as unreadable. The
+stale-lock dialog escapes the description again. Node-supplied text is escaped in `status`, and `escapeNodeText` and the CLI's output stripping share one
 code-point table (`isUnsafeCodePoint`, `src/kubo/errors.ts`).
 
 **One CID rule (review round 4).** `isCidToken` in `src/sync/local-record.ts` (10 to 128 alphanumeric characters) is asked by
@@ -974,7 +1024,9 @@ In order, and what each step may write:
    only when the preview count is above zero, and it shows `NO_STATE_PULL_STATEMENT` in place of the no-baseline statement.
    Each question has its own flag, read in `confirmFirstPull`: `--accept-first-pull` (`acceptFirstPull`) skips only the
    true first pull, and this no-state question needs `--accept-replace` (`acceptReplace`). A run with no way to ask stops
-   with `first-pull-not-confirmed` and names the flag that fits (`NO_STATE_NOT_CONFIRMED_MESSAGE` names `--accept-replace`). A
+   with `first-pull-not-confirmed` and names the flag that fits (`NO_STATE_NOT_CONFIRMED_MESSAGE` names `--accept-replace`). On a
+   true first pull into a non-empty directory, `--accept-first-pull` also covers the replace consequence (differing files are
+   replaced, dated copies kept); `--accept-replace` is the stateless flag. A
    script that passed `--accept-first-pull` for the second case stops here now. The CLI passes the vault
    path as `destination` and prints it; the plugin does not pass one. Only then are the key-slot copy and, for a first pull or a
    newer manifest, the floor written. Nothing is written before this step except the lock and the sweep.

@@ -113,8 +113,8 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     job that passes `--accept-first-pull` to cover the stateless case stops (`first-pull-not-confirmed`, exit 1, nothing
     written) until it passes `--accept-replace`.** The message names the flag (`cli/args.ts`, `cli/run.ts`,
     `cli/pull-encrypted-command.ts`, `src/sync/encrypted-pull.ts`, `cli/help-text.ts`).
-  - **A confirmation is offered only when standard input and standard output are both terminals** (`canAsk` in
-    `cli/io.ts`). Before, standard input alone decided, so with output piped the consequence text went where the person
+  - **A confirmation is offered only when standard input and standard output are both terminals** (superseded in the fifth
+    round below: standard error must be one too) (`canAsk` in `cli/io.ts`). Before, standard input alone decided, so with output piped the consequence text went where the person
     answering could not see it. With either end redirected the contract is "no terminal": the explicit flag, or exit 2 before
     any request for `keys change-passphrase`, `keys increase-cost`, `keys discard`, `prune-history` and `abandon` (a pull
     that needs a yes exits 1). A question that is asked and declined exits 1.
@@ -144,6 +144,111 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     `data.json` copy is read back before the save, and the pending flag clears only after the save succeeds. One sentence
     about redirect risk sits under the credential fields (Authentication section); with only a gateway credential it is not
     beside the gateway fields. A missing space in the unreadable-file notice was added (`src/plugin/*`).
+- **Fifth review round: abandon names what it drops, the terminal rule, fixed text (commit `5a73801`).** Abandon moved the
+  pending key-management (maintenance) journal without naming it. Tests were written first
+  and failed before the source change. Touched and importing test files pass one at a time and typecheck is clean in both
+  configs. The full suite has not run on this commit. Nothing ran in Obsidian.
+  - **Abandon previews and moves four local files, and says what that costs.** The key-slot copy, the state, the publish
+    journal and the key-management journal (`cli/abandon-command.ts`, `src/plugin/encryption-copy.ts`, `cli/help-text.ts`).
+    A pending rewrap or prune is dropped from this device. Its write to the node is not withdrawn: a rewritten key-slot
+    file may stay in the shared tree, and other devices that then publish to that root will see changed key slots.
+    **Abandon can drop the one record the tool needs to clean up after itself, and the dialog and the CLI preview now say
+    so.** This entry first said `ipfs-sync keys discard` withdraws the write. **That was wrong, and the sixth round
+    corrected it** (see below): discard withdraws a key-slot file only for a rewrap that has not yet published. The plugin
+    has no discard action, so that step is on the command line. Abandon stays allowed: it is the escape hatch. The CLI's
+    "nothing to move" message names the key-management journal; the plugin's `NOTHING_TO_ABANDON` line does not (see Not
+    done).
+  - **A confirmation is offered only when standard input, standard output AND standard error are terminals** (`canAsk`,
+    `cli/io.ts`). The question is written to standard error, so a run with it redirected could not show the question.
+    Such a run is a run that cannot ask: the explicit flag, or exit 2 before any request.
+  - **A stored `publishIntervalMinutes` of `null` loads as 0 (off) with the file kept.** `JSON.stringify` writes NaN and
+    infinity as `null`. Every other non-number type still makes the file unreadable (`src/plugin/settings-parse.ts`).
+  - **Fixed text where text was claimed to be fixed.** The unresolved-name pull error no longer echoes the node's answer
+    or the name (`src/sync/target-resolution.ts`). The lock file's host is cut to 64 characters (marked when cut) and
+    escaped before it reaches a dialog or a CLI line (`describeLock`, `src/sync/publish-lock.ts`; the stale-lock dialog
+    escapes the description again). The plugin abandon failure path returns one of three fixed lines (invalid MFS root,
+    local files not all moved, unexpected error) and never reads the error's message (`src/plugin/abandon-flow.ts`).
+  - **`--accept-first-pull` also covers the replace consequence on a true first pull into a non-empty directory** (files
+    that differ are replaced, dated copies kept). `--accept-replace` is the stateless one. Help text says so
+    (`cli/help-text.ts`).
+- **Sixth round: abandon says only what the code does, and is never blocked (commit `903e3c1`).** Abandon is the escape
+  hatch, so its text and behaviour were tightened. Tests were written first and failed before the source change, except
+  the CLI abandon cases, which were written after the code. Touched and importing test files pass one at a time and
+  typecheck is clean in both configs. The full suite has not run on this commit. Nothing ran in Obsidian.
+  - **Correction: `keys discard` does not withdraw a prune, or a rewrap that has published.** The fifth round, the README,
+    DESIGN section 8.6, the runbook and this file said discard withdraws the pending node write. The code
+    (`withdrawMaintenanceWrite`, `src/sync/republish-root.ts`; `discardStatements`, `src/sync/key-management-text.ts`)
+    withdraws a key-slot file only for a rewrap that has not yet published. For a prune, or a rewrap that has published,
+    it forgets the record and takes nothing back: removed history files stay removed and a published key-slot file
+    stays. **Abandon can drop the one record the tool needs to clean up after itself, and the earlier docs told you
+    otherwise.** Run discard before abandon if you want an unpublished rewrap withdrawn. The CLI consequence text, the
+    help text and the plugin copy say this now, and the plugin copy names all four files (`cli/abandon-command.ts`,
+    `cli/help-text.ts`, `src/plugin/encryption-copy.ts`).
+  - **A failing or unusable device store no longer blocks abandon.** Any error reading the sequence floor is reported with
+    fixed text ("not read") and the four files still move. When the vault id is no longer on the device the floor line
+    says "not looked up (the vault id is no longer on this device)" (`floorKept`, `src/sync/vault-keys.ts`).
+  - **A rename that fails after the first file moved is a partial move.** The result carries counts only ("N of M files
+    were moved. Run abandon again to move the rest." The seventh round added "into a new backup folder"). The plugin locks the session and refreshes status; the CLI exits 1
+    without operating-system text. A rerun moves the rest (`AbandonPartialMoveError`).
+  - **The plugin abandon takes the on-disk `publish.lock`** like publish, pull and the key actions. A held lock gives the
+    busy result and moves nothing (`src/plugin/abandon-flow.ts`). The seventh round below narrows this: a lock file that
+    cannot be used no longer blocks abandon.
+  - **Smaller.** Nothing to move with no terminal and no flag exits 2. The lock host in dialogs and CLI lines is cut to
+    a bounded prefix (64 characters shown), escaped and shown in double quotes, so it cannot forge the sentence after it;
+    the record keeps at most 255 characters of the host, and a lock file over 64 KiB is rejected as unreadable
+    (`src/sync/publish-lock.ts`). The exit-2 sentence in the help text lists `pull --resolve-fork`, which has no
+    confirming flag and always exits 2 without a terminal.
+  - **Every fix since the first review came from a review that read code and executed nothing.** This round is no
+    different. The next review will probably find more.
+- **Seventh round: abandon survives a broken lock and a failing release (commit `976a31a`).** Abandon is the escape
+  hatch, so a broken lock must not block it and a failing release must not hide what it did. Tests were written first
+  and failed before the source change, except that some CLI cases passed vacuously until the lock-file seam existed. The
+  eight touched and importing test files pass (292 tests) and typecheck is clean in both configs. The full suite has not
+  run on this commit. Nothing ran in Obsidian.
+  - **Abandon now runs without its safety lock when the lock file is broken, and it says so.** A live lock held by
+    another process still gives the busy result and moves nothing. A lock file that is unreadable (junk, or over 64 KiB)
+    or unsupported (the file system refuses hard links) no longer blocks abandon (the eighth round reads the lock once
+    more first and refuses when it is live). The move runs with no lock and one fixed
+    line is shown: "the publish lock could not be used, so abandon ran without it; make sure no publish is running". The
+    CLI prints it as a `note` line before the move. The plugin appends it to the success note (and, since the eighth round, to a partial-move result). If a publish is running
+    while you abandon on a broken lock, nothing stops the two from touching the same files (`acquireAbandonLock`,
+    `src/sync/publish-lock.ts`; `ABANDON_WITHOUT_LOCK_LINE`, `src/sync/vault-keys.ts`). The "publish from a file system
+    that supports hard links" advice no longer reaches the abandon path.
+  - **A failing lock release can no longer replace the abandon outcome.** Both the CLI and the plugin release through
+    `releaseQuietly`, which swallows the error, so a throw cannot turn a successful move into a failure or replace a
+    partial-move error. The plugin settles its session from the move result. `release()` now marks itself done only
+    after the remove succeeded, so a second call retries; the heartbeat still stops once. A stale lock file left behind
+    ages out or is cleared by `--break-lock`.
+  - **Text.** The partial-move line now reads "N of M files were moved. Run abandon again to move the rest into a new
+    backup folder." A rerun names its own backup folder, so the first files stay in the first folder and the rest go in
+    the new one; look in both under `.ipfs-sync/`. The help text says abandon needs neither the RPC URL nor the gateway
+    URL (`partialMoveLine`, `cli/help-text.ts`).
+- **Eighth round: a live lock is never mistaken for a broken one; settle and heartbeat edges (commit `808b555`).** The
+  seventh round decided "broken" from one failed system call, so a live holder on a volume without hard links could be
+  taken for a broken lock and abandon would run beside it. Tests were written first and 13 new ones failed before the
+  source change. The touched and importing lock files pass and typecheck is clean in both configs. The full suite has not
+  run on this commit. Nothing ran in Obsidian.
+  - **Abandon reads the lock once more before it goes on without it.** After `lock-unreadable` or `lock-unsupported`, a
+    record that decodes and is not stale gives `lock-held` ("busy") and nothing moves. Only a lock that is still
+    unreadable, absent or stale lets abandon run without the lock, with the one fixed line. A read error on the existing
+    lock path (a directory at `publish.lock`, a file with no read permission) counts as unreadable for abandon only
+    (`liveHolder`, `acquireAbandonLock`, `src/sync/publish-lock.ts`). This corrects the seventh round, which let any
+    unreadable or unsupported result go through.
+  - **A takeover put-back that fails with `lock-unsupported` refuses as lock-held.** When a live lock was moved aside and
+    the file system cannot create it again, the moved file stays under its `.taken` name (`takeOver`).
+  - **The plugin settles its session inside a guard.** If locking the session throws, the result keeps the move outcome
+    and adds "reload the plugin". The without-lock note now also reaches a partial-move result
+    (`MoveOutcome`, `src/plugin/abandon-flow.ts`). The seventh round said it did not.
+  - **A late heartbeat cannot recreate the lock after release.** A stopped flag and an awaited in-flight beat
+    (`settled`) keep it from writing after the remove. The CLI's lock file honors the new `isStopped` argument
+    (`cli/publish-lock-file.ts`). The plugin's adapter lock file ignores it and relies on release awaiting the beat, so a
+    write that hangs could hold release.
+  - **The CLI prints "nothing to abandon" style text and exits 1 when the move found no files** (`NOTHING_TO_MOVE`,
+    `cli/abandon-command.ts`): the message is the one used for none found at the start, and ends "nothing was moved".
+  - **Every fix since the first review came from a review that read code and executed nothing.** Each fix round created
+    the next MEDIUM finding one level further out. The lock is best effort, and abandon fails open on a broken one. **Rounds stop here by decision, not because the
+    reviews ran out of findings.** The next review will probably find more, and the items under "Not done" are what is
+    already known.
 
 ### Added
 
@@ -198,6 +303,36 @@ blobs and their metadata (sizes, timing, how many files) to it without being ask
     probably find more.** The pattern is stable: a fix covers the string the reviewer named, the next reviewer finds the
     next string the narrower check passes. This round moved from per-string checks to shared validators to break that, but
     no search for remaining local patterns was run, and the full test suite has not run on this commit.
+- **What the last delta review left as accepted backlog.** These came from a code-reading review that executed nothing.
+  None is fixed on this branch. Each is known.
+  - The abandon preview is listed before the lock is taken, so it can differ from the final count if a publish changes
+    the files in between.
+  - The CLI floor read creates the per-user device-store directory as a side effect (`ensureDirectory`,
+    `cli/device-store-node.ts`).
+  - `floorKept` reads the whole state file with no size cap while the lock is held.
+  - Lock facts left by the eighth round, all from reading code, none run: `release()` removes the file after reading the
+    token and does not re-check it at the remove. Release has no timeout. A crashed CLI publisher blocks the plugin
+    abandon for up to 15 minutes, because the plugin treats a CLI holder as live (`isProcessAlive: () => true`,
+    `src/plugin/adapter-lock-file.ts`), so "abandon is always allowed" holds fully only for the CLI. A live CLI holder
+    with an empty host name looks like junk (`decodeLock` rejects an empty host), so abandon goes past it. The help text
+    does not describe the lock policy.
+  - The publish refusal `lockUnsupported` still advises "publish from a vault on a file system that supports hard
+    links" outside the abandon path. The other callers were not reviewed for whether that advice fits.
+  - The plugin abandon takes `publish.lock` without the changed-hands re-check that the key-action lock
+    (`key-action-lock`) does.
+  - The CLI's behaviour at readline end-of-input (a closed input stream at the abandon prompt) is unverified.
+  - The unexpected-error text points to a developer console that does not receive the error.
+  - A node-supplied key ID reaches `ownedKeys` and an IPNS name with no shape check. The vault key still authenticates
+    the manifest.
+  - The invisible-character table is narrower than `escapeForDisplay` (the `Default_Ignorable` and `Cf` ranges).
+  - Check-then-use windows remain in the Node host bridge. Using one needs local write access.
+  - The CID rule is six copies of one regex, not one definition. The next copy that drifts will be found by a reviewer,
+    not by a test.
+  - On the maintenance path the root CID shape is validated after the first node write. A malformed root can leave a
+    half-applied shared tree. Rerunning the command recovers; `keys discard` recovers only an unpublished rewrap.
+  - The unreadable-file backup is compared as decoded text, not raw bytes.
+  - The redirect sentence sits in the Authentication section, not beside the gateway fields.
+  - The `NOTHING_TO_ABANDON` wording does not name the key-management journal. The CLI message does.
 - **Dead code left in place.** `warnAboutRetiredDefault` in `src/plugin/index.ts` and the `retiredDefaultNoticeShown`
   field remain. Load now clears the retired host, so the one-time notice they gate cannot fire from stored data.
 - **Obsidian's `requestUrl` redirect behaviour is untested.** It is to be probed on the phone and desktop runs. It may
@@ -534,8 +669,8 @@ above is current. Nothing here is tagged or released.
   button in the settings tab's Encryption section). They move this device's key-slot copy, sync state and journal for
   the MFS root into `.ipfs-sync/abandoned-<h>-<ms>/`. They never contact the node and delete nothing. They record the
   `encrypted-seen.json` latch before moving anything, so abandoning does not re-open the plaintext reader for that
-  destination. The CLI takes the cross-process publish lock while it moves files; the plugin takes only its in-process
-  lock. The CLI asks you
+  destination. The CLI takes the cross-process publish lock while it moves files; the plugin took only its in-process
+  lock then (it takes the publish lock too since the sixth review round). The CLI asks you
   to type `abandon` on a terminal and does nothing without one unless `--yes-abandon` is given. Refusal messages that
   name the abandon action now quote the command (`src/sync/abandon-hint.ts`).
 - `ipfs-sync init <vault> [--passphrase-file <path>]`: the only way to create a vault. It generates the passphrase (23

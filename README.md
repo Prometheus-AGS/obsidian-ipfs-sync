@@ -100,8 +100,9 @@ What the plugin does today:
 - Commands (`Ctrl/Cmd+P`): **IPFS Sync: Publish vault**, **IPFS Sync: Pull vault**,
   **IPFS Sync: Restore an older version**, **IPFS Sync: Resolve fork** and **IPFS Sync: Show status**. Two ribbon icons
   run Publish and Pull. An optional auto-publish interval (a whole number of minutes, 0 = off, at most 35,000) is set in the settings tab.
-  A stored value that is a fraction, negative or not a finite number loads as 0 (off) and the rest of the settings,
-  credentials included, are kept.
+  A stored number that is a fraction or negative, or `null` (how JSON stores NaN and infinity), loads as 0 (off) and the
+  rest of the settings, credentials included, are kept. A stored value of any other type (a string, for example) makes
+  the file unreadable.
 - **Publish is encrypted and needs the vault passphrase.** On a device with no vault, Publish opens the setup dialog;
   only its **Create vault** button creates one. The dialog shows the generated passphrase once, in five groups of
   five, asks you to save it in a password manager and type it again, and states that a lost passphrase means the data
@@ -209,8 +210,10 @@ What the plugin does today:
   pull name, last publish and last pull, device store, publication key and MFS root stay. The vault's state under
   `.ipfs-sync/` is named by a hash of the MFS root, not by the node, so a new empty node meets the old local key-slot copy
   and state, and a publish is refused with `lost-slots`. The way out is Abandon: it keeps the sequence floor and moves
-  the key slots, state, journal and maintenance files aside. Abandon moves files aside and deletes none, and that makes it
-  easy to click past a refusal without reading it; read the dialog. Clear the pull name too when you change nodes. Status keeps showing the
+  four local files aside (the key-slot copy, the state, the publish journal and the key-management journal). Abandon
+  moves files aside and deletes none, and that makes it easy to click past a refusal without reading it; read the dialog.
+  It also says that a pending rewrap or prune is dropped and its write to the node is not withdrawn (see "Interrupted
+  publishes, `--repair`, `--recover-slots`, `--break-lock`"). Clear the pull name too when you change nodes. Status keeps showing the
   old publish's root CID and time until the next publish.
 - Node requests go through Obsidian's `requestUrl`, not `fetch`, because the node's CORS
   rules block the WebView (quirk 4 below).
@@ -253,7 +256,9 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   destination path ("into"). An empty folder, or one whose files all match, is not asked. `--accept-replace` skips the
   question; `--accept-first-pull` does not. Each flag answers only its own question, so a script that passes
   `--accept-first-pull` for a first pull no longer replaces files in a folder it has no state for. A run that cannot ask
-  stops with `first-pull-not-confirmed` (exit 1) and writes nothing. The uncomfortable part: every
+  stops with `first-pull-not-confirmed` (exit 1) and writes nothing. (On a true first pull into a non-empty directory,
+  `--accept-first-pull` also covers the replace consequence: differing files are replaced and dated copies are kept.
+  `--accept-replace` is the stateless one.) The uncomfortable part: every
   recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) puts you back here with no baseline, and
   the baseline is what protects you from what the node serves. Abandon keeps the sequence floor; deleting the floor too
   removes the rest.
@@ -352,7 +357,11 @@ code path reads a plaintext manifest.
   clears a lock whose last heartbeat is at least 15 minutes old, holding the plugin's sync lock while it works (it
   refuses as busy during a publish, pull or abandon, and does not stop a CLI publish on the same folder). A crash
   between its move-aside and its discard can leave a `.taken` file in `.ipfs-sync/` (a few bytes) that nothing cleans
-  up automatically; delete it by hand. A lock file it cannot parse is not clearable there, so
+  up automatically; delete it by hand. The same file is left when a takeover moved a live lock aside and the file system
+  could not put it back (no hard links): the takeover then refuses as lock-held and keeps the moved file under its
+  `.taken` name. A release awaits any heartbeat write that is in flight, and a stopped flag keeps a late beat from
+  recreating the lock after release; the CLI's lock file honors the flag, the plugin's adapter lock file ignores it and
+  relies on release awaiting the beat, so a write that hangs could hold release. A lock file it cannot parse is not clearable there, so
   use `--break-lock` on a computer. `--break-lock` deletes a live lock if it is run while a plugin publish is running.
 - Remote deletions are reported, not applied. A file deleted on the publishing side stays on the receiving side.
 - Per-file read cap (above). Large files cost whole-file memory.
@@ -398,7 +407,8 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   `--root-cid <cid>` with `--allow-rollback` restores an earlier version; `--list-versions` shows the newest 20 history
   entries; `--resolve-fork` merges after a fork. `--accept-first-pull`, `--accept-replace` and `--accept-large` are the
   non-interactive yes to the first-pull, the replace (a folder with no state for a vault this device knows) and the
-  large-pull questions; each answers only its own. `--max-bytes` sets the ceiling (default 536870912, 512 MiB). Exit
+  large-pull questions; each answers only its own, except that on a true first pull into a non-empty directory
+  `--accept-first-pull` also covers the replace consequence (dated copies kept). `--max-bytes` sets the ceiling (default 536870912, 512 MiB). Exit
   codes: 0 ok, 1 a file failed or was not fetched, a path was skipped as unsafe, or the pull stopped at a check, 2
   usage or a refused destination (a plaintext root is one). The `keys` commands and `prune-history` are described
   under "Change the passphrase or the cost" and "History growth"; every flag above is in `--help`.
@@ -437,11 +447,11 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   The state folder is created with mode 0700 (its name is matched case-insensitively, so `.Ipfs-Sync` counts on a
   case-insensitive volume). Folders the CLI creates for pulled notes keep the platform default mode; only the state folder
   is owner-only. Files are written 0600.
-- **A question is asked only when standard input and standard output are both terminals.** Standard output must be one
-  because the commands print the consequence text there before they ask. With either end redirected or piped the run
-  cannot ask. `keys change-passphrase` and `keys increase-cost` without `--accept-no-revocation`, `prune-history` without
+- **A question is asked only when standard input, standard output and standard error are all terminals.** Standard
+  output must be one because the commands print the consequence text there before they ask, and standard error because
+  the question itself is written there. With any of the three redirected or piped the run cannot ask. `keys change-passphrase` and `keys increase-cost` without `--accept-no-revocation`, `prune-history` without
   `--yes-prune` or `--dry-run`, `keys discard` without `--yes-discard` and `abandon` without `--yes-abandon` then exit 2
-  before they send anything. A confirmation that is asked and declined exits 1. A pull that needs a yes stops with exit 1;
+  before they send anything. `pull --resolve-fork` has no confirming flag, so without a terminal it always exits 2. A confirmation that is asked and declined exits 1. A pull that needs a yes stops with exit 1;
   the first-pull and replace refusals name their flag (`--accept-first-pull`, `--accept-replace`).
 - **A pending rewrap or prune is finished by running the same command again, and the rest of the command line is
   ignored.** The rerun needs none of the confirming flags and takes what to finish from the journal. `--cost` and
@@ -651,7 +661,8 @@ refuse unless this device is up to date with the node and no publish or key-mana
   the current root and need no accept, on a device that already holds the current key-slot copy.
 - `keys discard <vault>` drops a key-management operation (a rewrap or a prune) that did not finish, when running the same
   command again cannot finish it. It asks first (or needs `--yes-discard`). It touches the node only to take this device's
-  own key-slot file back out of the shared tree when the rewrap never published. A rewrap that already published keeps the
+  own key-slot file back out of the shared tree, and only when the rewrap never published. For a prune it forgets the
+  record and takes nothing back: the history files already removed stay removed. A rewrap that already published keeps the
   new slots on the node: discarding forgets that here, and this device then needs `keys accept-slots` with the NEW
   passphrase. Do not discard if you did not save the new passphrase.
 
@@ -716,7 +727,10 @@ the delta check and by the idle check that skips unlocking, until the size or th
   Without it the tool refuses (use a new MFS root, or ask for recovery explicitly).
 - **`--break-lock`** removes `.ipfs-sync/publish.lock` after a confirmation, then continues. A lock is replaced
   automatically when the recorded process is gone from this host, or when it has had no heartbeat for 15 minutes on any
-  host. The lock is a best-effort guard, not an atomic lock across machines.
+  host. The lock is a best-effort guard, not an atomic lock across machines. The lock file's host name is free text
+  whoever wrote the file chose, so the record keeps at most 255 characters of it, and a dialog or a CLI line shows it cut
+  to 64 characters (marked when cut), escaped and inside double quotes, so it cannot end its own quotes and write the
+  words that follow. A lock file over 64 KiB is not read as a lock; it is rejected as unreadable.
 - **`--allow-full-reupload`** allows a non-interactive run to upload again more than 256 MiB of files the node no longer
   holds as recorded.
 - A second device takes turns, it does not publish at the same time (see "Pull" for onboarding and for what concurrent
@@ -724,14 +738,46 @@ the delta check and by the idle check that skips unlocking, until the size or th
   ("this device is not the publisher") and told to run `pull`.
 - If none of these apply, the way out is a new MFS root and a new vault (`init`). The refusal messages call this the
   "abandon action": run `ipfs-sync abandon <vault>` (add `--mfs-root` to name the root), or use the plugin command
-  "Abandon this vault" (also a button in the Encryption section of the settings tab). It moves this device's key-slot
-  copy, sync state, journal and any key-management journal for that root into `.ipfs-sync/abandoned-<h>-<ms>/`. It never
-  contacts the node and deletes nothing. It records no latch (there is none any more) and prints the sequence floor it
-  keeps. On a terminal you must type `abandon`; without one it does nothing unless you pass `--yes-abandon`. In the plugin, pressing Escape while the abandon (or
+  "Abandon this vault" (also a button in the Encryption section of the settings tab). It previews and moves four local
+  files for that root into `.ipfs-sync/abandoned-<h>-<ms>/`: the key-slot copy, the sync state, the publish journal and
+  the key-management (maintenance) journal. It never contacts the node and deletes nothing. It records no latch (there is
+  none any more) and prints the sequence floor it keeps. The uncomfortable part: the key-management journal is the one
+  record the tool needs to clean up after a rewrap or prune, and abandon can drop it. A pending rewrap or prune is then
+  dropped from this device, and its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared
+  tree, and other devices that then publish to that root will see changed key slots. Earlier docs said `keys discard`
+  withdraws that write. That was wrong. `ipfs-sync keys discard` withdraws a key-slot file only for a rewrap that has not
+  yet published. For a prune, or a rewrap that has published, it forgets the record and takes nothing back: removed
+  history files stay removed, and a published key-slot file stays. Run it before you abandon when you want an unpublished
+  rewrap withdrawn, because abandon drops the record that would let it. The plugin has no discard action, so that step is
+  on the command line. Abandon stays allowed, because it is the way out when the node has lost the key slots; the dialog
+  and the CLI preview say all of this before they ask. On a terminal you must type `abandon`; without one it does nothing
+  unless you pass `--yes-abandon`. With no terminal and no flag it exits 2 even when there is nothing to move.
+  A failing or unusable device store does not block the move: the floor line then says the floor could not be read, and all
+  four files still move. When the vault id is no longer on the device the floor line says "not looked up (the vault id is
+  no longer on this device)". If a rename fails after the first file has moved, the result is a partial move: counts only,
+  "N of M files were moved. Run abandon again to move the rest into a new backup folder." The plugin locks the session and
+  refreshes the status; the CLI exits 1 and prints no operating-system text. Running abandon again moves the rest into a
+  new `abandoned-<h>-<ms>` folder, so the first files stay in the first folder: look in both. Both the CLI and the plugin
+  take the on-disk `publish.lock` while files move. A live lock held by another process gives the busy notice and moves
+  nothing. A lock file that is unreadable (junk, over 64 KiB, a directory at `publish.lock`, a file with no read
+  permission) or unsupported (the file system refuses hard links) does not block abandon by itself. After such a result
+  abandon reads the lock once more. A record that decodes and is not stale is a live holder, including one on a volume
+  without hard links, where the plugin's rename-based lock can be live: that gives the busy notice and nothing moves.
+  Only a lock that is still unreadable, absent or stale lets abandon run without the lock, and it says so in one fixed
+  line ("the publish lock could not be used, so abandon ran without it; make sure no publish is running"). The CLI
+  prints that line before the move, so it also appears before a partial move. The plugin adds it to the success note and
+  to a partial-move result. With the lock skipped nothing stops a publish that is running from touching the same
+  files, so check that none is. A lock that cannot be released afterwards does not change the abandon result. If the
+  move finds no files (they were gone by the time the lock was held), the CLI prints the same message as when it finds
+  none at the start (it ends "nothing was moved") and exits 1 instead of reporting a success with zero files. If the
+  plugin cannot lock or re-read its session after the move, the result keeps the move outcome and adds "The vault
+  status could not be re-read; reload the plugin." `ipfs-sync --help` says abandon needs neither the RPC URL nor the gateway URL. In the
+  plugin, pressing Escape while the abandon (or
 Clear stale publish lock) is running does not stop it; the real result is reported when it ends, not a cancel. If the
 dialog was closed and the action then failed, a notice says so. For Abandon the notice adds "Check the settings before
-trying again", because the device may be in a partial state, and an error the action threw is shown as the fixed text "an
-unexpected error occurred; see the developer console for details", not as its message.
+trying again", because the device may be in a partial state. A failure is one of three fixed lines (the MFS root is not
+valid; this device's files could not all be moved; an unexpected error, "an unexpected error occurred; see the developer
+console for details"), never the error's own message.
 
 ### History growth
 

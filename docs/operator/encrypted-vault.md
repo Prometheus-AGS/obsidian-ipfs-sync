@@ -185,11 +185,13 @@ Limits you must know:
 ### First pull
 
 On a terminal it prints the target, sequence, publication date, device, file count, up to three skipped paths, and two
-fixed statements (three for `--root-cid` or `--manifest`), then asks "Pull this vault into this directory for the first time?". A question is asked only when standard input and
-standard output are both terminals; with either redirected the run cannot ask and needs `--accept-first-pull`. A declined or unconfirmed first pull writes no file, marker, state, floor or key-slot copy
+fixed statements (three for `--root-cid` or `--manifest`), then asks "Pull this vault into this directory for the first time?". A question is asked only when standard input,
+standard output and standard error are all terminals; with any of them redirected the run cannot ask and needs `--accept-first-pull`. A declined or unconfirmed first pull writes no file, marker, state, floor or key-slot copy
 (the lock may leave an empty `.ipfs-sync/` folder). Use `--expect-vault-id` (the id `init` printed) and
 `--expect-min-sequence` (the `sequence` that `publish` printed) when you have them: they are checked without trusting the
-shown values.
+shown values. On a true first pull into a non-empty directory, `--accept-first-pull` also covers the replace
+consequence: files that differ from the node's copy are replaced and a dated copy of each local text is kept. The
+confirmation states how many, so read it.
 
 **A folder with no state for this vault asks the same question.** This happens when the device already holds a sequence
 floor for the vault (an earlier pull, or a publish) but the folder has no state file for the root: you deleted
@@ -198,7 +200,7 @@ from the node's copy is replaced by the node's text, and a dated copy of the loc
 only when at least one local file would be replaced; an empty folder, or one whose files all match, is not asked. On a
 terminal it prints "into" and the destination path, "at least N" files to be replaced, a fixed statement that the
 directory has no state for this vault, and asks "Pull this vault into this directory?". Without a terminal (standard
-input and standard output both terminals) the run stops with `first-pull-not-confirmed` (exit 1) and writes nothing;
+input, standard output and standard error must all be terminals) the run stops with `first-pull-not-confirmed` (exit 1) and writes nothing;
 `--accept-replace` is the yes. `--accept-first-pull` is not: it answers a different question, and a script that passes
 only that flag now stops here. If you have such a script, add `--accept-replace` only where replacing files is what you
 want. The uncomfortable part: Abandon, a
@@ -307,14 +309,21 @@ file claims nothing about Smart Connections beyond that; its behaviour on a runn
   changing the gateway origin drops the gateway credential (an explicit None stays). A plain line under the field says so,
   and you enter the credential again for the new host. Editing an address, port or credential no longer asks the node
   about the key; the key row says it was not checked and **Check again** asks. Opening the tab still checks. The
-  auto-publish interval is a whole number of minutes, at most 35,000; a stored fraction, negative or non-finite value
-  loads as 0 (off) and the credentials in the file are kept. Any change of origin also blanks the credential you typed
+  auto-publish interval is a whole number of minutes, at most 35,000; a stored fraction, negative or non-finite value,
+  or `null` (how JSON stores NaN and infinity), loads as 0 (off) and the credentials in the file are kept. A stored
+  value of any other type makes the file unreadable. Any change of origin also blanks the credential you typed
   but have not saved in that block and puts its kind picker back to what is stored. One sentence under the credential
   fields (Authentication section) warns that requests may follow redirects the plugin cannot see; with only a gateway
   credential it is not beside the gateway fields, and it has no style rule because `styles.css` does not exist. The tab
   is emptied when it closes.
 - Closing Abandon or Clear stale lock while it runs does not stop it. If it then fails, a notice reports the failure
-  (Abandon adds "Check the settings before trying again").
+  (Abandon adds "Check the settings before trying again"). The Abandon failure is one of three fixed lines: the MFS
+  root is not valid, this device's files could not all be moved, or an unexpected error. The error's own text is never
+  shown. A move that stops part-way shows its own count line instead ("N of M files were moved. Run abandon again to move
+  the rest into a new backup folder."), and a live publish lock held by another process shows the busy notice. A lock
+  file that cannot be used does not block Abandon unless a second read shows a live holder; the success note or the
+  partial-move line then adds the fixed line "the publish lock could not be used, so abandon ran without it; make sure
+  no publish is running".
 - An unreadable `data.json` is copied to `data.json.unreadable-<UTC timestamp>` in the plugin folder before the first
   save replaces it with defaults, and a notice gives the path. The copy is plain text and holds the same secrets as the
   original (credentials, owned keys, the floor record). Delete it when you no longer need it. The copy is read back
@@ -386,6 +395,7 @@ Every stop below writes nothing in the vault unless it says otherwise. Pull stop
 | `this directory has no record of this vault and this run cannot ask` | First pull without a terminal | Confirm at a prompt, or pass `--accept-first-pull` |
 | `this directory has no state for this vault and holds files that differ from the node's copy, and this run cannot ask` (`first-pull-not-confirmed`) | The device has a floor, the folder has no state, and a run without a terminal would replace files | Confirm at a prompt, or pass `--accept-replace` (not `--accept-first-pull`). Nothing was written |
 | `the first pull was declined` | You answered no | Nothing was written (the lock may have created `.ipfs-sync/`) |
+| `the name did not resolve to a published root (an IPFS path with a CID); nothing was written` | The node's answer to the name lookup was not `/ipfs/<cid>`. The message is fixed text: it echoes neither the answer nor the name | Check on the node what the name points to. Nothing was written |
 | `manifest.enc on the node does not authenticate under this vault's key` | Forged, damaged or another vault's file | Do not retry blindly; check the node. No file was requested |
 | `manifest.enc authenticated but holds something this build does not read` | A newer format, or limits above this build's | Update `ipfs-sync` |
 | `the root holds key slots but manifest.enc is absent or unreadable on the node` | The manifest is withheld or not yet published | Wait, or check the node. The vault is treated as neither empty nor creatable |
@@ -428,7 +438,8 @@ sequence do not change. Run them on a terminal; they print the statements below 
 7. Stuck: `ipfs-sync keys discard <vault>` drops the unfinished operation (it asks, or `--yes-discard`). It takes this
    device's own key-slot file back out of the shared tree only when the rewrap never published. If the rewrap already
    published, discarding forgets that here, the node keeps the new slot, and this device needs `keys accept-slots` with the
-   NEW passphrase; do not discard if you did not save it. The plugin has no discard.
+   NEW passphrase; do not discard if you did not save it. For a prune, discard forgets the record and takes nothing back:
+   the history files it already removed stay removed. The plugin has no discard.
 8. Restore across a rewrap. `pull --root-cid <old root>` refuses and names `keys accept-slots --root-cid <old root>
    --allow-rollback`. After that accept the pull runs under the older passphrase, and publish and pull by name stay
    refused until you run `keys accept-slots` again without `--root-cid`. `pull --manifest <cid> --allow-rollback` and the
@@ -563,7 +574,7 @@ Every refusal below sends nothing to the node or stops before anything is writte
 | `the state folder is a symbolic link` | `<vault>/.ipfs-sync` is a link. `publish`, `init`, `keys`, `prune-history`, `pull --list-versions` and `abandon` refuse it before any lock, state or request (`pull` already did). Exit 2 | Replace the link with a real folder |
 | `the name's value on the node is not what it should be (wrong kind or size); nothing was written` (`remote-object-invalid`; also "the current tree", "the vault root") | A value the node supplied is not a root this build accepts: it must be `/ipfs/<cid>` with a CID of 10 to 128 alphanumeric characters. `/ipns/...`, a path below the root, a bare token and text with whitespace are refused, and the value is not echoed. The same rule guards what the journals and the state file write, so a value that could not be read back is never saved | Check the node and the name it serves. Nothing was written |
 | `invalid address` | An address in a message or in `status` is not `http:` or `https:` with a host, or does not parse. Text that parses as another scheme (`user:secret@host:5001`) is refused too, because the secret would be part of the scheme. The text is not echoed | Correct the URL; do not put a user name or password in it |
-| `<command> needs a terminal to confirm` / `needs a terminal to show the new passphrase` | Standard input or standard output is not a terminal, so the CLI offers no prompt (both must be terminals: the consequence text is printed to standard output before the question). `keys change-passphrase` and `increase-cost` need `--accept-no-revocation`, `keys discard` needs `--yes-discard`, `prune-history` needs `--yes-prune` or `--dry-run`, `abandon` needs `--yes-abandon`. Exit 2, nothing sent. A question that is asked and declined exits 1 | Run on a terminal, or pass the flag |
+| `<command> needs a terminal to confirm` / `needs a terminal to show the new passphrase` | Standard input, standard output or standard error is not a terminal, so the CLI offers no prompt (all three must be terminals: the consequence text is printed to standard output and the question is written to standard error). `keys change-passphrase` and `increase-cost` need `--accept-no-revocation`, `keys discard` needs `--yes-discard`, `prune-history` needs `--yes-prune` or `--dry-run`, `abandon` needs `--yes-abandon`. `pull --resolve-fork` has no confirming flag, so without a terminal it always exits 2. Exit 2, nothing sent. A question that is asked and declined exits 1 | Run on a terminal, or pass the flag |
 | `credential is sent over plain http` | A warning, not a refusal: a credential is set for an `http:` endpoint whose host is not loopback. Only `localhost`, `127.x.x.x` and `[::1]` count as loopback; `name.localhost` does not any more | Use an `https:` address |
 | `not a valid generated passphrase` (`passphrase-format`) | Wrong length, characters outside `A-Z2-7`, or the check symbols do not match (a probable typo). The check catches about 99.9% of single mistyped body symbols; about 1 in 1,024 wrong strings still passes and then fails as a wrong passphrase | Copy the passphrase; letters are not case-sensitive and hyphens are optional |
 | `wrong passphrase or damaged key slot` | The commitment or the wrap did not verify. One outcome by design. With a local copy the unlock happens locally, but `publish` sends two read-only requests (`files/stat`, `key/list`) before it unlocks; none mutates | Retry with the right passphrase. A node file that differs from this device's copy is reported separately, as a key-slot mismatch |
@@ -577,7 +588,7 @@ Every refusal below sends nothing to the node or stops before anything is writte
 | Message contains | Meaning | Action |
 |---|---|---|
 | `the node's key slots differ from this device's copy` / `differ from the recorded ones` (vault mismatch) | Someone replaced `keyslots.json`, or it was damaged. No derivation was run on the node's parameters | Do not retry with `--repair` (it is refused for this case). Check the node. If the vault is lost to you, use a new root and a new vault |
-| `the node no longer holds this vault's key slots` | `keyslots.json` is gone from the node | The tool never generates a new key. This build has no command that restores the file. Use a new root and a new vault |
+| `the node no longer holds this vault's key slots` | `keyslots.json` is gone from the node | The tool never generates a new key. This build has no command that restores the file. Use a new root and a new vault. `abandon` moves four local files aside (key-slot copy, state, publish journal, key-management journal); read its preview, because it can drop a pending rewrap or prune whose node write it does not withdraw. `keys discard` withdraws a key-slot file only for a rewrap that has not yet published, so run it first if you want that |
 | `this device is not the publisher of the vault in this root` | The node holds a manifest and this device has no record and no copy (for example a second device, or after deleting `.ipfs-sync/`) | Nothing was derived. Run `ipfs-sync pull` (plugin: Pull) with the vault passphrase and the same MFS root; see "Second device" |
 | `the root holds key slots but no manifest and this device knows nothing about it` | An interrupted first publish from elsewhere, or a lost record | Use a new root, or pass `--recover-slots` on a terminal: it shows the Argon2id cost and asks before it derives |
 | `recovery was not confirmed` | You answered no, or there was no terminal | Rerun on a terminal |
@@ -617,7 +628,9 @@ file must still match). The plugin does not have `--repair`.
 A lock is replaced automatically when the recorded process is gone from this host, or after 15 minutes without a
 heartbeat on any host. The plugin's lock records no process ID, so a crashed plugin's lock waits for the 15 minutes,
 `--break-lock`, or the plugin's "Clear stale publish lock". The lock is a best-effort guard, not an atomic lock across
-machines.
+machines. The lock file's host name is text whoever wrote the file chose, so the record keeps at most 255 characters of
+it, and a dialog or a CLI line shows it cut to 64 characters (marked when cut), escaped and inside double quotes. A lock
+file over 64 KiB is rejected as unreadable.
 
 **Clear stale publish lock (plugin).** Use it on a device with no command line, such as a phone, after a publish was
 interrupted. It is a command ("Clear stale publish lock") and a button in the "Publish lock" section of the settings tab.
@@ -704,20 +717,62 @@ Several refusals above end in "use a new root and a new vault". The step that ma
 ipfs-sync abandon <vault> --mfs-root <the root you are leaving>
 ```
 
-- It shows the files it will move (`keyslots.<h>.json`, `state.<h>.json`, `journal.<h>.json` and, if one is pending,
-  `maintenance.<h>.json` under `.ipfs-sync/`) and asks
-  you to type `abandon`. It moves them to `.ipfs-sync/abandoned-<h>-<ms>/`. Nothing is deleted.
+- It previews and moves up to four local files, each only if it exists: the key-slot copy (`keyslots.<h>.json`), the
+  sync state (`state.<h>.json`), the publish journal (`journal.<h>.json`) and the key-management journal
+  (`maintenance.<h>.json`), all under `.ipfs-sync/`. It lists the ones it found and asks you to type `abandon`. It moves
+  them to `.ipfs-sync/abandoned-<h>-<ms>/`. Nothing is deleted.
+- The uncomfortable part: the key-management journal is the one record this tool needs to clean up after a rewrap or a
+  prune, and abandon can drop it. A pending rewrap or prune is dropped from this device, and its write to the node is
+  NOT withdrawn. A rewritten key-slot file may stay in the shared tree, and other devices that then publish to that root
+  will see changed key slots. The earlier version of this section said `keys discard` withdraws that write. That was
+  wrong. `ipfs-sync keys discard <vault>` withdraws a key-slot file only for a rewrap that has not yet published. For a
+  prune, or a rewrap that has published, it forgets the record and takes nothing back: removed history files stay removed,
+  and a published key-slot file stays (see "Change the passphrase or the cost", step 7). Run discard before you abandon
+  when you want an unpublished rewrap withdrawn, because abandon drops the record that would let it. The plugin has no
+  discard action, so that step is on the command line. Abandon is still allowed, because it is the way out when the node
+  has lost the key slots. The CLI preview and the plugin dialog both say this before they ask, and the plugin copy names
+  all four files.
 - It never contacts the node. The old vault, its pins and its history stay on the node.
 - Without a terminal it does nothing unless you pass `--yes-abandon`. That flag replaces the typed word only; it does not
-  skip the backup.
-- If this device holds none of the three files for the root, it says so and moves nothing (check `--mfs-root`).
+  skip the backup. With no terminal and no flag it exits 2, even when there is nothing to move.
+- If this device holds none of the four files for the root, it says so and moves nothing (check `--mfs-root`). The CLI
+  message names the key-management journal; the plugin's "nothing to abandon" line still says only "key-slot copy,
+  state or journal".
+- A failing or unusable device store does not block the move. The floor line then says the floor could not be read, and
+  all four files still move. When the vault id is no longer on the device, the floor line says "not looked up (the vault
+  id is no longer on this device)".
+- A rename that fails after the first file moved is a partial move: "N of M files were moved. Run abandon again to move
+  the rest into a new backup folder." It shows counts only, never the operating-system text. The plugin locks the session
+  and refreshes the status; the CLI exits 1. This device's files for the root are then split between `.ipfs-sync/` and the
+  backup folder. Run abandon again to move the rest. The second run names its own backup folder by its own time, so the
+  files end up in two folders: the first files stay in the first `abandoned-<h>-<ms>/` folder and the rest go in the new
+  one. Look in both when you restore. From the code; this was not run.
 - It records no latch. The `encrypted-seen.json` latch of `mvp-07a` is gone because no code reads a plaintext root any
   more. It prints the sequence floor it keeps (the floor lives outside the vault, so abandon and deleting `.ipfs-sync/`
   do not reset it).
-- The CLI takes the cross-process publish lock while it moves files, and refuses if a publish holds it. The plugin does
-  not: it takes only the in-process lock, which stops a publish, pull or timer run inside the same Obsidian, but not a
-  `ipfs-sync publish` started from a command line on the same vault folder. Do not run one while you abandon from the
-  plugin.
+- The CLI and the plugin both take the cross-process `publish.lock` while they move files, as publish, pull and the key
+  actions do. A live lock held by another process gives the busy result and moves nothing. The plugin also takes its
+  in-process lock, which stops a publish, pull or timer run inside the same Obsidian.
+- **A broken lock does not block abandon, and abandon then runs without the lock. A live one does.** A lock file that is
+  unreadable (junk, over 64 KiB which is rejected without being read, a directory at `publish.lock`, a file with no read
+  permission) or unsupported (the file system refuses hard links, as FAT and some network mounts do) does not stop
+  abandon on its own. Abandon first reads the lock once more. If the record decodes and is not stale, someone holds it
+  now, including a plugin on a volume without hard links, where the plugin's rename-based lock can be live: you get the
+  busy result and nothing moves. If the lock is still unreadable, absent or stale, abandon moves the files anyway and says
+  one fixed line: "the publish lock could not be used, so abandon ran without it; make sure no publish is running". The
+  CLI prints it as a `note` line before the move. The plugin adds it to the success note and to a partial-move result.
+  With the lock skipped nothing stops a running publish from touching the same files, so check that none is before you
+  confirm. The lock is best effort and abandon fails open on a broken one: it is the escape hatch, which is why a broken
+  lock may not trap you. One case still traps the plugin: a CLI publisher that crashed leaves a lock the plugin treats
+  as live (it cannot tell whether a process on the same machine is alive) until its last heartbeat is 15 minutes old.
+  The CLI on the same computer checks whether the process is alive, so "always allowed" holds fully only for the CLI;
+  use it, or `--break-lock`, on a computer. Not run against a crashed publisher.
+- If the move finds no files because they were gone by the time the lock was held, the CLI prints the same message as
+  for none at the start (it ends "nothing was moved") and exits 1. If the plugin cannot lock or re-read its session after
+  the move, the result keeps what the move did and adds "The vault status could not be re-read; reload the plugin."
+- A lock that cannot be released after the move does not change the result: the move result or the partial-move line is
+  what you see. A stale lock file left behind ages out after 15 minutes, or `--break-lock` clears it.
+- `ipfs-sync --help` says abandon needs neither the RPC URL nor the gateway URL.
 - Afterwards run `ipfs-sync init <vault> --mfs-root <new, empty root>`.
 - In the plugin: the command "Abandon this vault", or the button in the Encryption section of the settings tab. The
   dialog asks for the same word. These dialogs have never been run inside Obsidian.
@@ -727,17 +782,19 @@ ipfs-sync abandon <vault> --mfs-root <the root you are leaving>
 Abandon moves files; it does not delete them, so you can put them back while the old vault is still on the node. The
 backup folder is `<vault>/.ipfs-sync/abandoned-<h>-<ms>/` (`<h>` is the first 16 hex characters of the SHA-256 of the MFS
 root, `<ms>` the time of the abandon in milliseconds). Inside it, only the files that existed are present, named without
-the `<h>`: `keyslots.json`, `state.json`, `journal.json`.
+the `<h>`: `keyslots.json`, `state.json`, `journal.json`, `maintenance.json`.
 
 1. Make sure no publish is running on any device that uses this vault folder.
 2. Move each file back into `<vault>/.ipfs-sync/` under its per-root name, using the same `<h>` as the folder name:
-   `keyslots.json` to `keyslots.<h>.json`, `state.json` to `state.<h>.json`, `journal.json` to `journal.<h>.json`.
+   `keyslots.json` to `keyslots.<h>.json`, `state.json` to `state.<h>.json`, `journal.json` to `journal.<h>.json`, and
+   `maintenance.json` to `maintenance.<h>.json` (see step 4 before you do that one).
    Do not overwrite a file of the same name that a newer setup created; if one exists, you are mixing two vaults, so
    stop and decide which root you are keeping.
 3. Use the same `--mfs-root` as before (the `<h>` in the names must match that root), then run `publish`. If the node
    moved on while the files were away, expect a sequence refusal and see "Sequence, journal and repair" above.
-4. A `maintenance.json` in the backup is a key-management journal that was pending; put it back only if you mean to
-   finish or discard that operation.
+4. A `maintenance.json` in the backup is a key-management journal that was pending (`maintenance.<h>.json` when put
+   back). Put it back only if you mean to finish or discard that operation: with it in place, publish and pull stay paused
+   until you rerun the command or run `keys discard`.
 
 This procedure is written from the code (`abandonVault` in `src/sync/vault-keys.ts`); it has not been run by hand on a
 real vault.
