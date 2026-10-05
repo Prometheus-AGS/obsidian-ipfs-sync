@@ -143,7 +143,8 @@ describe("--repair for a node that is ahead", () => {
     expect(repair?.message).toContain("pull first");
     expect(mutatingCalls(node)).toEqual([]);
 
-    const { result } = pulledOf(await b.pull());
+    // Round 4, A-L2: the state is gone but the floor is not, so this pull answers the replace question (acceptReplace), not the first-pull one.
+    const { result } = pulledOf(await b.pull({ options: { acceptReplace: true } }));
     expect(result.verdict).toBe("newer");
     b.host.put("Inbox/after-pull.md", "written after the pull\n");
     expect((await b.publish()).sequence).toBe(3);

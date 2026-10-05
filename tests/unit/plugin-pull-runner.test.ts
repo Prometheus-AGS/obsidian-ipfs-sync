@@ -6,7 +6,7 @@ import { KuboHttpError } from "../../src/kubo";
 import { PLAINTEXT_UNSUPPORTED_MESSAGE } from "../../src/sync/pull-errors";
 import { ROOT1, SECRET, freshVault, plantPlaintextRoot, pullRig, storeWith } from "../helpers/plugin-pull-rig";
 import { IPNS_NAME } from "../helpers/pull-fixtures";
-import { requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse } from "../support/obsidian-stub";
+import { Platform, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse } from "../support/obsidian-stub";
 
 /**
  * The plugin pull runner's own rules: the destination guard, the target, the node traffic of a pull, the lock, the failure
@@ -20,7 +20,7 @@ const WRITES = /^(write|remove|rename|mkdir)/;
 const PLAINTEXT_REFUSED = { kind: "refused", reason: "plaintext-unsupported" } as const;
 
 describe("plugin pull runner: destination guard", () => {
-  it("refuses a vault with notes and no marker before any request, and changes nothing", async () => {
+  it("admits a vault with notes and no marker: it reaches the node, writes no marker and changes no note (the guard is removed)", async () => {
     const adapter = freshVault();
     adapter.put("notes/real.md", "private");
     const rig = pullRig({ adapter });
@@ -28,19 +28,20 @@ describe("plugin pull runner: destination guard", () => {
     adapter.calls.length = 0;
 
     const outcome = await rig.pull();
-    expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(outcome.notice).toContain("Pull into a populated directory without a fixture marker stays disabled in this build");
-    expect(outcome.notice).toContain(".ipfs-sync-fixture");
-    expect(rig.gateway.requests).toEqual([]);
-    expect(adapter.calls.filter((call) => WRITES.test(call))).toEqual([]);
+    expect(outcome).toMatchObject(PLAINTEXT_REFUSED);
+    expect(rig.gateway.requests.length).toBeGreaterThan(0);
+    // The only writes are the lock file's (made and removed again) and its folder.
+    expect(adapter.calls.filter((call) => WRITES.test(call) && !call.includes("publish.lock") && call !== "mkdir .ipfs-sync")).toEqual([]);
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
-    expect(rig.store.get().lastPull).toBeUndefined();
+    expect(adapter.text("notes/real.md")).toBe("private");
   });
 
-  it("refuses a note nested deep in a folder, but ignores folders that hold no files", async () => {
+  it("admits a note nested deep in a folder, and folders that hold no files", async () => {
     const nested = freshVault();
     nested.put("projects/2026/plan.md", "x");
-    expect(await pullRig({ adapter: nested }).pull()).toMatchObject({ kind: "refused", reason: "fixture-only" });
+    const nestedRig = pullRig({ adapter: nested });
+    plantPlaintextRoot(nestedRig.gateway);
+    expect(await nestedRig.pull()).toMatchObject(PLAINTEXT_REFUSED);
 
     const emptyFolders = freshVault();
     emptyFolders.folders.add("drafts");
@@ -105,7 +106,8 @@ describe("plugin pull runner: node traffic", () => {
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
   });
 
-  it("uses the requestUrl transport by default and never the WebView fetch", async () => {
+  it("uses the requestUrl transport by default on mobile and never the WebView fetch", async () => {
+    Platform.isDesktopApp = false; // desktop's default is Node's http (tests/unit/node-transport.test.ts)
     resetRequestUrl();
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -124,6 +126,7 @@ describe("plugin pull runner: node traffic", () => {
       expect(url.searchParams.get("arg")).toBe(`/ipns/${IPNS_NAME}`);
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
+      Platform.isDesktopApp = true;
       vi.unstubAllGlobals();
       resetRequestUrl();
     }

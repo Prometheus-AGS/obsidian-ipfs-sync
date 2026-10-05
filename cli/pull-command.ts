@@ -22,6 +22,7 @@ import { PassphraseInputError } from "./passphrase-errors";
 import type { PullContext } from "./pull-context";
 import { engineFlags, runEncryptedPull } from "./pull-encrypted-command";
 import { runListVersions } from "./pull-versions";
+import { refuseLinkedStateFolder } from "./state-folder-link";
 
 export type { PullContext } from "./pull-context";
 
@@ -131,7 +132,10 @@ export async function runPull(ctx: PullContext): Promise<number> {
   await assertDirectoryOrAbsent(vault);
   printHeader(ctx, vault);
   try {
-    if (flags.listVersions) return await runListVersions(ctx, vault);
+    if (flags.listVersions) {
+      await refuseLinkedStateFolder(vault); // the listing reads the record and the key-slot copy under the state folder
+      return await runListVersions(ctx, vault);
+    }
     await assertPullDestination(createNodeHostBridge({ root: vault, env: ctx.env, now: () => ctx.now().getTime() }).fs);
     await assertNameKnown(ctx);
     return await runEncryptedPull(ctx, vault);

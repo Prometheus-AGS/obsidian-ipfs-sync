@@ -1,29 +1,38 @@
 # IPFS Sync for Obsidian
 
-Sync your vault over IPFS through your own kubo node (`https://ipfs.prometheusags.ai`).
+Sync your vault over IPFS through a kubo node you run or trust.
 No Obsidian Sync subscription. No third-party cloud. Content-addressed snapshots now,
 CRDT multi-writer sync and an AI layer later.
 
-> **Fixture-only pre-release. Do not use it on real notes.**
+**There is no default node.** You enter the RPC URL and the gateway URL of your own node before anything is sent.
+The maintainer's test node is open to anyone and is not a default; see "Security" below. If you relied on the old
+built-in node (release 0.2.0), you must now configure one.
+
+> **Pre-release. This branch accepts real notes, and its evidence is not in yet. Read "Real notes: what you accept"
+> before you use it.**
 >
-> - **What the tree does now.** Every publish is encrypted on your device: file contents, file names and the
->   manifest. The key comes from a passphrase the tool generates for you. Encryption is implemented, but it has not
->   been independently reviewed to the standard real notes need, and it has never been run inside Obsidian. Until that
->   changes, the CLI and the plugin publish only synthetic fixture vaults (a `.ipfs-sync-fixture` file in the vault
->   root that holds the text `fixture`) and refuse every other vault. That marker is an accident guard, not a
->   control: anyone who can create the file can override the refusal.
+> - **What this branch does.** The guard that limited the tool to generated test vaults is removed on branch
+>   `mvp-07b-guard-removal` (commit `38db5f8`). `init`, `publish`, `pull` and the plugin accept any vault, and the
+>   `.ipfs-sync-fixture` marker file has no meaning. Every publish is still encrypted on your device: file contents,
+>   file names and the manifest. The key comes from a passphrase the tool generates for you. `main` keeps the old guard
+>   until the release merge. Release 2 (v0.3.0) is not cut: `manifest.json` and `package.json` read 0.3.0, and there
+>   is no tag, no GitHub release and no release record.
+> - **What has not happened.** No independent review of this tree has been recorded. The Release 2 evidence (the review
+>   record, the operator run in Obsidian desktop against the shared node, the phone timing) is pending until the
+>   iteration-9 release steps (tasks 6.4 to 7.3 of the change's `tasks.md`). Nothing has been run inside Obsidian or
+>   on a phone. The earlier reviews listed in `DESIGN.md` section 8.1 were static reads of earlier trees by one model.
 > - **Pulling an encrypted vault is implemented in this tree and has not been run by the operator.** `ipfs-sync pull` and the
 >   plugin's Pull, Restore and Resolve fork read an encrypted vault back, check it against the highest sequence this
 >   device recorded, and write only verified files. The code is covered by automated tests with fake nodes. It has not
 >   been run inside Obsidian, on a phone, or against the shared node by the operator (that run belongs to `mvp-07b`).
 >   Large-file pull in the plugin is not advertised as working until that run records the outcome.
-> - **Key management, history pruning and the removal guard (`mvp-07b`, code only, unreleased).** The command line has
+> - **Key management, history pruning and the mass-removal guard (`mvp-07b`, unreleased).** The command line has
 >   `keys change-passphrase`, `keys increase-cost`, `keys accept-slots`, `keys discard` and `prune-history`. Publish
 >   stops a mass removal. The plaintext reader is gone. The plugin has dialogs for the key actions, the removal
 >   confirmation and the cost confirmation, and a command that times key derivation. This is covered by automated tests
->   with fake nodes. None of it has been run inside Obsidian, on a phone or against the shared node by the operator,
->   and the operator-run script for it (`tools/feature-op-mvp-07.mjs`) is not written yet. It has not been reviewed
->   independently. The marker guard above is still in this tree.
+>   with fake nodes. None of it has been run inside Obsidian, on a phone or against the shared node by the operator.
+>   The operator-run script for it (`tools/feature-op-mvp-07.mjs`) exists; no manual run of it in Obsidian has been
+>   recorded, and a script-only result does not count. It has not been reviewed independently.
 > - **Release 0.2.0** (tagged `v0.2.0`, a GitHub pre-release) is the plaintext build: it has no encryption, and
 >   everything it published is readable by anyone who obtains the CID. The encryption described below is not in 0.2.0;
 >   it is unreleased work after it. This tree cannot read what 0.2.0 published: a plaintext root is refused.
@@ -34,13 +43,13 @@ CRDT multi-writer sync and an AI layer later.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Obsidian plugin | `src/main.ts` → `dist/plugin/` (`main.js`, `manifest.json`) | Publish (encrypted), Pull, Restore an older version, Resolve fork, Status and Measure key derivation time commands, settings tab with an Encryption section (Pull record row, key-derivation cost, change passphrase, increase cost, accept key slots), dialogs for mass removal and for a key slot above the default cost, optional auto-publish. Fixture vaults only |
+| Obsidian plugin | `src/main.ts` → `dist/plugin/` (`main.js`, `manifest.json`) | Publish (encrypted), Pull, Restore an older version, Resolve fork, Status and Measure key derivation time commands, settings tab with an Encryption section (Pull record row, key-derivation cost, change passphrase, increase cost, accept key slots), dialogs for mass removal and for a key slot above the default cost, optional auto-publish |
 | CLI init | `ipfs-sync init` | The only way to create an encrypted vault: generates the passphrase and the key slots |
 | CLI publish | `ipfs-sync publish` | Encrypt and send only changed files to the node's MFS, then publish the snapshot to the IPNS key |
 | CLI pull | `ipfs-sync pull` | Reads an encrypted vault back: authenticates the manifest, checks the sequence against this device's record, writes only verified files. Also restores an older version, resolves a fork and lists versions. A plaintext (version 1) root from release 0.2.0 is refused |
 | CLI keys | `ipfs-sync keys change-passphrase`, `increase-cost`, `accept-slots`, `discard` | Replace the key slot under a new generated passphrase or a higher cost, accept another device's change, drop a stuck operation. Revokes nothing (see "Change the passphrase or the cost") |
 | CLI prune | `ipfs-sync prune-history` | Remove the oldest history files from the node's working tree so the folder stays under the publisher's limit (see "History growth") |
-| Exclusions | `src/sync/exclusions.ts` | Shared exclusion list: trash, the whole `.obsidian/` folder, the Smart Connections folder `.smart-env/`, this dev folder and the fixture marker file. Plugin code and plugin data are device-local and are never published or pulled |
+| Exclusions | `src/sync/exclusions.ts` | Shared exclusion list: trash, the whole `.obsidian/` folder, the Smart Connections folder `.smart-env/`, this dev folder and the old marker file name `.ipfs-sync-fixture` (still excluded, so a leftover marker is never published). Plugin code and plugin data are device-local and are never published or pulled |
 
 **Mutable pointer:** the project IPNS key `obsidian-vault-sync` on your node. `publish`
 creates it if absent and records its ID in the config file (`ownedKeys`). Each publish
@@ -48,7 +57,7 @@ points the key at the CID of the MFS root, which holds `current/` (encrypted fil
 two-character prefix folders), `manifests/` (one encrypted history copy of the manifest per publish, named
 `<16-digit sequence>-<rootCID>.enc`; a development build wrote `<rootCID>.enc`, which still reads), `manifest.enc` and
 `keyslots.json`.
-Swap for DNSLink (`_dnslink.ipfs.prometheusags.ai` → `/ipfs/<cid>`) whenever you
+Swap for DNSLink (for example `_dnslink.ipfs.example.org` → `/ipfs/<cid>`, on a domain you control) whenever you
 want a human-readable name — same content, one DNS record.
 
 **Conflict policy (pull, CLI and plugin; both run the same engine):** pull never deletes and never loses
@@ -66,11 +75,10 @@ True merging arrives with the Phase 2 op-log. See "Pull" below.
 
 ## Obsidian plugin
 
-**Fixture-only.** The plugin encrypts every publish. It publishes only in a vault that contains the
-`.ipfs-sync-fixture` marker holding the text `fixture`. Any other vault is refused before a single request is sent,
-with a notice. Pull works in a vault that contains the marker (either `fixture` or `pulled-fixture`), or that has no
-files outside `.obsidian/` and `.ipfs-sync/` (Pull then creates the marker with the text `pulled-fixture`, which
-Publish refuses). Do not install this on a vault that holds real notes.
+**Any vault, encrypted, unreviewed.** The plugin encrypts every publish and publishes from any vault; it needs no
+marker. Pull works into any directory and keeps a local edit as a conflict copy; it writes no marker. Read "Real notes:
+what you accept" before you install this on a vault that holds notes you cannot lose or cannot expose. Nothing in this
+plugin has been run inside Obsidian.
 
 `pnpm build` writes the plugin to `dist/plugin/` (`main.js` and `manifest.json`) and the CLI
 to `dist/cli/ipfs-sync.mjs`. A build never writes into a vault by default. To load the plugin
@@ -91,7 +99,10 @@ What the plugin does today:
 
 - Commands (`Ctrl/Cmd+P`): **IPFS Sync: Publish vault**, **IPFS Sync: Pull vault**,
   **IPFS Sync: Restore an older version**, **IPFS Sync: Resolve fork** and **IPFS Sync: Show status**. Two ribbon icons
-  run Publish and Pull. An optional auto-publish interval (minutes, 0 = off) is set in the settings tab.
+  run Publish and Pull. An optional auto-publish interval (a whole number of minutes, 0 = off, at most 35,000) is set in the settings tab.
+  A stored number that is a fraction or negative, or `null` (how JSON stores NaN and infinity), loads as 0 (off) and the
+  rest of the settings, credentials included, are kept. A stored value of any other type (a string, for example) makes
+  the file unreadable.
 - **Publish is encrypted and needs the vault passphrase.** On a device with no vault, Publish opens the setup dialog;
   only its **Create vault** button creates one. The dialog shows the generated passphrase once, in five groups of
   five, asks you to save it in a password manager and type it again, and states that a lost passphrase means the data
@@ -104,7 +115,7 @@ What the plugin does today:
 - The auto-publish timer never opens a dialog. While the vault is locked it skips the publish and shows one notice per
   session. While it is unlocked, a tick on an unchanged vault does not derive the key again.
 - **The plugin cannot repair.** `--repair`, `--recover-slots` and `--break-lock` exist only in the command line tool. The plugin can clear a publish lock that is at least 15 minutes stale ("Clear stale publish lock"). It has no row or command for `keys discard`, and it cannot finish an interrupted key action or prune; use the command line for those. (It does have a "Prune history..." row; see "History growth" below.)
-- **Key management in the Encryption section** (mvp-07b, never run in Obsidian). Three rows open dialogs: **Change the passphrase**, **Increase the key-derivation cost** and **Accept changed key slots**. Each states before its confirm button works that the old passphrase and every old copy of the key-slot file keep opening the vault. The change-passphrase dialog shows the generated passphrase once, in five groups of five, and asks you to type it again; there is no field for your own. There is no clipboard control. A lower cost needs its own tick and shows both costs. After a change the dialog shows the result of a test unlock. Another device must run Accept changed key slots (or `ipfs-sync keys accept-slots`) with the new passphrase before it can pull or publish again. A row shows the cost of this device's key slot.
+- **Key management in the Encryption section** (mvp-07b, never run in Obsidian). Three rows open dialogs: **Change the passphrase**, **Increase the key-derivation cost** and **Accept changed key slots**. Each states before its confirm button works that the old passphrase and every old copy of the key-slot file keep opening the vault. The change-passphrase dialog shows the generated passphrase once, in five groups of five, and asks you to type it again; there is no field for your own. There is no clipboard control. A lower cost needs its own tick and shows both costs. After a change the dialog shows the result of a test unlock. Another device must run Accept changed key slots (or `ipfs-sync keys accept-slots`) with the new passphrase before it can pull or publish again. A row shows the cost of this device's key slot. In Accept changed key slots, Cancel keeps the focus after Check key slots; Accept is one Tab away.
 - **Prune history in the Encryption section** (mvp-07b task 2.5, never run in Obsidian). A fourth row, hidden until a vault exists, opens a dialog: a keep count (the floor of 20 is shown), the current passphrase, then a dry-run preview that shows counts only. Cancel has the focus in the review step, and files are removed only when you press the remove control. It takes the same locks as the key actions, and the cost confirmation below applies. The timer and the catch-up pull never prune. The plugin has no resume and no discard; `ipfs-sync prune-history` finishes an interrupted prune.
 - **Cost confirmation.** A key slot above the default cost (64 MiB, 3 iterations), such as the High preset (128 MiB, 4), makes the plugin ask through a dialog that shows the cost; Cancel is the default. It asks on a manual Pull, Resolve fork, Restore, manual Publish (at the unlock) and the key actions. The auto-publish timer and the catch-up pull never ask: while the vault is locked they keep refusing a High-cost vault until you unlock it by hand. A wrong passphrase on a pull asks the cost question again on each attempt. A phone may not be able to unlock High; that was not measured.
 - **A mass removal stops a manual publish** with a dialog (counts only; Cancel is the default). The timer never opens it: it shows a notice and writes nothing. See "Publishing".
@@ -114,7 +125,9 @@ What the plugin does today:
   every open editor first, so an edit that exists only in an editor counts as a local edit. It uses the unlocked
   key when the session holds one; otherwise it asks for the passphrase (an unattended catch-up pull refuses instead of
   asking). A first pull of a vault opens a dialog that shows the sequence, date and device the vault key holder chose
-  and states that nothing can confirm them; Cancel writes nothing. Progress and the result show as a notice and in the
+  and states that nothing can confirm them; Cancel writes nothing and has the focus. The same dialog opens, with its own
+  statement, when this device already holds a sequence floor for the vault but the folder has no state for it and at
+  least one local file differs from the vault (see "Pull"). Progress and the result show as a notice and in the
   status bar. The result names the fetched, unchanged, conflict, failed and remote-deletion counts and up to three
   conflict copies, and says when files are unfinished. The plugin has no setting that lets it read a plaintext root.
 - **Restore an older version** lists the newest 20 history names, reads the date and device of entries of at most 8 MiB,
@@ -137,13 +150,80 @@ What the plugin does today:
 - **Read cap** (setting): the largest single file the plugin will read into memory, default 64 MB,
   whole numbers from 8 to 1024. Obsidian's file adapter has no partial read, so a file is loaded whole. A file
   above the cap is counted as failed, named in the result, and the other files continue.
-- Settings tab: RPC and gateway endpoints (URL plus optional port each), publication key name,
-  MFS root, authentication scheme (none, basic, bearer, custom header), the exclusion list, the
+- Settings tab: RPC and gateway endpoints (URL plus optional port each; both start empty and the tab shows
+  "Not configured" until both URLs are set; publish, pull, status, the key actions, the vault opener and the
+  auto-publish timer refuse with "Set your IPFS node in settings" and send no request; Abandon still works). The
+  maintainer's retired built-in host is open to anyone, so saved settings that name it are cleared at load, whatever
+  format they are in (the previous plugin's, the version before this one, or this one), including the form with a
+  trailing dot. Both URLs become empty ("Not configured"), the credential tied to them is dropped (a legacy `authToken`,
+  the node credential and the gateway credential), a one-time notice says to set your own node and enter its
+  credentials again, and the cleared data is written back. **If you really used that node, you must now enter it and
+  its credentials yourself.** If you type that host into the URL fields during a session, the tab warns; the value is
+  cleared at the next load. The tab also holds the publication key name,
+  MFS root, authentication scheme (none, basic, bearer, custom header; a custom header name cannot be Host,
+  Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE, Keep-Alive, Proxy-Connection or Trailer, because
+  Node's `http` honours those as connection framing, and it cannot be Content-Type or Range, because `Headers` would
+  merge the credential into the real header; the ten framing names live in one module,
+  `src/core/config/connection-headers.ts`, used by both this check and the desktop transport), **Gateway authentication** (below), the exclusion list, the
   owned IPNS keys, and the pull name, catch-up and read cap settings above, an Encryption section (state: not set up,
   locked or unlocked; Lock, Set up and Unlock buttons), plus the last pull and last publish summaries
   (counts, CIDs and timestamps only, no file names or secrets).
-- Node requests go through Obsidian's `requestUrl`, not `fetch`, because the node's CORS
-  rules block the WebView (quirk 4 below).
+- **Gateway authentication** (under the gateway port): Same as node (the default), None, Basic, Bearer or Custom header.
+  Same as node uses the rule of the shared configuration builder (`src/core/config/build-config.ts`): the node
+  credential goes to the gateway only when scheme, host and port equal the RPC address, and otherwise the gateway gets
+  none. Any other choice is used as set and wins, and None sends nothing even when the addresses match. The gateway
+  credential goes to the gateway only, never to the RPC endpoint. When the node credential is held back from a gateway
+  on a different address, the tab says so. The 401 or 403 hint that says where to set a gateway credential appears
+  only when the gateway has no credential because its origin differs from the RPC's while the RPC has one; an explicit
+  None, or a node without a credential, gets the plain message. Switching the node or gateway authentication picker
+  away from a kind clears that kind's typed secret fields, so switching Bearer to Basic and back needs the token typed
+  again. **The gateway secret is stored in plain text in `data.json`, beside the node credential**, and is not
+  published. The gateway should not redirect: desktop refuses a redirect, and on iOS Obsidian's `requestUrl` follows one
+  and forwards a custom gateway header to the target (see "Redirects" below). The settings version stays 3; data saved without a gateway block loads as Same as node, and the node
+  credential is never copied into it. The origin rule compares origins, not paths, so one credential is shared by
+  every path of one host. Nothing was rendered in Obsidian or on a phone, no mock of this control exists in
+  `docs/design/` (the Open Design MCP did not connect), and `styles.css` does not exist.
+- **Stored settings that cannot be read stay untouched.** Data with no version marker is treated as the previous
+  plugin's only if it is empty, or has one of that plugin's keys and none of the current form's. A current-form file that
+  lost its version key is therefore left alone, with defaults in use and a notice, instead of being overwritten (which
+  would wipe the owned keys, the gateway credential, the device store and the sequence floor). A previous-plugin address
+  with a user name or password in it is stored empty, with a notice. Status shows an address as scheme, host, port and
+  path, or "invalid address"; never a user name, query or fragment. A previous-plugin token is kept only with the
+  address it was written for; with no address carried over it is dropped.
+- **An unreadable `data.json` is copied before it is replaced.** The first save after an unreadable load would replace
+  the file with defaults. Before it does, the plugin copies the file to `data.json.unreadable-<UTC timestamp>` in the
+  plugin folder and shows a notice with the path. **The copy is plain text and holds the same secrets as the
+  original** (credentials, owned keys, the sequence floor record); delete it when you no longer need it. The copy is
+  read back and compared byte for byte before the save goes ahead. If it cannot be written or does not read back
+  identical, the save is refused and the original stays. The plugin's note that a copy is still owed clears only after the
+  save succeeds, so a failed save makes the next attempt copy again.
+- **A credential does not follow an address change.** Changing the node URL or port to another origin blanks the stored
+  node credential. Changing the gateway origin drops the gateway credential; an explicit None is kept. A plain line
+  under the field says so. Typing the new address does not carry the old secret to the new host. Any change of origin
+  also blanks the credential you typed but have not saved for that block (node or gateway), and puts that block's kind
+  picker back to what is stored, so a half-typed secret cannot be completed and saved for the new host.
+- **One sentence about redirects sits under the credential fields**, in the Authentication section, while a node or
+  gateway credential kind is chosen: "Requests may follow redirects the plugin cannot see, so use a node address you
+  trust and prefer Basic or Bearer over a custom header." It is below the node and gateway fields together. With only a
+  gateway credential it is not beside the gateway fields. It has the class `ipfs-sync-redirect-note` and no style rule,
+  because `styles.css` does not exist. The note is a warning, not a control: see "Redirects" below. It is shown on every
+  platform. On desktop the plugin refuses a redirect, so the sentence is true of mobile only (it was not changed).
+- **Editing an address, port or credential does not ask the node about the key.** The key row then says it was not
+  checked since the settings changed; press **Check again**. Opening the tab still checks. The settings tab is emptied
+  when it closes, so a typed secret does not stay in the page.
+- **Switching nodes.** Clearing a retired host resets only the URLs and the node and gateway credentials. The owned keys,
+  pull name, last publish and last pull, device store, publication key and MFS root stay. The vault's state under
+  `.ipfs-sync/` is named by a hash of the MFS root, not by the node, so a new empty node meets the old local key-slot copy
+  and state, and a publish is refused with `lost-slots`. The way out is Abandon: it keeps the sequence floor and moves
+  four local files aside (the key-slot copy, the state, the publish journal and the key-management journal). Abandon
+  moves files aside and deletes none, and that makes it easy to click past a refusal without reading it; read the dialog.
+  It also says that a pending rewrap or prune is dropped and its write to the node is not withdrawn (see "Interrupted
+  publishes, `--repair`, `--recover-slots`, `--break-lock`"). Clear the pull name too when you change nodes. Status keeps showing the
+  old publish's root CID and time until the next publish.
+- Node requests do not use the WebView's `fetch`, because the node's CORS rules block it (quirk 4 below). On desktop
+  every request goes through Node's `http` and `https` (`src/plugin/node-transport.ts`). On mobile, which has no Node,
+  requests go through Obsidian's `requestUrl`. `requestUrl` is used only on mobile: a desktop app whose Node modules
+  cannot be loaded refuses every request (see "Desktop streams every response" below).
 - The whole `.obsidian/` folder is never published and never pulled (before `mvp-07a` only `.obsidian/plugins/` was):
   plugin code and plugin data, including this plugin's own `data.json` with your credentials, stay on the device. Those
   credentials are stored in plain text, and so is the sequence floor, which lives in the same plugin data.
@@ -151,7 +231,7 @@ What the plugin does today:
 ### Pull
 
 `ipfs-sync pull <vault>` (and the plugin's Pull) does this, in order: refuse invalid flag combinations; check the
-destination (absent, empty, or marked `fixture` or `pulled-fixture`); take `publish.lock`; resolve the name and list the
+destination (absent, or a directory whose state folder is not a symbolic link; no marker is needed); take `publish.lock`; resolve the name and list the
 root; unlock (the local key-slot copy first, so a wrong passphrase is refused locally); authenticate `manifest.enc`; decide
 the verdict against this device's record; on a first pull, show the sequence, date and device and ask; plan each path;
 fetch each file from the immutable tree the authenticated manifest names (never the mutable `current/`), decrypt it into
@@ -159,8 +239,8 @@ fetch each file from the immutable tree the authenticated manifest names (never 
 last. A pull that dies earlier leaves whole, verified files and the old state.
 
 - **Flags** (all in `--help`): `--name`, `--root-cid`, `--manifest`, `--allow-rollback`, `--resolve-fork`,
-  `--expect-min-sequence`, `--expect-vault-id`, `--accept-first-pull`, `--max-bytes`, `--accept-large`,
-  `--list-versions`. `--allow-plaintext-v1` and `--manifest-file` are gone and are rejected as unknown options.
+  `--expect-min-sequence`, `--expect-vault-id`, `--accept-first-pull`, `--accept-replace`, `--max-bytes`,
+  `--accept-large`, `--list-versions`. `--allow-plaintext-v1` and `--manifest-file` are gone and are rejected as unknown options.
 - **The record and the floor.** This device records the highest manifest sequence it accepted, in
   `.ipfs-sync/state.<h>.json` and in a sequence floor outside the vault (CLI: `sequence-floor.json` in a per-user
   directory; plugin: the `deviceStore` section of the plugin data). A node that serves a lower sequence than the record
@@ -170,10 +250,25 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   publish a very high sequence that every device then records. The recovery is to delete the floor file and the affected
   `state.<h>.json` files and pull again as a first pull.
 - **First pull.** It shows the sequence, date and device, which whoever holds the vault key chose, and needs a yes (or
-  `--accept-first-pull`). Declining writes no file, marker, state, floor or key-slot copy (the CLI's lock may leave an empty
+  `--accept-first-pull`). When existing local files differ from the vault, the confirmation also states how many
+  will be replaced and that a dated copy of each is kept; it is not shown when the count is zero. It reads "at least N", because the count is a
+  preview made before the stage, and the stage plans again. Declining writes no file, marker, state, floor or key-slot copy (the CLI's lock may leave an empty
   `.ipfs-sync/` folder). A root CID given with
   `--root-cid` is only as trustworthy as the gateway that serves it: the client does not check the returned bytes against
   the CID, so authenticity rests on the vault key.
+- **A folder with no state for this vault asks too.** The same confirmation is required whenever the folder has no state
+  for the vault's root, even if this device already holds a sequence floor for the vault, and at least one local file
+  differs from the node's copy. Without state nothing is a baseline, so every differing file takes the node's text and a
+  dated copy of the local text is kept. The question says so, in a fixed statement, and the CLI also prints the
+  destination path ("into"). An empty folder, or one whose files all match, is not asked. `--accept-replace` skips the
+  question; `--accept-first-pull` does not. Each flag answers only its own question, so a script that passes
+  `--accept-first-pull` for a first pull no longer replaces files in a folder it has no state for. A run that cannot ask
+  stops with `first-pull-not-confirmed` (exit 1) and writes nothing. (On a true first pull into a non-empty directory,
+  `--accept-first-pull` also covers the replace consequence: differing files are replaced and dated copies are kept.
+  `--accept-replace` is the stateless one.) The uncomfortable part: every
+  recovery path (Abandon, deleting `.ipfs-sync/`, pulling into a new folder) puts you back here with no baseline, and
+  the baseline is what protects you from what the node serves. Abandon keeps the sequence floor; deleting the floor too
+  removes the rest.
 - **Restore adds and replaces; it never deletes** a file that exists only in later versions. The recorded highest
   sequence stays, and the next publish makes the result a new version.
 - **Fork resolution.** Two devices that publish the same sequence with different content make a fork; `--resolve-fork`
@@ -189,8 +284,7 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   keeps the node's entry for such a path unchanged and publishes nothing from this device for it.
 - **Second device.** Same MFS root and publication key name as the first, the owned key adopted (its ID in `ownedKeys`
   in the config file, or `--owned-key <id>` for one run; in the plugin, "Adopt a key by ID"), and a pull before the first
-  publish. A directory that pull populated carries the marker `pulled-fixture`, which `publish` refuses; write `fixture`
-  into `.ipfs-sync-fixture` by hand to publish from it (your statement that it holds no real notes; nothing verifies it).
+  publish. A directory that pull populated can be published from; since the guard removal no marker is written or read.
 - **`.obsidian/` no longer syncs, and the default exclusion list changed.** `excludesHash` is now
   `ebd10cbd1cd9776229910af44cc1455550e840ba6aad25e8ba9434b0df32da0f`; before this change it was `062286b6...ddc9d`. A pull
   of a manifest with another hash prints one warning and verifies every local file by content. Entries of an older
@@ -210,12 +304,13 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
 - **Phones.** The exact plugin build reaches a phone through BRAT from a GitHub pre-release that carries the reviewed
   bytes and has its own tag, never the main tag. Do not use an iCloud vault or a manual iCloud copy: a manual copy hung
   the app at "Loading plugins" and a file-provider hang cleared only by restarting the phone. `.obsidian/plugins/` is not
-  synced by this tool. Android is untested and is not claimed. Until the guard is removed (`mvp-07b`) it is a
-  fixture-only build. What was measured on an iPhone is in "Not
-  verified".
+  synced by this tool. Android is untested and is not claimed. On this branch the plugin has no guard, so a phone build
+  would take a real vault; how it behaves with one is unmeasured (see "Real notes: what you accept"). What was measured
+  on an iPhone is in "Not verified".
 
-The earlier "pull demo" (publish a fixture vault, then pull it into a second vault) is implemented in this tree for
-encrypted fixture vaults (see "Encrypted vaults"); it has not been run by the operator. **There is no plaintext reader.**
+The earlier "pull demo" of release 0.2.0 (publish a generated fixture vault, then pull it into a second vault) was
+plaintext. Its encrypted equivalent is implemented in this tree (see "Encrypted vaults"); it has not been run by the
+operator. **There is no plaintext reader.**
 A root that holds `manifest.json` and no key slots (what release 0.2.0 published) is refused with "plaintext
 publications are no longer supported by this version" (CLI exit 2, nothing written), whatever this device has seen
 before. A root with key slots and no `manifest.enc` is refused too, and a planted `manifest.json` next to an encrypted
@@ -225,21 +320,84 @@ code path reads a plaintext manifest.
 
 ### Plugin limitations
 
-- Encryption is implemented but not independently reviewed and not verified in Obsidian; fixture vaults only (above).
+- Encryption is implemented but not independently reviewed and not verified in Obsidian (see "Real notes: what you
+  accept").
 - The plugin cannot detect symbolic links, because Obsidian's file adapter has no `lstat`. The CLI refuses to
   write through a symlink; the plugin cannot make that check. Do not place symlinks in a vault you sync.
-- **Desktop streams ranged reads; mobile still buffers.** On desktop the plugin sends a GET that carries a `Range`
-  header through Node's `http` and `https`, found with `globalThis.require`, and cancels after the header bytes, so a
-  hostile gateway cannot make it buffer a multi-GB body for a 22-byte header read. Whether `globalThis.require` exists
-  inside real Obsidian is unconfirmed; if it does not, the plugin falls back to buffering without saying so. On mobile
-  and for every other request, Obsidian's `requestUrl` buffers each whole response body in memory. Redirects are not
-  followed on the streaming path and it has no timeout.
-- Obsidian's `requestUrl` transport buffers each whole response body in memory. The one-segment memory bound and the
-  size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and Range requests
-  reduce the exposure only against gateways that honour them. The plugin pull holds up to a 128 MiB budget (a design
-  budget, not a measurement); a gateway that ignores Range makes files above 32 MiB `unfetched`, and so does a blob with
-  segments below 1 MiB. Multi-megabyte binary bodies through `requestUrl` are unverified, and large-file pull in the
-  plugin is not advertised as working until the `mvp-07b` operator run records the outcome.
+- **Desktop streams every response; mobile buffers.** On desktop the plugin sends every request, whatever its method or
+  body, through Node's `http` and `https` (`src/plugin/node-transport.ts`), found with `globalThis.require`. The response
+  body streams, so the size caps apply before the body is buffered, and a hostile gateway cannot make the plugin buffer a
+  multi-GB body for a 22-byte header read. On mobile, which has no Node, Obsidian's `requestUrl` buffers each whole
+  response body in memory. **If a desktop app cannot load Node's `http` or `https`, the plugin refuses every request** with
+  a fixed message ("the desktop network layer is unavailable, so the plugin will not send requests through the
+  redirect-following fallback; reload the plugin or report this") and sends nothing. It does not fall back to
+  `requestUrl`, because `requestUrl` follows redirects. **A node that answers with a status outside 200-599, or with
+  headers that cannot be read, is refused** with the fixed message "the node answered with a response this plugin cannot
+  read"; the plugin destroys both sockets and releases the sync lock. Before this fix such an answer left the run hanging
+  with the lock held until the plugin was reloaded (`7a9ce77`). **An aborted request can no longer hang the transport.**
+  An abort before the response, after the response (the body stream errors with the abort reason) and a signal that is
+  already aborted when the request starts each settle the promise once and destroy the socket. The transport reads an
+  error's `code` only when it is a string (a `DOMException.code` is a legacy number). **The transport refuses
+  connection-framing request headers** (the ten names in `src/core/config/connection-headers.ts`) with the fixed message
+  "the node transport refuses connection-framing request headers". A request body must be text or bytes; anything else
+  is a typed error, not a silent fallback. These behaviours are covered by unit tests; the redirect probe below is the
+  only run in Obsidian. The desktop path has no timeout (see the accepted backlog below). Desktop costs you Chromium's
+  network stack. Node trusts its own certificate list, so a private CA needs `NODE_EXTRA_CA_CERTS`. Node ignores the
+  system proxy and the Chromium trust store, so a node reached through a system proxy, or through a private CA that Node
+  does not trust, fails on desktop. **TLS failures have two fixed messages.** A certificate verification failure (a
+  self-signed or expired certificate, an untrusted chain, a host name mismatch) says "the connection failed TLS
+  verification; on desktop the plugin uses Node's certificate list; set NODE_EXTRA_CA_CERTS for a private CA". A failure to
+  set up TLS at all (`EPROTO`, `ERR_SSL_*`, `ERR_TLS_*`: an https URL on a plain-HTTP port, a handshake alert) says "the
+  connection could not be established as TLS: check the address and scheme" and gives no CA advice, because a CA would not
+  help. **`NODE_EXTRA_CA_CERTS` must be set in the environment Obsidian is launched with.** A macOS GUI launch (Dock,
+  Spotlight, Finder) does not inherit variables from your shell profile.
+- **Accepted backlog in the desktop transport and host bridge, not fixed** (found by code-reading reviews; none was
+  executed). The Node transport has no request timeout and no idle deadline: a node that accepts the connection and then
+  goes silent leaves the call pending, by design, because no caller passes a signal. The host bridge's `net.fetch`
+  buffers the whole response with no byte cap. A response body stream that closes with neither `end` nor `error` is not
+  explicitly errored. `NODE_TLS_REJECT_UNAUTHORIZED=0` in Obsidian's environment would disable certificate verification,
+  because the transport sets no `rejectUnauthorized`. Some Node error texts outside the two TLS classes (`ERR_OSSL_*`,
+  invalid protocol) pass through, escaped. `escapeNodeText` does not cover U+2061 to U+2064, U+180E, U+034F and U+FFF9 to
+  U+FFFB.
+- **The host bridge has no permissive default.** `net.fetch` in the host bridge (`src/plugin/obsidian-host-bridge.ts`)
+  calls the injected transport. Without one it throws "network access is not available in this host" before sending
+  anything; it does not fall back to the WebView `fetch`, which follows redirects. The request body is typed as bytes and
+  passed to the transport as it is; the Node transport sends text or bytes only, so a `Blob` body is a `TypeError`. No caller uses `net.fetch` today.
+- **Redirects.** A 301, 302, 303, 307 or 308 answer is refused on the shared request path with a fixed message that
+  tells you to check the URL's scheme (http or https) and path; the `Location` the node named is not shown and not
+  followed. On desktop that refusal holds: Node's modules return the 3xx instead of following it, and the credential goes
+  to the configured URL only. **On mobile it cannot hold.** Obsidian's `requestUrl` follows redirects itself, offers no
+  option to stop it and no way to read the final URL, so a followed redirect there is neither prevented nor detected.
+  **On iOS the plugin cannot stop a custom-header credential (for example `X-Api-Key`) from reaching another origin.**
+  Use Bearer or Basic on a phone: iOS strips those on a cross-origin hop. What was probed (`tools/probe-redirect-forwarding.mjs`,
+  see "Redirect probe" below):
+  - **Desktop, probed** (Obsidian installer 1.8.4, app 1.14.4, Electron 33.3.2, macOS). With the old `requestUrl` path a
+    node's cross-origin 307 to `127.0.0.1` was followed and the POST replayed, method kept, no `Origin` header. With the
+    current build the redirect was not followed and the request carried the configured `X-Api-Key` to its own URL only
+    and none of Chromium's `sec-fetch` headers.
+  - **Desktop, re-probed on the tenth-round build** (Obsidian 1.14.4 on macOS, computer control, local probe, `main.js`
+    sha256 prefix `5b906b2f`). A 308 from the node was not followed, the target was never reached, and the request carried
+    `x-api-key` only and no Chromium headers.
+  - **iPhone, probed** (CFNetwork, `requestUrl`). A cross-origin redirect was followed and the POST replayed with an
+    empty body (the `key/list` call carries none). `Authorization` was stripped on the cross-origin hop. A custom header
+    (`X-Api-Key`) was forwarded.
+  - **Not probed:** Android; a body-carrying call on mobile (the multipart upload); an https-to-http downgrade; Windows
+    and Linux desktops.
+  The uncomfortable part: the redirect guarantee exists only where Node's `http` is reachable. On mobile it does not
+  exist, and no setting adds it.
+  Point the plugin only at an endpoint you control and trust not to redirect.
+- Obsidian's `requestUrl` transport, which mobile uses, buffers each whole response body in memory. The one-segment
+  memory bound and the size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and
+  Range requests reduce the exposure only against gateways that honour them. The plugin pull holds up to a 128 MiB
+  budget (a design budget, not a measurement); a gateway that ignores Range makes files above 32 MiB `unfetched`, and so
+  does a blob with segments below 1 MiB. Multi-megabyte binary bodies through `requestUrl` are unverified, and
+  large-file pull in the plugin is not advertised as working until the `mvp-07b` operator run records the outcome.
+- **Redirect probe.** `node tools/probe-redirect-forwarding.mjs --host <this machine's LAN address>` (or `--loopback`
+  for a desktop run) starts two plain-http servers, A on port 5101 and B on 5102 (`--port-a`, `--port-b`). A answers each
+  request with the next redirect status in the cycle 307, 308, 302, 301, 303, pointing at B. Set the plugin's node and
+  gateway URL to A and use the plugin. For every request the tool prints one `VERDICT` line (followed or not, whether
+  method and body were kept, which credential headers were forwarded or stripped), then the raw detail. It prints header
+  names and a short hash of each credential header, never a value. It answers nothing but redirects and an empty 200.
 - Writes go through a temporary file in `.ipfs-sync/tmp/` and then a rename. Where the destination already exists,
   the plugin removes it first and then renames, so `rename` is not atomic and a crash in between can leave the file
   missing until the next pull. This window has not been tested. The temporary files hold verified plaintext until they are
@@ -260,7 +418,11 @@ code path reads a plaintext manifest.
   clears a lock whose last heartbeat is at least 15 minutes old, holding the plugin's sync lock while it works (it
   refuses as busy during a publish, pull or abandon, and does not stop a CLI publish on the same folder). A crash
   between its move-aside and its discard can leave a `.taken` file in `.ipfs-sync/` (a few bytes) that nothing cleans
-  up automatically; delete it by hand. A lock file it cannot parse is not clearable there, so
+  up automatically; delete it by hand. The same file is left when a takeover moved a live lock aside and the file system
+  could not put it back (no hard links): the takeover then refuses as lock-held and keeps the moved file under its
+  `.taken` name. A release awaits any heartbeat write that is in flight, and a stopped flag keeps a late beat from
+  recreating the lock after release; the CLI's lock file honors the flag, the plugin's adapter lock file ignores it and
+  relies on release awaiting the beat, so a write that hangs could hold release. A lock file it cannot parse is not clearable there, so
   use `--break-lock` on a computer. `--break-lock` deletes a live lock if it is run while a plugin publish is running.
 - Remote deletions are reported, not applied. A file deleted on the publishing side stays on the receiving side.
 - Per-file read cap (above). Large files cost whole-file memory.
@@ -287,7 +449,7 @@ node dist/cli/ipfs-sync.mjs publish <vault> [--repair] [--recover-slots] [--brea
     [--allow-mass-removal]
 node dist/cli/ipfs-sync.mjs pull <vault> [--name <ipns-id>] [--root-cid <cid> | --manifest <cid>]
     [--allow-rollback | --resolve-fork] [--expect-min-sequence <n>] [--expect-vault-id <id>]
-    [--accept-first-pull] [--max-bytes <n>] [--accept-large]
+    [--accept-first-pull] [--accept-replace] [--max-bytes <n>] [--accept-large]
 node dist/cli/ipfs-sync.mjs pull <vault> --list-versions
 node dist/cli/ipfs-sync.mjs keys change-passphrase <vault> [--cost standard|high] [--passphrase-file <path>]
     [--accept-no-revocation] [--allow-downgrade]
@@ -299,13 +461,15 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
 
 - `status` shows node identity, MFS listing, gateway fetch, write probe and key state.
 - `init` creates the encrypted vault for `<vault>` (next section). `publish` never creates one.
-- `publish` sends only changed files, always encrypted, and needs the vault passphrase. It accepts only a vault whose
-  `.ipfs-sync-fixture` file holds the text `fixture`, and needs an MFS root strictly below `/obsidian-vault-sync`.
+- `publish` sends only changed files, always encrypted, and needs the vault passphrase. It accepts any vault and needs
+  an MFS root strictly below `/obsidian-vault-sync`.
 - `pull` fetches only files whose sha256 differs, from an encrypted root (see "Pull"), with the same passphrase sources as
   `publish`. `pull` without `--name` uses the ID of the owned `obsidian-vault-sync` key. `--manifest <cid>` or
   `--root-cid <cid>` with `--allow-rollback` restores an earlier version; `--list-versions` shows the newest 20 history
-  entries; `--resolve-fork` merges after a fork. `--accept-first-pull` and `--accept-large` are the non-interactive yes
-  to the first-pull and the large-pull questions; `--max-bytes` sets the ceiling (default 536870912, 512 MiB). Exit
+  entries; `--resolve-fork` merges after a fork. `--accept-first-pull`, `--accept-replace` and `--accept-large` are the
+  non-interactive yes to the first-pull, the replace (a folder with no state for a vault this device knows) and the
+  large-pull questions; each answers only its own, except that on a true first pull into a non-empty directory
+  `--accept-first-pull` also covers the replace consequence (dated copies kept). `--max-bytes` sets the ceiling (default 536870912, 512 MiB). Exit
   codes: 0 ok, 1 a file failed or was not fetched, a path was skipped as unsafe, or the pull stopped at a check, 2
   usage or a refused destination (a plaintext root is one). The `keys` commands and `prune-history` are described
   under "Change the passphrase or the cost" and "History growth"; every flag above is in `--help`.
@@ -314,6 +478,64 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   `IPFS_SYNC_GATEWAY_URL`, `IPFS_SYNC_MFS_ROOT`, `IPFS_SYNC_KEY`, `IPFS_SYNC_AUTH_*`).
   Flags override environment, which overrides the config file. Run
   `node dist/cli/ipfs-sync.mjs --help` for the full list.
+- **The RPC URL and the gateway URL are required. There is no default node.** Set each by flag (`--rpc-url`,
+  `--gateway-url`), environment (`IPFS_SYNC_RPC_URL`, `IPFS_SYNC_GATEWAY_URL`) or config file (`rpc.url`,
+  `gateway.url`). With either one missing the command exits 2 with a configuration error (`no-rpc-url` or
+  `no-gateway-url`) and sends no request. Both are needed because every pull, publish read-back, status and key command
+  reads through the gateway, and the gateway URL is never derived from the RPC URL. A port variable alone
+  (`--rpc-port`, `IPFS_SYNC_RPC_PORT`) does not count as a URL. `abandon` is the exception: it only moves local state
+  aside, so it runs with no node configured.
+- **Which endpoint gets the credential.** The global auth (`--auth`, `IPFS_SYNC_AUTH_*`) is the RPC credential. The
+  gateway inherits it only when its origin (scheme, host and port) equals the RPC origin, as with one reverse proxy
+  serving both. On any other origin the gateway gets auth kind `none`, so the credential never goes to a host you did not
+  give it to. To authenticate the gateway on another origin, set `IPFS_SYNC_GATEWAY_AUTH_*` (the same suffixes as
+  `IPFS_SYNC_AUTH_*`); an explicit gateway auth always wins. The plugin has the matching control, **Gateway
+  authentication** (see the settings tab above).
+- **Credentials never come from the command line.** `--auth-password`, `--auth-token` and `--auth-header-value` are
+  refused with exit 2, because the process list and the shell history show them. The message names the replacement and
+  does not echo the value: `IPFS_SYNC_AUTH_PASSWORD`, `IPFS_SYNC_AUTH_TOKEN` or `IPFS_SYNC_AUTH_HEADER_VALUE` (per
+  endpoint, `IPFS_SYNC_RPC_AUTH_*` or `IPFS_SYNC_GATEWAY_AUTH_*`). `--auth`, `--auth-user` and `--auth-header-name`
+  remain.
+- **A config file found in the working directory cannot steer a credential.** When no `--config` is given, the CLI reads
+  `./ipfs-sync.config.json` if it exists. While a credential is configured by environment or flags, such a file that
+  sets `rpc.url` or `gateway.url` is refused (exit 2) unless the same address is set by flag or environment. Pass
+  `--config <path>` to use that file on purpose. A file you name is not judged.
+- **A plain `http:` address with a credential gives a warning** when the host is not loopback. Only `localhost`,
+  `127.x.x.x` and `[::1]` are exempt; `name.localhost` is no longer exempt. It is a warning, not a refusal: anyone on
+  the network path can read the credential.
+- **The state folder must not be a symbolic link.** `publish`, `init`, `keys`, `prune-history`, `pull --list-versions`
+  and `abandon` refuse a symlinked `<vault>/.ipfs-sync` (exit 2) before any lock, state or request. `pull` already did.
+  The state folder is created with mode 0700 (its name is matched case-insensitively, so `.Ipfs-Sync` counts on a
+  case-insensitive volume). Folders the CLI creates for pulled notes keep the platform default mode; only the state folder
+  is owner-only. Files are written 0600.
+- **A question is asked only when standard input, standard output and standard error are all terminals.** Standard
+  output must be one because the commands print the consequence text there before they ask, and standard error because
+  the question itself is written there. With any of the three redirected or piped the run cannot ask. `keys change-passphrase` and `keys increase-cost` without `--accept-no-revocation`, `prune-history` without
+  `--yes-prune` or `--dry-run`, `keys discard` without `--yes-discard` and `abandon` without `--yes-abandon` then exit 2
+  before they send anything. `pull --resolve-fork` has no confirming flag, so without a terminal it always exits 2. A confirmation that is asked and declined exits 1. A pull that needs a yes stops with exit 1;
+  the first-pull and replace refusals name their flag (`--accept-first-pull`, `--accept-replace`).
+- **A pending rewrap or prune is finished by running the same command again, and the rest of the command line is
+  ignored.** The rerun needs none of the confirming flags and takes what to finish from the journal. `--cost` and
+  `--passphrase-file` on a `keys` rerun, and `--keep` on a `prune-history` rerun, change nothing.
+- **A passphrase file inside the vault is refused** (exit 2): the next publish would upload it with the notes it
+  protects. The check uses real paths, so a link into the vault counts. It covers `--passphrase-file` and
+  `IPFS_SYNC_PASSPHRASE_FILE`, except that `init` and `abandon` ignore the variable.
+- **Text from the node is escaped before it is printed.** `status` prints node-supplied names, versions and key IDs
+  escaped, and standard output and standard error have unsafe characters replaced by `?`, one per code point. Both use
+  one code-point table (`isUnsafeCodePoint` in `src/kubo/errors.ts`): C0, DEL, C1, bidirectional controls, the line and
+  paragraph separators, zero-width characters, the soft hyphen, the byte order mark and the tag block.
+  `--show-request` redacts the credential header names of both endpoints. An address prints as scheme, host, port and
+  path only when it is `http:` or `https:` with a host. Anything else prints as "invalid address", including text that
+  parses as another scheme (`user:secret@host:5001` reads as scheme `user:`), and the "must use http or https" error
+  no longer names the scheme.
+- **One CID rule for reads and writes.** A root path the node supplies must be `/ipfs/<cid>`; `/ipns/...`, a path below
+  the root, a bare token and text with whitespace are refused with fixed text that does not echo the value. A CID is 10
+  to 128 alphanumeric characters (`isCidToken` in `src/sync/local-record.ts`). The reader of each local file and the
+  writer of the publish journal, the maintenance journal and the root state use that one function, and a writer refuses
+  a value it would refuse to read, before the first write. Gateway CIDs and IPNS names are held to the same 128 bound.
+- **The explicit-port check reads the URL as the parser does.** A port in the URL that conflicts with `--rpc-port` or
+  `--gateway-port` is found even when the address has tabs, line breaks, backslashes or extra slashes that the URL
+  parser ignores or normalises.
 
 The CLI is a plain Node HTTP client against the kubo RPC and gateway — no local IPFS
 daemon needed.
@@ -346,9 +568,55 @@ Three consequences to accept before you use it:
 - **There is no recovery.** If you lose the passphrase, and every copy of the key slots, the data is gone. Nobody can
   reset it. The copy of `keyslots.json` this tool keeps in `.ipfs-sync/` protects only against the node losing the file.
 
+### Real notes: what you accept
+
+This branch lets you publish a real vault. Nothing stops you, so the list below is the whole warning. Each line is a
+way this goes wrong for you.
+
+- **Encrypted, and not everything.** Contents, paths, file names and the manifest are encrypted. The node operator
+  still sees how many files you have, their exact sizes, when and how often you publish, which blobs change, and that
+  the vault exists. Whatever node you choose sees this list. The maintainer's test node is shared infrastructure that
+  holds other projects' keys, and its RPC endpoint is open to writes from the internet (see "Security" below); it is not
+  a default and you should not point a real vault at it. Whoever can reach a node's storage or its logs sees the list
+  above.
+- **Published ciphertext is permanent and public.** Every old root stays pinned, and this project never unpins one.
+  Anyone with a root CID can download the ciphertext and the public `keyslots.json` and guess the passphrase offline,
+  with no deadline. If the passphrase leaks, or encryption turns out to be broken, everything you ever published opens,
+  and you cannot take it back. Assume you can never remove a published note from the network.
+- **No independent review of this tree has been recorded.** The encryption has had static reads by one model, not a
+  human or outside reviewer, and none of it has run inside Obsidian. The Release 2 evidence (the review record, the
+  operator run in Obsidian desktop against the shared node, the phone timing) is pending until the iteration-9
+  release steps. Until then a version number says nothing about safety; v0.3.0 is not released.
+- **Floor and rewrap limits.** The sequence floor does not stop a node from showing an old copy to a device that has
+  no recorded state (a first pull, a reinstalled plugin, a deleted per-user directory). It does not detect a freeze.
+  A passphrase change or a cost increase revokes nothing: the old passphrase and every old copy of the key slot, in
+  every earlier pinned root, keep opening the vault. Only re-encrypting under a new key would revoke, and nothing
+  here does that.
+- **Losing the passphrase loses the vault.** There is no recovery, no reset and no escrow. Save the generated
+  passphrase in a password manager before you publish.
+- **The plaintext is on every device that holds the vault.** Encryption protects what is on the node. Your notes sit in
+  clear in the vault folder on each computer and phone. `.ipfs-sync/` holds your paths in plaintext, and its `tmp/`
+  folder holds verified plaintext content while a pull runs and after a crash. Keep that folder out of iCloud,
+  Dropbox, Syncthing and backups.
+- **The plugin timer and High-cost vaults.** The auto-publish timer never opens a dialog. If the vault is locked it
+  skips the publish and shows one notice per session, so a timer alone does not back up a locked vault. It never asks
+  the cost question, so a vault whose key slot is above the default cost (the High preset, 128 MiB and 4 iterations)
+  stays locked to the timer and to the catch-up pull until you unlock by hand. The timer also writes history files:
+  at 15 minutes on a vault that changes every tick, the warning comes in about 15.6 days and the refusal in about
+  20.8 days unless you prune.
+- **Mobile limits.** On mobile the plugin reads through Obsidian's `requestUrl`, which buffers each whole response body
+  in memory and follows redirects. Desktop streams through Node's `http` and `https`; mobile always buffers. How a phone behaves with a real vault, and whether it can unlock a High-cost slot, is
+  unmeasured. The only phone measurements are of earlier builds (see "Not verified"). Android is untested.
+- **The mass-removal guard has limits.** It stops a publish that would remove every remaining entry or more than half of
+  at least two, and not the first publish of a vault. Removing 49 percent of the entries is silent. A half-mounted
+  folder that is missing less than half the entries is not caught. It guards a publish, not the node: the node keeps
+  every old root.
+- **Not a backup.** A published snapshot is only as safe as your passphrase, the node and your own checks. Keep a
+  separate backup of the vault.
+
 ### Create a vault: `ipfs-sync init`
 
-`ipfs-sync init <vault>` is the only command that creates a vault. It needs the vault to carry the `fixture` marker,
+`ipfs-sync init <vault>` is the only command that creates a vault. It needs
 an MFS root strictly below `/obsidian-vault-sync` that is completely empty on the node (any entry at all is refused),
 and no key-slot copy already on this device for that root. It generates the passphrase itself; a passphrase in the
 environment is ignored, and you cannot choose one.
@@ -453,7 +721,8 @@ refuse unless this device is up to date with the node and no publish or key-mana
   the current root and need no accept, on a device that already holds the current key-slot copy.
 - `keys discard <vault>` drops a key-management operation (a rewrap or a prune) that did not finish, when running the same
   command again cannot finish it. It asks first (or needs `--yes-discard`). It touches the node only to take this device's
-  own key-slot file back out of the shared tree when the rewrap never published. A rewrap that already published keeps the
+  own key-slot file back out of the shared tree, and only when the rewrap never published. For a prune it forgets the
+  record and takes nothing back: the history files already removed stay removed. A rewrap that already published keeps the
   new slots on the node: discarding forgets that here, and this device then needs `keys accept-slots` with the NEW
   passphrase. Do not discard if you did not save the new passphrase.
 
@@ -518,7 +787,10 @@ the delta check and by the idle check that skips unlocking, until the size or th
   Without it the tool refuses (use a new MFS root, or ask for recovery explicitly).
 - **`--break-lock`** removes `.ipfs-sync/publish.lock` after a confirmation, then continues. A lock is replaced
   automatically when the recorded process is gone from this host, or when it has had no heartbeat for 15 minutes on any
-  host. The lock is a best-effort guard, not an atomic lock across machines.
+  host. The lock is a best-effort guard, not an atomic lock across machines. The lock file's host name is free text
+  whoever wrote the file chose, so the record keeps at most 255 characters of it, and a dialog or a CLI line shows it cut
+  to 64 characters (marked when cut), escaped and inside double quotes, so it cannot end its own quotes and write the
+  words that follow. A lock file over 64 KiB is not read as a lock; it is rejected as unreadable.
 - **`--allow-full-reupload`** allows a non-interactive run to upload again more than 256 MiB of files the node no longer
   holds as recorded.
 - A second device takes turns, it does not publish at the same time (see "Pull" for onboarding and for what concurrent
@@ -526,10 +798,46 @@ the delta check and by the idle check that skips unlocking, until the size or th
   ("this device is not the publisher") and told to run `pull`.
 - If none of these apply, the way out is a new MFS root and a new vault (`init`). The refusal messages call this the
   "abandon action": run `ipfs-sync abandon <vault>` (add `--mfs-root` to name the root), or use the plugin command
-  "Abandon this vault" (also a button in the Encryption section of the settings tab). It moves this device's key-slot
-  copy, sync state, journal and any key-management journal for that root into `.ipfs-sync/abandoned-<h>-<ms>/`. It never
-  contacts the node and deletes nothing. It records no latch (there is none any more) and prints the sequence floor it
-  keeps. On a terminal you must type `abandon`; without one it does nothing unless you pass `--yes-abandon`.
+  "Abandon this vault" (also a button in the Encryption section of the settings tab). It previews and moves four local
+  files for that root into `.ipfs-sync/abandoned-<h>-<ms>/`: the key-slot copy, the sync state, the publish journal and
+  the key-management (maintenance) journal. It never contacts the node and deletes nothing. It records no latch (there is
+  none any more) and prints the sequence floor it keeps. The uncomfortable part: the key-management journal is the one
+  record the tool needs to clean up after a rewrap or prune, and abandon can drop it. A pending rewrap or prune is then
+  dropped from this device, and its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared
+  tree, and other devices that then publish to that root will see changed key slots. Earlier docs said `keys discard`
+  withdraws that write. That was wrong. `ipfs-sync keys discard` withdraws a key-slot file only for a rewrap that has not
+  yet published. For a prune, or a rewrap that has published, it forgets the record and takes nothing back: removed
+  history files stay removed, and a published key-slot file stays. Run it before you abandon when you want an unpublished
+  rewrap withdrawn, because abandon drops the record that would let it. The plugin has no discard action, so that step is
+  on the command line. Abandon stays allowed, because it is the way out when the node has lost the key slots; the dialog
+  and the CLI preview say all of this before they ask. On a terminal you must type `abandon`; without one it does nothing
+  unless you pass `--yes-abandon`. With no terminal and no flag it exits 2 even when there is nothing to move.
+  A failing or unusable device store does not block the move: the floor line then says the floor could not be read, and all
+  four files still move. When the vault id is no longer on the device the floor line says "not looked up (the vault id is
+  no longer on this device)". If a rename fails after the first file has moved, the result is a partial move: counts only,
+  "N of M files were moved. Run abandon again to move the rest into a new backup folder." The plugin locks the session and
+  refreshes the status; the CLI exits 1 and prints no operating-system text. Running abandon again moves the rest into a
+  new `abandoned-<h>-<ms>` folder, so the first files stay in the first folder: look in both. Both the CLI and the plugin
+  take the on-disk `publish.lock` while files move. A live lock held by another process gives the busy notice and moves
+  nothing. A lock file that is unreadable (junk, over 64 KiB, a directory at `publish.lock`, a file with no read
+  permission) or unsupported (the file system refuses hard links) does not block abandon by itself. After such a result
+  abandon reads the lock once more. A record that decodes and is not stale is a live holder, including one on a volume
+  without hard links, where the plugin's rename-based lock can be live: that gives the busy notice and nothing moves.
+  Only a lock that is still unreadable, absent or stale lets abandon run without the lock, and it says so in one fixed
+  line ("the publish lock could not be used, so abandon ran without it; make sure no publish is running"). The CLI
+  prints that line before the move, so it also appears before a partial move. The plugin adds it to the success note and
+  to a partial-move result. With the lock skipped nothing stops a publish that is running from touching the same
+  files, so check that none is. A lock that cannot be released afterwards does not change the abandon result. If the
+  move finds no files (they were gone by the time the lock was held), the CLI prints the same message as when it finds
+  none at the start (it ends "nothing was moved") and exits 1 instead of reporting a success with zero files. If the
+  plugin cannot lock or re-read its session after the move, the result keeps the move outcome and adds "The vault
+  status could not be re-read; reload the plugin." `ipfs-sync --help` says abandon needs neither the RPC URL nor the gateway URL. In the
+  plugin, pressing Escape while the abandon (or
+Clear stale publish lock) is running does not stop it; the real result is reported when it ends, not a cancel. If the
+dialog was closed and the action then failed, a notice says so. For Abandon the notice adds "Check the settings before
+trying again", because the device may be in a partial state. A failure is one of three fixed lines (the MFS root is not
+valid; this device's files could not all be moved; an unexpected error, "an unexpected error occurred; see the developer
+console for details"), never the error's own message.
 
 ### History growth
 
@@ -581,28 +889,27 @@ key-slot copy for a root that already holds a manifest is refused by `publish` (
 becomes a conflict copy. Restoring an older copy of the folder is handled by pulling; `--repair` refuses the "ahead"
 case there (see above).
 
-### The fixture marker
+### The retired fixture marker (history, and what stays)
 
-The guard is still in this tree. The plan removes it in one commit on a separate branch (`mvp-07b-guard-removal`),
-cut from `main` once the other code is done, and `main` keeps the guard until the release commit is merged by
-fast-forward. That branch does not exist yet. Until it is merged, `publish` and `init` require `.ipfs-sync-fixture` to hold exactly the text `fixture`
-(a trailing line feed is allowed), and they check it before they look at the passphrase or send any request. A directory
-that `pull` populated carries `pulled-fixture`, so it cannot be published from until you write `fixture` by hand (the
-second-device path in "Pull"). Values:
+Earlier trees, and `main` until the release merge, limited `publish` and `init` to a vault whose `.ipfs-sync-fixture`
+file held the text `fixture`. That was an accident guard, not a control: anyone who could create the file could
+override it. Release 0.2.0 wrote the text `fixture copy created by ipfs-sync pull` into a pulled copy, and the trees
+after it wrote `pulled-fixture`.
 
-| Marker content | Written by | `publish` and `init` | `pull` |
-|---|---|---|---|
-| `fixture` | you, or `pnpm fixture:generate` | accepted | accepted |
-| `pulled-fixture` | `pull`, when it populated an empty destination | refused | accepted |
-| empty, or anything else | earlier releases, or by hand | refused | refused |
+The removal commit on branch `mvp-07b-guard-removal` (`38db5f8`) replaced the contents of `src/sync/publish-guard.ts`
+and `src/sync/pull-guard.ts` with permissive versions that keep every export name and signature. On this branch:
 
-A destination that release 0.2.0 populated by pull carries a marker that reads `fixture copy created by ipfs-sync pull`
-(other early builds left it empty or wrote `marker`). This tree's `pull` refuses all three of those contents with a
-message that says the marker predates this version and must be re-marked deliberately. `publish` uses that wording only
-for the `fixture copy created by ipfs-sync pull` text; for an empty marker or `marker` it gives its generic refusal.
-To use that directory again you must re-mark it deliberately: write `fixture` into `.ipfs-sync-fixture` yourself
-(`fixture` for publish; `fixture` or `pulled-fixture` for pull). That is a statement by you that the directory holds no real notes. Nothing
-verifies it. Anyone who can create the file can override the guard, and the guard is an accident guard, not a control.
+- `publish`, `init`, the `keys` commands, `prune-history` and the plugin's Publish do not require the marker.
+- `pull` and the plugin's Pull accept any directory (or an absent one), apply the usual conflict policy, and write no
+  marker.
+- The marker parsing code stays exported for its callers; nothing that gates an operation reads the result.
+- A marker file left in a vault (by release 0.2.0, an earlier tree or `pnpm fixture:generate`) is ignored, and it is
+  still on the default exclusion list, so it is never published.
+- Still refused, and not part of the old guard: a symbolic-link state folder (checked by the pull engine's first
+  step), a destination that exists and is not a directory, a mass removal, a missing passphrase, a path the path policy
+  rejects, a held lock, a sequence below the recorded floor, and a plaintext root.
+- `pnpm fixture:generate <dir>` still writes a synthetic test vault, for the tests and for trying the tool without your
+  notes. Use it for a dry run before the first real publish.
 
 ### Limits that stay
 
@@ -633,14 +940,19 @@ terminal can still produce all three. A terminal and a nonce stop pipes and acci
 drives a pseudo-terminal. The review record is authenticated by git history; the release tool then needs the operator to
 type `I accept an unsigned review record for <tree hash prefix>`, and the notes say "unsigned". A change to any scoped file after the review record or after the operator run changes the tree hash, and both must be redone. A one-line fix therefore repeats the review record and
 the operator run, and a phone measurement is bound to the exact plugin build. The checker, the phone-timing recorder and
-the release tool exist and are covered by tests; the operator-run script does not exist yet, so no release can pass today.
-The order and commands are in the operator runbook.
+the release tool and the operator-run script exist and are covered by tests. The review record does not exist, no manual
+operator run has been recorded and no phone timing has been recorded, so no release can pass today. The order and
+commands are in the operator runbook. The checker and the release tool bind to the tree of branch
+`mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`.
 
 ### Not verified
 
 Nothing in this list has been checked, and none of it should be assumed to work: any part of the plugin's encryption
 flow inside Obsidian, including Pull, Restore, Resolve fork, the key-management, mass-removal and cost dialogs, the
-measure command and desktop Range streaming (the `globalThis.require` lookup); the `keys` commands and `prune-history`
+measure command and the desktop Node transport beyond the redirect probe (the probe ran on one macOS desktop only,
+Obsidian 1.14.4, with the tenth-round build, `main.js` sha256 prefix `5b906b2f`: a 308 was not followed and the target was
+never reached; abort handling, TLS failures and the malformed-response paths have run in unit tests only; see
+"Plugin limitations"); the `keys` commands and `prune-history`
 against the shared node or a real kubo; a High-cost key slot on a phone; the encrypted pull against the shared node
 and with a real second device; an encrypted publish or pull on a phone; Android; HKDF, HMAC and AES-GCM under Obsidian's
 WebView; `requestUrl` with large binary bodies and Range requests, and large-file pull in the plugin; zeroization beyond
@@ -656,8 +968,8 @@ Argon2id at 64 MiB, t = 3, p = 1 took 980, 1143 and 1133 ms with a longest event
 build (`0.2.1-probe.1`); the Mac baseline for the same function was 990 to 1177 ms. The first pull crashed the app once
 (unexplained); the relaunch loop after it was an iOS file-provider hang cleared by restarting the phone. These are
 measurements of those builds. They say nothing about the encrypted pull, which has not run on a phone, and Android is
-untested. A phone test installs through BRAT from a GitHub pre-release with its own tag, and until the guard is removed
-that is a fixture-only build.
+untested. A phone test installs through BRAT from a GitHub pre-release with its own tag. Phone behaviour with a real
+vault (memory with `requestUrl` buffering, unlock time of a High-cost slot, background and suspend) is unmeasured.
 
 What has run on the shared node: `tools/feature-op-mvp-06.mjs` ran twice on 2026-09-30 (task 6.2 and the delivery-cadence feature checkpoint; both exit 0, 121 of 121 checks;
 encrypted layout; publish #2 "1 written, 0 removed" at sequence 2; three kill points resumed; refusals sent no mutating
@@ -685,16 +997,21 @@ token is not re-checked immediately before each node write) is open. Details: `D
    always sends it.
 4. **CORS blocks the Obsidian WebView.** The node answers requests with the origin
    `app://obsidian.md` with 403 and sends no CORS headers, so the WebView's `fetch` cannot
-   reach it. The plugin sends every node request through Obsidian's `requestUrl`, which is
-   not subject to CORS. The CLI uses plain `fetch` and is unaffected.
+   reach it. The plugin sends node requests through Node's `http` and `https` on desktop and through
+   Obsidian's `requestUrl` on mobile; neither is subject to CORS. The CLI uses plain `fetch` and is unaffected. If a
+   browser `fetch` is blocked anyway, the error ends: "this request used the browser fetch, which is subject to CORS; the node must allow the
+   app origin" (`src/kubo/errors.ts`). The hint appears only for a "Failed to fetch" `TypeError`, which only the WebView `fetch` raises.
 
-## ⚠ Security: your RPC endpoint is wide open
+## ⚠ Security: an open RPC endpoint is wide open
 
-`https://ipfs.prometheusags.ai/api/v0/` currently accepts **unauthenticated
-writes from the entire internet**: anyone can `add`/`pin` garbage, create IPNS
-keys, or republish *your vault pointer* if they learn its key name. Your node also
+The maintainer's own test node (the host that releases up to 0.2.0 built in as the default) accepted
+**unauthenticated writes from the entire internet** when this was last checked, and this change does not close it.
+That is why it is no longer a default: a default would have sent every fresh install's encrypted blobs and their
+metadata to a node anyone can write to. It remains the operator's verification target only. If you configure a node
+that is open the same way, the same applies to it: anyone can `add`/`pin` garbage, create IPNS
+keys, or republish *your vault pointer* if they learn its key name. The maintainer's node also
 hosts other projects' keys (`consult-capture`, `gomark-relay-lab`, `prince-live`).
-Before this becomes your real sync backbone:
+Before any node becomes your real sync backbone:
 
 - Put auth in front of the RPC (nginx/basic-auth or a bearer token at the proxy),
   and set the same token in the plugin's settings and pass it to the CLI with

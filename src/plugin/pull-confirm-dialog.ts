@@ -50,7 +50,8 @@ export class PullConfirmDialog extends Modal {
     this.needEl = liveRegion(contentEl, this.id(SUFFIX.need));
     this.renderButtons(contentEl);
     this.apply(this.model.state());
-    (this.acknowledge ?? this.cancelButton)?.focus();
+    // Cancel is the default, so an accidental Enter or Space says no; the acknowledgement is one Tab away.
+    this.cancelButton?.focus();
   }
 
   onClose(): void {

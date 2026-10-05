@@ -4,6 +4,7 @@ import { KuboHttpError, type KuboClient, type MfsEntry } from "../kubo";
 import { sweepStaleParts } from "./blob-fetch";
 import type { DeviceStore } from "./device-store";
 import { ManifestFormatError, decodeManifestFile, type EncryptedManifest } from "./encrypted-manifest";
+import { planEncryptedPull } from "./encrypted-pull-plan";
 import { parseHistoryName } from "./history-names";
 import { assertNoMaintenanceJournal } from "./maintenance-journal";
 import { isUnreadableManifest } from "./manifest-auth";
@@ -91,6 +92,10 @@ export interface FirstPullDetails {
   readonly pathsRefused: number;
   /** At most three of them, escaped, and a count; `undefined` when none. */
   readonly pathsSummary: string | undefined;
+  /** Existing local files that differ from the node's copy: the node's text takes the path and a dated copy of the local text is kept. */
+  readonly replacedLocalFiles: number;
+  /** The directory the pull writes into, as the host named it (`EncryptedPullOptions.destination`), escaped; absent when the host gave none. */
+  readonly destination?: string;
   /** The fixed statements the host must show next to these values. */
   readonly statements: readonly string[];
 }
@@ -98,6 +103,11 @@ export interface FirstPullDetails {
 export const FIRST_PULL_KEY_HOLDER_STATEMENT = "The sequence, date and device shown here were chosen by whoever holds the vault key; nothing in this pull can confirm them.";
 export const FIRST_PULL_NO_BASELINE_STATEMENT =
   "This directory has no record of this vault, so this first pull has no baseline and trusts what the node serves; later pulls are checked against the sequence recorded now.";
+/** Shown instead of the no-baseline statement when the device has recorded the vault (a floor) but this directory holds no state for it. */
+export const NO_STATE_PULL_STATEMENT =
+  "This directory has no state for this vault, so nothing here is a baseline: every file that differs from the node's copy is replaced by the node's text, and a dated copy of the local text is kept.";
+const NO_STATE_NOT_CONFIRMED_MESSAGE =
+  "this directory has no state for this vault and holds files that differ from the node's copy, and this run cannot ask: confirm at the prompt, or pass --accept-replace; nothing was written";
 export const FIRST_PULL_GATEWAY_STATEMENT =
   "An explicit root CID names what the gateway serves; the client does not verify the returned bytes against it, so authenticity rests on the vault key.";
 
@@ -134,10 +144,18 @@ export interface EncryptedPullOptions {
   readonly unlocked?: UnlockedVault;
   /** `--accept-first-pull`: the non-interactive yes. */
   readonly acceptFirstPull?: boolean;
+  /**
+   * `--accept-replace`: the non-interactive yes to the question of a pull that is not a first pull but runs into a directory with no state for the vault
+   * (the device holds a floor), where files that differ from the node's copy are replaced. `acceptFirstPull` does not answer that question: it was given
+   * for a different one (review round 4, A-L2).
+   */
+  readonly acceptReplace?: boolean;
   /** The host's configuration folder (`vault.configDir`), for the path policy. */
   readonly configDir?: string;
   /** This device's additions to the default exclusion list, for the path policy. */
   readonly extraExclusions?: readonly string[];
+  /** The directory being pulled into, for display in the confirmation (the CLI's vault path). Never read for anything else. */
+  readonly destination?: string;
 }
 
 /** The resolved target, as the state records it. */
@@ -418,9 +436,21 @@ function floorPointFor(verdict: AllowedVerdict, record: EffectiveRecord | undefi
 
 // ---- first pull ----------------------------------------------------------------------------------------------------
 
-function firstPullDetails(kind: PullTargetKind, manifest: EncryptedManifest, policy: PathPolicyResult): FirstPullDetails {
-  const statements = [FIRST_PULL_KEY_HOLDER_STATEMENT, FIRST_PULL_NO_BASELINE_STATEMENT, ...(kind === "name" ? [] : [FIRST_PULL_GATEWAY_STATEMENT])];
+function firstPullDetails(
+  kind: PullTargetKind,
+  manifest: EncryptedManifest,
+  policy: PathPolicyResult,
+  replacedLocalFiles: number,
+  destination: string | undefined,
+  stateless: boolean,
+): FirstPullDetails {
+  const statements = [
+    FIRST_PULL_KEY_HOLDER_STATEMENT,
+    stateless ? NO_STATE_PULL_STATEMENT : FIRST_PULL_NO_BASELINE_STATEMENT,
+    ...(kind === "name" ? [] : [FIRST_PULL_GATEWAY_STATEMENT]),
+  ];
   return {
+    ...(destination === undefined ? {} : { destination: shown(destination) }),
     target: kind,
     sequence: manifest.sequence,
     publishedAt: manifest.publishedAt,
@@ -428,18 +458,53 @@ function firstPullDetails(kind: PullTargetKind, manifest: EncryptedManifest, pol
     fileCount: Object.keys(manifest.files).length,
     pathsRefused: policy.refusals.length,
     pathsSummary: policy.refusals.length === 0 ? undefined : summarizeRefusals(policy.refusals),
+    replacedLocalFiles,
     statements,
   };
 }
 
-async function confirmFirstPull<R>(deps: EncryptedPullDeps<R>, options: EncryptedPullOptions, details: FirstPullDetails): Promise<void> {
-  if (options.acceptFirstPull === true) return;
+/**
+ * How many existing local files this first pull will replace. A first pull has no baseline, so the plan the stage will make is
+ * the same plan made here: every local file that differs from the node's copy at a manifest path is a conflict (the local text
+ * is kept in a dated copy and the node's text takes the path). Read-only: it stats and hashes, and writes nothing.
+ */
+async function countReplacedLocalFiles<R>(deps: EncryptedPullDeps<R>, options: EncryptedPullOptions, manifest: EncryptedManifest): Promise<number> {
+  const plan = await planEncryptedPull({
+    fs: deps.host.fs,
+    manifest,
+    base: undefined,
+    unmaterialized: [],
+    forceVerify: false,
+    policy: { configDir: options.configDir, extraExclusions: options.extraExclusions },
+  });
+  return plan.paths.filter((decision) => decision.kind === "conflict").length;
+}
+
+/**
+ * The confirmation before a pull that has no baseline in this directory. `stateless` is a pull that is not a first pull (the device holds a
+ * floor) into a directory with no state for the vault (review round 3, S-M1): every differing file becomes a conflict there too, so it asks
+ * when at least one local file would be replaced, and not for an empty or identical directory.
+ */
+async function confirmFirstPull<R>(
+  deps: EncryptedPullDeps<R>,
+  options: EncryptedPullOptions,
+  manifest: EncryptedManifest,
+  policy: PathPolicyResult,
+  stateless: boolean,
+): Promise<void> {
+  // Each question is answered by its own flag: the first-pull yes does not cover the replace question, and the reverse.
+  if ((stateless ? options.acceptReplace : options.acceptFirstPull) === true) return;
+  const replaced = stateless ? await countReplacedLocalFiles(deps, options, manifest) : undefined;
+  if (replaced === 0) return;
   if (deps.confirmFirstPull === undefined) {
     throw new PullStopError(
       "first-pull-not-confirmed",
-      "this directory has no record of this vault and this run cannot ask: confirm the first pull at the prompt, or pass --accept-first-pull; nothing was written",
+      stateless
+        ? NO_STATE_NOT_CONFIRMED_MESSAGE
+        : "this directory has no record of this vault and this run cannot ask: confirm the first pull at the prompt, or pass --accept-first-pull; nothing was written",
     );
   }
+  const details = firstPullDetails(options.target.kind, manifest, policy, replaced ?? (await countReplacedLocalFiles(deps, options, manifest)), options.destination, stateless);
   let accepted = false;
   try {
     accepted = (await deps.confirmFirstPull(details)) === true;
@@ -513,7 +578,7 @@ async function authorize<R>(run: RunContext<R>, found: Authenticated): Promise<V
   const { deps, options } = run;
   const { manifest, unlock, verdict, record, identity } = found;
   const isFirst = verdict.kind === "first-pull";
-  if (isFirst) await confirmFirstPull(deps, options, firstPullDetails(options.target.kind, manifest, found.policy));
+  if (isFirst || run.state === undefined) await confirmFirstPull(deps, options, manifest, found.policy, !isFirst);
   run.lock.assertHeld();
   // The dialog above can stay open for minutes and no heartbeat ran in between: look at the file itself before the first write.
   if (!(await run.verifyHeld())) throw new PullStopError("lock-lost", shown(lockLost().message));

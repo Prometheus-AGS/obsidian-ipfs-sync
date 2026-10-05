@@ -8,7 +8,7 @@ import { runCli, type CliDeps } from "../../cli/run";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { canonicalizePassphraseText } from "../../src/crypto";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
-import { stateEnv } from "../helpers/cli-state-env";
+import { NODE_ENV, stateEnv } from "../helpers/cli-state-env";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { createFakeTerminal, type FakeTerminal } from "../helpers/fake-terminal";
 import { OTHER_PASSPHRASE } from "../vectors/slot-helpers";
@@ -68,10 +68,10 @@ describe("ipfs-sync init", () => {
   });
 
   const deps = (overrides: Partial<CliDeps> = {}): CliDeps => ({
-    env: {},
     now: () => new Date("2026-09-30T12:00:00Z"),
     readText: readTextIfPresent,
     ...overrides,
+    env: { ...NODE_ENV, ...overrides.env },
   });
   const init = async (extra: string[] = [], overrides: Partial<CliDeps> = {}) => {
     const s = sink();
@@ -260,11 +260,12 @@ describe("ipfs-sync init", () => {
       expect(mutating()).toEqual([]);
     });
 
-    it("refuses a vault that is not a fixture vault before any request", async () => {
+    it("creates the vault when it has no marker (the fixture-only guard is removed)", { timeout: SLOW }, async () => {
       await rm(join(vault, ".ipfs-sync-fixture"));
+      await prepareSecretDir();
       const result = await init(["--passphrase-file", passphraseFile()]);
-      expect(result.code).toBe(2);
-      expect(fetchStub).not.toHaveBeenCalled();
+      expect(result.code).toBe(0);
+      expect(keySlotsOnNode()).toBe(true);
     });
   });
 

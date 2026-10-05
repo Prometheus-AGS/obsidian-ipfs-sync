@@ -14,11 +14,14 @@ import type { NodeKey, PublishedName, ResolveOptions } from "./types";
 /** How long resolvers may cache a published record (kubo duration syntax). */
 export const DEFAULT_IPNS_TTL = "5m";
 
-const CID_SHAPE = /^[A-Za-z0-9]{10,}$/;
+/** 128 is the bound the local record applies when it reads a CID back; a longer value is refused where it enters. */
+const CID_SHAPE = /^[A-Za-z0-9]{10,128}$/;
+const CID_ECHO_MAX = 64;
 
 function assertCid(endpoint: ResolvedEndpoint, cid: string): string {
   if (CID_SHAPE.test(cid)) return cid;
-  throw new KuboError(endpoint.name, endpoint.baseUrl, `"${cid.replace(/[^A-Za-z0-9]/g, "?").slice(0, 64)}" is not a valid CID`);
+  if (cid.length > CID_ECHO_MAX) throw new KuboError(endpoint.name, endpoint.baseUrl, "the value is not a valid CID (it is longer than a CID can be)");
+  throw new KuboError(endpoint.name, endpoint.baseUrl, `"${cid.replace(/[^A-Za-z0-9]/g, "?")}" is not a valid CID`);
 }
 
 /** `key/gen`: create an ed25519 key. The name must match the project pattern and not be reserved. */
@@ -64,7 +67,7 @@ export async function resolveName(endpoint: ResolvedEndpoint, name: string, tran
 export const NAME_RESOLVE_DHT_TIMEOUT = "10s";
 
 /**
- * The error texts of `name/resolve`, taken from the operator's node (https://ipfs.prometheusags.ai) and from nowhere
+ * The error texts of `name/resolve`, taken from the maintainer's own kubo node and from nowhere
  * else; no entry is written from memory. Each entry is the node's own JSON `Message` of an HTTP 500 answer.
  *
  * - `notFound`: recorded 2026-10-01T12:25:16Z for a syntactically valid IPNS key id that was never published, request

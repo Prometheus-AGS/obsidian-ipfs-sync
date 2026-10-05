@@ -5,7 +5,8 @@ const DETAIL_LIMIT = 200;
 
 /**
  * How a request reaches the network. The CLI uses the platform `fetch`. The Obsidian plugin uses an adapter over
- * Obsidian's `requestUrl` (src/plugin/request-url-transport.ts), because the WebView's `fetch` is CORS-blocked by the node.
+ * Node's `http`/`https` on desktop (src/plugin/node-transport.ts) and Obsidian's `requestUrl` where Node is unavailable
+ * (mobile, src/plugin/request-url-transport.ts), because the WebView's `fetch` is CORS-blocked by the node.
  * `transportName` appears in network error messages.
  */
 export interface Transport {
@@ -85,14 +86,34 @@ async function readDetail(response: Response): Promise<ErrorDetail> {
 
 /** Map an HTTP status to a typed error, or return nothing for a success. */
 export function statusError(endpoint: ResolvedEndpoint, url: string, status: number, detail: string, nodeMessage?: string): Error | undefined {
-  if (status === 401 || status === 403) return new KuboAuthError(endpoint.name, endpoint.baseUrl, status);
+  if (status === 401 || status === 403) {
+    return new KuboAuthError(endpoint.name, endpoint.baseUrl, status, endpoint.credentialWithheld === true ? "other-origin" : undefined);
+  }
   if (status < 200 || status >= 300) return new KuboHttpError(endpoint.name, url, status, detail, nodeMessage);
   return undefined;
+}
+
+/** The fixed text of a refused redirect. It never carries the `Location` the node named: that is the node's text, not ours. */
+export const REDIRECT_REFUSED_MESSAGE =
+  "the endpoint answered with a redirect, which is never followed; check the URL's scheme (http or https) and path, and use the address the node serves directly";
+
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
+
+/** A browser `fetch` with `redirect: "manual"` reports a redirect as an opaque response of status 0. */
+function isRedirect(response: Response): boolean {
+  return REDIRECT_STATUSES.has(response.status) || response.type === "opaqueredirect";
 }
 
 /**
  * Issue one request against an endpoint through `transport` (default: the platform `fetch`, which
  * the WebView and Node 24 both provide). Failures become typed errors.
+ *
+ * A redirect is never followed on desktop and on the CLI: the request, its method and its credential go only to the
+ * configured endpoint. `fetch` and the desktop Node transport hand the 3xx answer back, which is refused here. Mobile uses
+ * Obsidian's `requestUrl`, which has no `redirect: "manual"` option and follows redirects itself, so this check never sees
+ * the 3xx there and mobile cannot refuse a redirect (iOS probed: follows cross-origin, strips Authorization, forwards a
+ * custom header). A real desktop probe (Obsidian 1.8.4) saw `requestUrl` replay a POST after a 307, which is why desktop
+ * does not use it.
  */
 export async function requestEndpoint(
   endpoint: ResolvedEndpoint,
@@ -102,9 +123,13 @@ export async function requestEndpoint(
 ): Promise<Response> {
   let response: Response;
   try {
-    response = await transport(url, init);
+    response = await transport(url, { ...init, redirect: "manual" });
   } catch (cause) {
     throw new KuboNetworkError(endpoint.name, endpoint.baseUrl, cause, transport.transportName);
+  }
+  if (isRedirect(response)) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new KuboNetworkError(endpoint.name, endpoint.baseUrl, new Error(REDIRECT_REFUSED_MESSAGE), transport.transportName);
   }
   const read: ErrorDetail = response.ok ? { detail: "", nodeMessage: undefined } : await readDetail(response);
   const failure = statusError(endpoint, url, response.status, read.detail, read.nodeMessage);

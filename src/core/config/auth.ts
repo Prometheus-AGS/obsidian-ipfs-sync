@@ -1,3 +1,4 @@
+import { isConnectionFramingHeader, isCredentialForbiddenHeader } from "./connection-headers";
 import { ConfigError } from "./errors";
 import type { AuthConfig, RawAuthInput } from "./types";
 
@@ -40,7 +41,13 @@ function buildHeader(label: string, raw: RawAuthInput): AuthConfig {
   const name = need(label, "header", "a header name", raw.headerName);
   const value = need(label, "header", "a header value", raw.headerValue);
   if (!HEADER_NAME.test(name)) {
-    throw new ConfigError("invalid-auth", `${label}: "${name}" is not a valid HTTP header name`);
+    throw new ConfigError("invalid-auth", `${label}: the header name is not a valid HTTP header name`);
+  }
+  if (isConnectionFramingHeader(name)) {
+    throw new ConfigError("invalid-auth", `${label}: that header name is controlled by the HTTP connection and cannot carry a credential`);
+  }
+  if (isCredentialForbiddenHeader(name)) {
+    throw new ConfigError("invalid-auth", `${label}: that header name is set by the request itself and cannot carry a credential`);
   }
   return { kind: "header", name, value };
 }

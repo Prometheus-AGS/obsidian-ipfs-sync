@@ -88,9 +88,9 @@ describe("a fresh directory pulls a vault published by another device", () => {
     expect(Object.keys(state?.mtimes ?? {}).sort()).toEqual([BINARY, DAILY, PLAN].sort());
     expect(state?.manifest.files).toEqual(verified.manifest.files);
 
-    // The directory was empty: the marker says pulled. Replacing it by hand (the documented step) lets the second device publish.
-    expect(new TextDecoder().decode(b.host.files.get(".ipfs-sync-fixture")?.data)).toBe("pulled-fixture\n");
-    expect(result.markerWritten).toBe(true);
+    // The guard is removed: the pull writes no marker, and the second device publishes without a hand step.
+    expect(b.host.files.get(".ipfs-sync-fixture")).toBeUndefined();
+    expect(result.markerWritten).toBe(false);
     resetNodeTrace(rig.node);
     const published = await publishAsSecondDevice(rig, b);
     expect(published.published).toBe(false);

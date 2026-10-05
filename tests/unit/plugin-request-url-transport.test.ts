@@ -3,7 +3,7 @@ import type { ResolvedEndpoint } from "../../src/core/config";
 import { KuboAuthError, KuboHttpError, KuboNetworkError, createKuboClient, rpcCall, type KuboClient } from "../../src/kubo";
 import { createSyncEventBus } from "../../src/core/events";
 import { createPublishRunner } from "../../src/plugin/publish-runner";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore } from "../../src/plugin/settings-store";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { createFakeNode } from "../helpers/fake-kubo";
@@ -84,7 +84,7 @@ describe("requestUrl transport", () => {
     expect(failure).toBeInstanceOf(KuboNetworkError);
     const message = (failure as KuboNetworkError).message;
     expect(message).toContain("(via requestUrl)");
-    expect(message).toContain("the browser blocked the request (CORS); the plugin uses requestUrl to avoid this");
+    expect(message).toContain("this request used the browser fetch, which is subject to CORS; the node must allow the app origin");
     expect(message).not.toContain("tok-secret");
 
     setRequestUrlHandler(() => {
@@ -145,7 +145,7 @@ describe("plugin default transport", () => {
       adapter.put("notes/a.md", "a");
       const store = createSettingsStore(
         { loadData: async () => null, saveData: async () => undefined },
-        { settings: { ...defaultSettings(), mfsRoot: "/obsidian-vault-sync/mvp04-test" }, outcome: "fresh", notices: [], persist: false },
+        { settings: { ...testNodeSettings(), mfsRoot: "/obsidian-vault-sync/mvp04-test" }, outcome: "fresh", notices: [], persist: false },
       );
       // The vault exists on this device (its local key-slot copy), so unlock is local and the node is asked only afterwards.
       await initVault(createObsidianHostBridge({ adapter }).fs, createFakeNode(), "/obsidian-vault-sync/mvp04-test");

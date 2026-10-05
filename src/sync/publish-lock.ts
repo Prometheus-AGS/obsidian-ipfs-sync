@@ -1,4 +1,5 @@
-import { lockHeld, lockLost, lockUnreadable } from "./publish-refusals";
+import { escapeForDisplay } from "./path-policy";
+import { PublishRefusedError, lockHeld, lockLost, lockUnreadable } from "./publish-refusals";
 
 /**
  * Cross-process publish lock: one lock file in the vault's `.ipfs-sync/` folder, created exclusively, holding a
@@ -35,9 +36,10 @@ export interface LockFile {
    * The check runs immediately before the replacement, so the read-then-replace window is a few system calls, not a whole
    * heartbeat. Where the file system offers no atomic compare-and-replace (POSIX rename does not) the window is narrowed,
    * not closed; the token re-read after the write still detects a lost race. Optional: a host without it falls back to
-   * read, then `write`.
+   * read, then `write`. `isStopped` turns true once the holder has released: a file that honors it skips the replacement
+   * (and removes its temporary file) instead of writing a lock the holder no longer owns, and returns false.
    */
-  writeIfToken?(expectedToken: string, bytes: Uint8Array<ArrayBuffer>): Promise<boolean>;
+  writeIfToken?(expectedToken: string, bytes: Uint8Array<ArrayBuffer>, isStopped?: () => boolean): Promise<boolean>;
   remove(): Promise<void>;
   /**
    * Move the lock file to a unique name that only the caller knows and return its bytes, or undefined when there was
@@ -69,24 +71,46 @@ export function encodeLock(record: LockRecord): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`${JSON.stringify({ host: record.host, pid: record.pid, time: record.time, token: record.token })}\n`);
 }
 
-/** The record in a lock file, or undefined when the bytes are not a lock record. */
+/** The most a lock file may hold: a real record is a few hundred bytes. A larger file is not read as a lock record. */
+export const LOCK_MAX_BYTES = 65_536;
+/** The most of a host the record keeps (a DNS name is at most 255 characters); the rest is dropped, and the token still reads. */
+export const LOCK_HOST_MAX = 255;
+
+/** The record in a lock file, or undefined when the bytes are not a lock record (including a file over the size cap). */
 export function decodeLock(bytes: Uint8Array): LockRecord | undefined {
+  if (bytes.length > LOCK_MAX_BYTES) return undefined;
   try {
     const raw: unknown = JSON.parse(new TextDecoder().decode(bytes));
     if (typeof raw !== "object" || raw === null) return undefined;
     const { token, pid, host, time } = raw as Record<string, unknown>;
     if (typeof token !== "string" || token === "" || typeof host !== "string" || host === "") return undefined;
     if (typeof pid !== "number" || !Number.isInteger(pid) || pid < 0 || typeof time !== "number" || !Number.isFinite(time)) return undefined;
-    return { token, pid, host, time };
+    return { token, pid, host: host.slice(0, LOCK_HOST_MAX), time };
   } catch {
     return undefined;
   }
 }
 
-/** Fixed-format facts for a message: process id, host name and age. The token is never shown. */
+/** The longest host name `describeLock` shows, in characters (code points). The host is free text any writer of the lock file chose. */
+export const LOCK_HOST_DISPLAY_MAX = 64;
+
+/**
+ * The host cut to `LOCK_HOST_DISPLAY_MAX` characters (marked when cut), then its backslashes and double quotes escaped, then the rest escaped with
+ * the shared display table, and the whole in double quotes: the host cannot end its own quotes, so it cannot write the words that follow it. The
+ * cut happens on a bounded prefix first (a character is at most two UTF-16 units), so a huge host is never split into characters whole.
+ */
+function displayHost(host: string): string {
+  const prefix = host.slice(0, LOCK_HOST_DISPLAY_MAX * 2);
+  const characters = Array.from(prefix);
+  const cut = characters.length > LOCK_HOST_DISPLAY_MAX || prefix.length < host.length;
+  const kept = characters.slice(0, LOCK_HOST_DISPLAY_MAX).join("");
+  return `"${escapeForDisplay(kept.replace(/[\\"]/g, "\\$&"))}${cut ? "..." : ""}"`;
+}
+
+/** Fixed-format facts for a message: process id, host name (cut and escaped) and age. The token is never shown. */
 export function describeLock(record: LockRecord, now: number): string {
   const seconds = Math.max(0, Math.round((now - record.time) / 1000));
-  return `process ${record.pid} on ${record.host}, last heartbeat ${seconds} s ago`;
+  return `process ${record.pid} on ${displayHost(record.host)}, last heartbeat ${seconds} s ago`;
 }
 
 export function isStaleLock(record: LockRecord, ctx: Pick<LockContext, "now" | "host" | "isProcessAlive">): boolean {
@@ -117,7 +141,12 @@ async function takeOver(file: LockFile, stale: LockRecord, mine: Uint8Array<Arra
   if (decodeLock(moved.bytes)?.token !== stale.token) {
     // We moved a lock that is not the stale one (its holder just replaced it): put it back. If a third party created a lock
     // in the gap, the moved file is the only copy of a live holder's lock: keep it aside (no discard) and refuse loudly.
-    if (!(await file.createExclusive(moved.bytes))) throw lockHeld("a live lock was moved aside during a takeover and could not be put back; try again");
+    // A file system that cannot create it again (no hard links) leaves the live lock where it is moved to: the same loud refusal, never a pass-through.
+    const putBack = await file.createExclusive(moved.bytes).catch((error: unknown) => {
+      if (error instanceof PublishRefusedError && error.code === "lock-unsupported") return false;
+      throw error;
+    });
+    if (!putBack) throw lockHeld("a live lock was moved aside during a takeover and could not be put back; try again");
     await moved.discard();
     return false;
   }
@@ -126,29 +155,41 @@ async function takeOver(file: LockFile, stale: LockRecord, mine: Uint8Array<Arra
   return decodeLock(mine)?.token === (await readRecord(file)).record?.token;
 }
 
-function startHeartbeat(file: LockFile, ctx: LockContext, token: string): { readonly held: () => boolean; readonly stop: () => void } {
+interface Heartbeat {
+  readonly held: () => boolean;
+  /** Stop the timer and tell any beat in flight that it is stopped (it writes nothing more). */
+  readonly stop: () => void;
+  /** Resolves when every beat that was in flight has finished, so a release never races a rename. */
+  readonly settled: () => Promise<void>;
+}
+
+function startHeartbeat(file: LockFile, ctx: LockContext, token: string): Heartbeat {
   let held = true;
+  let stopped = false;
   let failure: unknown;
   let lastBeat = ctx.now();
+  const inFlight = new Set<Promise<void>>();
   const beat = async (): Promise<void> => {
     try {
       const time = ctx.now();
       const bytes = encodeLock({ token, pid: ctx.pid, host: ctx.host, time });
       if (file.writeIfToken !== undefined) {
-        if (!(await file.writeIfToken(token, bytes))) {
-          held = false;
+        if (!(await file.writeIfToken(token, bytes, () => stopped))) {
+          if (!stopped) held = false;
           return;
         }
       } else {
         if ((await readRecord(file)).record?.token !== token) {
-          held = false;
+          if (!stopped) held = false;
           return;
         }
+        if (stopped) return;
         await file.write(bytes);
       }
+      if (stopped) return;
       // The read above and the replacing write are two steps: a taker may have replaced the file between them. Read once more.
       if ((await readRecord(file)).record?.token !== token) {
-        held = false;
+        if (!stopped) held = false;
         return;
       }
       lastBeat = time;
@@ -156,20 +197,38 @@ function startHeartbeat(file: LockFile, ctx: LockContext, token: string): { read
       failure = error;
     }
   };
-  const stop = ctx.every(LOCK_HEARTBEAT_MS, () => void beat());
+  const cancelTimer = ctx.every(LOCK_HEARTBEAT_MS, () => {
+    const running = beat().finally(() => inFlight.delete(running));
+    inFlight.add(running);
+  });
   const lapsed = (): boolean => ctx.now() - lastBeat > 2 * LOCK_HEARTBEAT_MS;
-  return { held: () => held && failure === undefined && !lapsed(), stop };
+  return {
+    held: () => held && failure === undefined && !lapsed(),
+    stop: () => {
+      stopped = true;
+      cancelTimer();
+    },
+    settled: async () => void (await Promise.all([...inFlight])),
+  };
 }
 
 /**
  * Take the lock. Refuses (`lock-held`) while a live holder has a fresh heartbeat, and (`lock-unreadable`) when the
  * file exists but is not a lock record; a stale lock is replaced.
  */
-export async function acquirePublishLock(file: LockFile, ctx: LockContext): Promise<PublishLock> {
+export function acquirePublishLock(file: LockFile, ctx: LockContext): Promise<PublishLock> {
+  return acquire(file, ctx, false);
+}
+
+/** `unreadableOnReadError`: a read of the existing file that throws (a directory, no permission) is `lock-unreadable`, not the raw error. Only abandon asks for it. */
+async function acquire(file: LockFile, ctx: LockContext, unreadableOnReadError: boolean): Promise<PublishLock> {
   const token = ctx.newToken();
   const mine = encodeLock({ token, pid: ctx.pid, host: ctx.host, time: ctx.now() });
   if (!(await file.createExclusive(mine))) {
-    const existing = await readRecord(file);
+    const existing = await readRecord(file).catch((error: unknown) => {
+      if (unreadableOnReadError) throw lockUnreadable();
+      throw error;
+    });
     if (existing.present && existing.record === undefined) throw lockUnreadable();
     if (existing.record === undefined || !isStaleLock(existing.record, ctx) || !(await takeOver(file, existing.record, mine))) {
       throw lockHeld(existing.record === undefined ? "the lock was just released; try again" : describeLock(existing.record, ctx.now()));
@@ -177,18 +236,72 @@ export async function acquirePublishLock(file: LockFile, ctx: LockContext): Prom
   }
   const beat = startHeartbeat(file, ctx, token);
   let released = false;
+  let heartbeatStopped = false;
   return {
     assertHeld: () => {
       if (!beat.held()) throw lockLost();
     },
     release: async () => {
       if (released) return;
-      released = true;
-      beat.stop();
+      if (!heartbeatStopped) {
+        heartbeatStopped = true;
+        beat.stop();
+      }
+      // A beat that was mid-write finishes (or skips its rename) before the file is read, so it cannot write after the remove.
+      await beat.settled();
+      // Only a release that finished counts: one whose read or remove threw is tried again by the next call.
       const current = await readRecord(file);
       if (current.record?.token === token) await file.remove();
+      released = true;
     },
   };
+}
+
+export interface AbandonLock {
+  /** Undefined when the lock file could not be used and abandon runs without it. */
+  readonly lock: PublishLock | undefined;
+  readonly ranWithoutLock: boolean;
+}
+
+/** The description of the lock file's holder when it now holds a record that is not stale, else undefined (absent, junk, stale, or a read that throws). */
+async function liveHolder(file: LockFile, ctx: LockContext): Promise<string | undefined> {
+  try {
+    const bytes = await file.read();
+    const record = bytes === undefined ? undefined : decodeLock(bytes);
+    return record !== undefined && !isStaleLock(record, ctx) ? describeLock(record, ctx.now()) : undefined;
+  } catch {
+    // A file that cannot be read cannot be shown to be a live holder's: it is the unreadable case, which abandon goes past.
+    return undefined;
+  }
+}
+
+/**
+ * The lock for `abandon`, the escape hatch. A live lock held by another process is always refused (`lock-held`), however the
+ * acquisition failed: a lock file that is unreadable (junk, over the size cap, a directory, no permission) or unsupported (no hard
+ * links) must not trap the user, but the file is read once more first, and a record that decodes and is not stale is a live holder.
+ * Only a lock that is still unreadable, absent or stale lets abandon go on without a lock, and it says so.
+ * Anything else the acquisition throws is passed on unchanged.
+ */
+export async function acquireAbandonLock(file: LockFile, ctx: LockContext): Promise<AbandonLock> {
+  try {
+    return { lock: await acquire(file, ctx, true), ranWithoutLock: false };
+  } catch (error) {
+    if (error instanceof PublishRefusedError && (error.code === "lock-unreadable" || error.code === "lock-unsupported")) {
+      const holder = await liveHolder(file, ctx);
+      if (holder !== undefined) throw lockHeld(holder);
+      return { lock: undefined, ranWithoutLock: true };
+    }
+    throw error;
+  }
+}
+
+/** Release for a path whose outcome is already decided: a failure to release must never replace it, so it is swallowed (the error text is not read). */
+export async function releaseQuietly(lock: PublishLock | undefined): Promise<void> {
+  try {
+    await lock?.release();
+  } catch {
+    // The abandon outcome stands; a stale lock file ages out or is cleared by --break-lock.
+  }
 }
 
 export type BreakLockOutcome = "no-lock" | "removed" | "declined";

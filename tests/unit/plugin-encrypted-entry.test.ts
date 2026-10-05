@@ -2,14 +2,14 @@ import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
 import { REFERENCE_TEXT } from "../helpers/plugin-session";
 import { initVault } from "../helpers/vault-init";
 import { byId, type FakeEl } from "../support/fake-dom";
 import { MemoryAdapter } from "../support/memory-adapter";
-import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin } from "../support/obsidian-stub";
+import { App as StubApp, Modal, Notice, Platform, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin } from "../support/obsidian-stub";
 
 /**
  * mvp-06 task 4.3 at the plugin entry: the real dialogs (over the stub `Modal`), the real key session, the real
@@ -58,7 +58,7 @@ async function load(options: { readonly vault: boolean; readonly marker?: boolea
   vi.stubGlobal("window", { setInterval: setIntervalStub, clearInterval: vi.fn() });
   const plugin = new IpfsSyncPlugin(new StubApp(adapter) as unknown as App, MANIFEST);
   const stub = plugin as unknown as StubPlugin;
-  stub.data = { ...defaultSettings(), mfsRoot: ROOT, publishIntervalMinutes: 5 };
+  stub.data = { ...testNodeSettings(), mfsRoot: ROOT, publishIntervalMinutes: 5 };
   await plugin.onload();
   const tick = (setIntervalStub.mock.calls[0] as unknown as [() => void])[0];
   return { plugin, stub, adapter, node, tick };
@@ -87,9 +87,11 @@ beforeEach(() => {
   Modal.reset();
   resetRequestUrl();
   vi.stubGlobal("fetch", vi.fn());
+  Platform.isDesktopApp = false; // these tests run the mobile transport (requestUrl) against the stub; desktop would use Node's http
 });
 
 afterEach(() => {
+  Platform.isDesktopApp = true;
   vi.unstubAllGlobals();
   resetRequestUrl();
 });
@@ -116,12 +118,12 @@ describe("plugin entry: the timer while the vault is locked", () => {
     expect([...adapter.files.keys()].some((path) => path.startsWith(".ipfs-sync/keyslots"))).toBe(false);
   });
 
-  it("an unmarked vault gives the review-pending notice once for the timer, before any session or request", async () => {
+  it("an unmarked vault is treated like a marked one: the timer gets the locked notice, never a review-pending one (the guard is removed)", async () => {
     const { plugin } = await load({ vault: true, marker: false });
-    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(notices("not yet independently reviewed or verified in Obsidian")).toBe(1);
-    expect(notices("locked")).toBe(0);
+    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "locked" });
+    expect(await plugin.publishVault({ quiet: true })).toMatchObject({ kind: "refused", reason: "locked" });
+    expect(notices("not yet independently reviewed or verified in Obsidian")).toBe(0);
+    expect(notices("paused while the vault is locked")).toBe(1);
     expect(requestUrlCalls).toEqual([]);
     expect(Modal.instances).toHaveLength(0);
   });

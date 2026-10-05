@@ -55,8 +55,9 @@ export const ABANDON_COPY = {
   title: "Abandon this vault?",
   intro: "Use this only if the node has lost the key slots file for this vault.",
   consequences: [
-    "This device keeps a backup of its local key slots copy and its sync state.",
+    "This device keeps a backup of its local key-slot copy, sync state, publish journal and key-management journal (moved, not deleted).",
     "Nothing on the node is changed or deleted.",
+    "A pending key-slot rewrap or history prune is dropped from this device. Its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared tree. On the command line, ipfs-sync keys discard withdraws that key-slot file only for a rewrap that has not yet published; for a prune, or a rewrap that has published, it forgets the record and takes nothing back (removed history files stay removed; a published key-slot file stays). Run it before you abandon if you want that withdrawal, because abandon drops the record that would let it; the plugin has no discard action.",
     "You can then create a new vault in an empty MFS root.",
   ],
   confirmName: `Type "${ABANDON_PHRASE}" to confirm`,
@@ -82,7 +83,7 @@ export const ENCRYPTION_COPY = {
   lockButton: "Lock now",
   abandonName: "Abandon this vault",
   abandonDesc:
-    "Use this only if the node lost the key slots file for this vault. This device keeps a backup of its local key slots copy and sync state, and nothing on the node is changed. You confirm by typing a word first.",
+    "Use this only if the node lost the key slots file for this vault. This device keeps a backup of its local key-slot copy, sync state, publish journal and key-management journal, and nothing on the node is changed. You confirm by typing a word first.",
   abandonButton: "Abandon...",
   setUpButton: "Set up...",
   unlockButton: "Unlock...",

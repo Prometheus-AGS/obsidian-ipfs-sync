@@ -3,6 +3,11 @@ import { PULL_SCOPE_HELP } from "../src/sync/pull-guard";
 
 export const HELP_TEXT = `ipfs-sync - vault sync over your own kubo node
 
+There is no default node. Every command needs the RPC URL and the gateway URL of a kubo node you run or trust:
+set them with --rpc-url and --gateway-url, with IPFS_SYNC_RPC_URL and IPFS_SYNC_GATEWAY_URL, or with the "rpc.url" and
+"gateway.url" keys of the config file. A command run without them exits with code 2 and sends no request. The abandon
+command needs neither the RPC URL nor the gateway URL: it sends no request.
+
 Usage:
   ipfs-sync status [options]
   ipfs-sync init <vault> [--passphrase-file <path>] [options]
@@ -42,16 +47,30 @@ Commands:
                           it on purpose (--allow-rollback with --root-cid or --manifest). Reads only (name resolve,
                           gateway); writes nothing to the node. The first pull of a vault on this device shows the
                           sequence, date and device the vault key holder chose and asks (or needs --accept-first-pull).
+                          On a true first pull into a non-empty directory, --accept-first-pull also covers the replace
+                          consequence: files that differ from the node's copy are replaced and a dated copy is kept.
+                          A pull into a directory that holds no state for a vault this device already knows (a copy
+                          restored without its .ipfs-sync folder, or a second directory) replaces every file that differs
+                          from the node's copy by the node's text and keeps a dated copy of the local text; it asks when
+                          at least one file would be replaced, and without a terminal it stops (exit 1) and needs
+                          --accept-replace (not --accept-first-pull).
                           Output lists integrity-failed files, files not fetched and skipped paths apart. ${PULL_SCOPE_HELP} A root that holds a plaintext
                           manifest.json and no key slots is refused (exit 2): plaintext publications are no longer
                           supported, and nothing is written.
-  abandon <vault>         Abandon this device's vault for the MFS root: move the local key-slot copy, sync state and
-                          journal (.ipfs-sync/keyslots.<h>.json, state.<h>.json, journal.<h>.json) into
-                          .ipfs-sync/abandoned-<h>-<time>/, keeping them as a backup. Use it when a refusal says to
-                          abandon this vault (the node lost the key slots, or its state cannot be repaired). It never
-                          contacts the node and deletes nothing; afterwards create a new vault with init in an empty
-                          MFS root (a new --mfs-root). On a terminal it shows what will move and asks you to type the
-                          word "abandon"; without a terminal it does nothing unless --yes-abandon is given.
+  abandon <vault>         Abandon this device's vault for the MFS root: move the local key-slot copy, sync state,
+                          journal and key-management journal (.ipfs-sync/keyslots.<h>.json, state.<h>.json,
+                          journal.<h>.json, maintenance.<h>.json) into .ipfs-sync/abandoned-<h>-<time>/, keeping
+                          them as a backup. Use it when a refusal says to abandon this vault (the node lost the key
+                          slots, or its state cannot be repaired). It never contacts the node and deletes nothing;
+                          afterwards create a new vault with init in an empty MFS root (a new --mfs-root). A pending
+                          key-slot rewrap or history prune is dropped from this device, but its write to the node is
+                          not withdrawn: a rewritten key-slot file may stay in the shared tree. keys discard withdraws
+                          that key-slot file only for a rewrap that has not yet published; for a prune, or a rewrap that
+                          has published, it forgets the record and takes nothing back (removed history files stay
+                          removed; a published key-slot file stays). Run keys discard before you abandon if you want that
+                          withdrawal: abandon drops the record that would let it. On a terminal it shows what will move
+                          and asks you to type the word "abandon"; without a terminal it does nothing unless
+                          --yes-abandon is given.
   keys change-passphrase <vault>
                           Replace the vault's key slot by one under a NEW generated passphrase (never one you choose),
                           wrapping the same vault key. Nothing is re-encrypted; manifest.enc and the sequence do not change.
@@ -64,7 +83,9 @@ Commands:
                           derives keys four times (about the cost of the slot each time), then tests the new passphrase against
                           the published file; the local copy and record change only after that test. If it is interrupted,
                           publish and pull stay paused until you run the same command again, which finishes it without making
-                          another slot. Other devices refuse to pull or publish until they accept the changed key slots.
+                          another slot. The rerun needs none of the confirming flags (--accept-no-revocation, --allow-downgrade)
+                          and takes what to finish from the journal: everything else on that command line (--cost, --passphrase-file)
+                          is ignored. Other devices refuse to pull or publish until they accept the changed key slots.
                           Without --cost the cost stays; a lower cost needs a yes that shows both costs (or --allow-downgrade).
   keys increase-cost <vault>
                           Like change-passphrase, but under the SAME passphrase and with a higher cost: --cost standard
@@ -110,15 +131,18 @@ Commands:
                           manifests/ and nothing else: manifest.enc, keyslots.json, current/ and the sequence do not change. Earlier
                           published roots stay pinned and fetchable with their history as it was, but a removed version can no longer
                           be restored through the current root with pull --manifest. If it is interrupted, publish and pull stay paused
-                          until you run the same command again, which finishes it. --dry-run prints the files it would remove and stops:
+                          until you run the same command again, which finishes it. The rerun needs no --yes-prune and takes the
+                          removal list from the journal: --keep and the rest of that command line are ignored. --dry-run prints the files it would remove and stops:
                           it takes no lock and writes nothing.
 
 Options:
   --config <path>         Config file (default ./ipfs-sync.config.json if present). Endpoints and
-                          non-secret fields only; secrets are rejected.
-  --rpc-url <url>         RPC (write) endpoint.
+                          non-secret fields only; secrets are rejected. The default file is refused (exit 2, no request) when
+                          it sets rpc.url or gateway.url that no flag or environment variable sets while a credential is
+                          configured, because it was found, not asked for; pass it with --config <path> to use it.
+  --rpc-url <url>         RPC (write) endpoint. Required (no default node).
   --rpc-port <port>       RPC port, applied to --rpc-url.
-  --gateway-url <url>     Gateway (read) endpoint.
+  --gateway-url <url>     Gateway (read) endpoint. Required (no default node; it is not derived from the RPC URL).
   --gateway-port <port>   Gateway port, applied to --gateway-url.
   --mfs-root <path>       MFS root; must be /obsidian-vault-sync or below it (default /obsidian-vault-sync/default).
                           publish needs a root strictly below /obsidian-vault-sync.
@@ -141,10 +165,9 @@ Options:
                           --dry-run is given.
   --auth <scheme>         none | basic | bearer | header.
   --auth-user <user>      basic: user.
-  --auth-password <pw>    basic: password.
-  --auth-token <token>    bearer: static token or JWT.
   --auth-header-name <n>  header: header name.
-  --auth-header-value <v> header: header value.
+                          The password, token and header value are not options: they would show in the process list and shell
+                          history. Set IPFS_SYNC_AUTH_PASSWORD, IPFS_SYNC_AUTH_TOKEN or IPFS_SYNC_AUTH_HEADER_VALUE instead.
   --name <id>             pull, keys accept-slots: IPNS key ID to read from (default: the ID of the owned key given by --key).
   --root-cid <cid>        pull, keys accept-slots: use this immutable root instead of the name. The client does not verify the
                           bytes the gateway returns against the CID; authenticity rests on the vault key.
@@ -159,8 +182,14 @@ Options:
   --expect-min-sequence <n>  pull, keys accept-slots: refuse a manifest whose sequence is below n.
   --expect-vault-id <id>  pull, keys accept-slots: refuse unless the vault id (32 lowercase hex characters) matches; checked before any key
                           derivation.
-  --accept-first-pull     pull: the non-interactive yes to the first-pull question. Without a terminal a first pull is
-                          refused without it.
+  --accept-first-pull     pull: the non-interactive yes to the first-pull question only (a vault this device has never pulled).
+                          Without a terminal a first pull is refused without it. On a true first pull into a non-empty
+                          directory it also covers the replace consequence: files that differ from the node's copy are
+                          replaced by the node's text, and a dated copy of each local text is kept. It does not answer the
+                          --accept-replace question below.
+  --accept-replace        pull: the non-interactive yes to the question of a pull into a directory with no state for a vault
+                          this device already knows, where files that differ from the node's copy are replaced. Without a
+                          terminal that pull stops (exit 1) without it.
   --max-bytes <n>         pull: ask before fetching more than n bytes of file content (default 536870912, 512 MiB).
   --accept-large          pull: the non-interactive yes to that question. Without a terminal a larger pull fetches nothing
                           and exits 1 without it.
@@ -204,7 +233,9 @@ passphrase bytes it holds after key derivation, on a best-effort basis (strings 
 Precedence: flags > environment > config file > defaults.
 
 Exit codes: 0 ok, 1 a check, publish or pull failed, 2 usage, unsafe configuration or a refused pull destination
-(no request is sent). For pull, 1 also means: a file failed verification or was not fetched, a path was skipped as unsafe
+(no request is sent). A command that needs a yes (keys change-passphrase, keys increase-cost, keys discard, prune-history, pull --resolve-fork and
+abandon) and has neither a terminal (standard input, standard output and standard error must all be one) nor its confirming flag exits 2 before
+any request (pull --resolve-fork has no confirming flag, so without a terminal it always exits 2); a confirmation that is asked and declined exits 1. For pull, 1 also means: a file failed verification or was not fetched, a path was skipped as unsafe
 (a name another platform can write, or a path no honest publisher produces), or the pull stopped at a check (wrong
 passphrase, rollback, fork, a held lock, a first pull that was not confirmed); 0 also covers paths skipped as expected
 (a configuration folder or an excluded path from an older build's manifest). For keys, 1 also means: the device is not up

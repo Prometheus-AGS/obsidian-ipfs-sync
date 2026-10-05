@@ -8,14 +8,25 @@ import type { EndpointName } from "../core/config";
 const UNSAFE_RANGES: readonly (readonly [number, number])[] = [
   [0x0000, 0x001f],
   [0x007f, 0x009f],
+  [0x00ad, 0x00ad], // soft hyphen
   [0x061c, 0x061c],
+  [0x200b, 0x200d], // zero-width space, non-joiner, joiner
   [0x200e, 0x200f],
   [0x2028, 0x2029],
   [0x202a, 0x202e],
+  [0x2060, 0x2060], // word joiner
   [0x2066, 0x2069],
+  [0xfeff, 0xfeff], // byte order mark / zero-width no-break space
+  [0xe0000, 0xe007f], // the tag block: invisible characters that can carry hidden text
 ];
 
-const isUnsafeUnit = (unit: number): boolean => UNSAFE_RANGES.some(([low, high]) => unit >= low && unit <= high);
+/** The one range table: `escapeNodeText` and the CLI's terminal output both ask this. */
+export const isUnsafeCodePoint = (codePoint: number): boolean => UNSAFE_RANGES.some(([low, high]) => codePoint >= low && codePoint <= high);
+
+/** `\uXXXX` for a code point of the basic plane, `\u{X}` for one above it. */
+function escapeCodePoint(codePoint: number): string {
+  return codePoint <= 0xffff ? `\\u${codePoint.toString(16).padStart(4, "0")}` : `\\u{${codePoint.toString(16)}}`;
+}
 
 /**
  * Text the node (or a proxy in front of it) supplied, made safe to print: each unsafe character becomes a backslash, `u` and four
@@ -24,9 +35,9 @@ const isUnsafeUnit = (unit: number): boolean => UNSAFE_RANGES.some(([low, high])
  */
 export function escapeNodeText(text: string): string {
   let out = "";
-  for (let index = 0; index < text.length; index++) {
-    const unit = text.charCodeAt(index);
-    out += isUnsafeUnit(unit) ? `\\u${unit.toString(16).padStart(4, "0")}` : text.charAt(index);
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    out += isUnsafeCodePoint(codePoint) ? escapeCodePoint(codePoint) : character;
   }
   return out;
 }
@@ -44,12 +55,20 @@ export class KuboError extends Error {
   }
 }
 
-/** The endpoint answered 401 or 403. */
+/** Added when a gateway without its own credential answers 401 or 403. Fixed text: it names no secret and no node text. */
+const GATEWAY_NO_CREDENTIAL_HINT =
+  "the node credential is not sent to a gateway on a different address; set a gateway credential in the plugin settings under 'Gateway authentication', or for the CLI with the IPFS_SYNC_GATEWAY_AUTH_* variables";
+
+/** Why an endpoint carried no credential, when that is worth telling the user. `other-origin`: the node credential was not inherited by a gateway on a different address. */
+export type CredentialWithheldReason = "other-origin";
+
+/** The endpoint answered 401 or 403. `withheld` is set only when the request carried no credential for a reason the user can fix. */
 export class KuboAuthError extends KuboError {
   readonly status: number;
 
-  constructor(endpoint: EndpointName, url: string, status: number) {
-    super(endpoint, url, `credentials rejected by the ${endpoint} endpoint ${url} (HTTP ${status})`);
+  constructor(endpoint: EndpointName, url: string, status: number, withheld?: CredentialWithheldReason) {
+    const hint = endpoint === "gateway" && withheld === "other-origin" ? ` -- ${GATEWAY_NO_CREDENTIAL_HINT}` : "";
+    super(endpoint, url, `credentials rejected by the ${endpoint} endpoint ${url} (HTTP ${status})${hint}`);
     this.status = status;
   }
 }
@@ -82,10 +101,10 @@ export class KuboNetworkError extends KuboError {
   }
 }
 
-/** A browser `fetch` that fails with this message was usually blocked by CORS, not by the network. */
+/** "Failed to fetch" comes only from the WebView `fetch`, which is subject to CORS; it was usually blocked by CORS, not by the network. */
 function corsHint(cause: unknown): string {
   return cause instanceof TypeError && cause.message === "Failed to fetch"
-    ? " -- the browser blocked the request (CORS); the plugin uses requestUrl to avoid this"
+    ? " -- this request used the browser fetch, which is subject to CORS; the node must allow the app origin"
     : "";
 }
 

@@ -7,6 +7,7 @@ import { deviceStoreDirectory } from "../../cli/device-store-node";
 import type { CliIo } from "../../cli/io";
 import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
+import { NODE_ENV } from "../helpers/cli-state-env";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { SEQUENCE_FLOOR_FILE } from "../../src/sync/sequence-floor";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
@@ -70,7 +71,7 @@ describe("ipfs-sync publish raises the floor under the device store lock (A-08)"
   }
 
   it("waits for a lock another process holds before it writes the floor", async () => {
-    const env = { XDG_STATE_HOME: stateHome };
+    const env = { ...NODE_ENV, XDG_STATE_HOME: stateHome };
     const directory = deviceStoreDirectory(env);
     holdLockAtNamePublish(directory);
     const err: string[] = [];

@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { build } from "esbuild";
 import { join } from "node:path";
 import process from "node:process";
-import { REPO, Refusal } from "./constants.mjs";
+import { ALLOWED_HOSTS, REPO, Refusal } from "./constants.mjs";
 import { childEnv, firstLine } from "./policy.mjs";
 
 const READ_METHODS = ["filesLs", "filesStat", "keyList", "nameResolve"];
@@ -53,7 +53,9 @@ function readerSource() {
     "  const input = JSON.parse(raw ?? '{}');",
     "  if (op === 'stub') return stub();",
     "  if (op === 'target') {",
-    "    const config = resolveSyncConfig([envLayer(process.env)], new Date());",
+    // The product has no default node: this operator tool names the shared node itself, and the caller refuses a host that is not allowed.
+    `    const shared = { rpc: { url: ${JSON.stringify(`https://${ALLOWED_HOSTS[0]}`)} }, gateway: { url: ${JSON.stringify(`https://${ALLOWED_HOSTS[0]}`)} } };`,
+    "    const config = resolveSyncConfig([shared, envLayer(process.env)], new Date());",
     "    return print({ rpc: config.rpc.baseUrl, gateway: config.gateway.baseUrl });",
     "  }",
     "  if (op === 'scan') {",

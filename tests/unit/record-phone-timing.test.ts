@@ -1,11 +1,11 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { hasExpect } from "../helpers/expect-smoke.ts";
 import { createFakeTerminal } from "../helpers/fake-terminal.ts";
-import { REPO_ROOT, captureIo, removeRepos, tempDir } from "../helpers/guard-repo.ts";
+import { REPO_ROOT, captureIo, createRepo, removeRepos, tempDir } from "../helpers/guard-repo.ts";
 import { MAIN_JS_PATH, NOW, loadPhoneChecker, type PhoneChecker } from "../helpers/guard-phone.ts";
 import { isolatedEnvironment, makeSigningKey, okTree, reviewFixture, sha256, signWith, writeTrust, type OkTree } from "../helpers/guard-review.ts";
 
@@ -328,14 +328,42 @@ describe("source discipline and the real entry point", () => {
     expect(nothingWritten(env)).toBe(true);
   });
 
-  it.skipIf(!hasExpect)("under a real pseudo-terminal it passes the terminal gate (expect(1) smoke test)", () => {
-    const { env } = isolatedEnvironment();
+  // spawnSync blocks the event loop, so vitest's own timeout cannot fire during it: every wait below is bounded inside expect(1)
+  // (which then exits, closing the pty and ending the recorder) and by a spawnSync timeout that stays under vitest's 20 s.
+  const EXPECT_BOUND_SECONDS = 8;
+  const EXPECT_EXIT_PROMPTING = 3;
+  const SPAWN_BOUND_MS = 15_000;
+  const ptyScript = (): string => {
     const script = join(tempDir("phone-expect-"), "run.exp");
-    writeFileSync(script, "set timeout 60\nspawn -noecho {*}$argv\nexpect eof\ncatch wait result\nexit [lindex $result 3]\n");
-    const run = spawnSync("expect", [script, process.execPath, RECORDER_PATH, "measured"], { env: { ...env, PATH: process.env.PATH ?? "" } as Record<string, string>, encoding: "utf8", timeout: 90_000 });
-    // The working tree of this repository is not a clean --build tree, so the recorder stops at the stale-dist check, after the terminal gate.
+    writeFileSync(
+      script,
+      `set timeout ${EXPECT_BOUND_SECONDS}\nspawn -noecho {*}$argv\nexpect {\n  eof {}\n  timeout { exit ${EXPECT_EXIT_PROMPTING} }\n}\ncatch wait result\nexit [lindex $result 3]\n`,
+    );
+    return script;
+  };
+  const underPty = (toolPath: string, env: Record<string, string | undefined>): SpawnSyncReturns<string> =>
+    spawnSync("expect", [ptyScript(), process.execPath, toolPath, "measured"], { env: { ...env, PATH: process.env.PATH ?? "" } as Record<string, string>, encoding: "utf8", timeout: SPAWN_BOUND_MS, killSignal: "SIGKILL" });
+
+  it.skipIf(!hasExpect)("under a real pseudo-terminal it passes the terminal gate and stops at a stale dist (expect(1) smoke test, independent of the repository's dist/)", () => {
+    const { env } = isolatedEnvironment();
+    // A git fixture holding a copy of the tool and no dist/: the recorder's root is the fixture, so the stale-dist refusal is deterministic.
+    const files: Record<string, string> = { "esbuild.options.mjs": readFileSync(join(REPO_ROOT, "esbuild.options.mjs"), "utf8") };
+    for (const name of ["record-phone-timing.mjs", "check-guard-preconditions.mjs", "hook-isolation.mjs"]) files[`tools/${name}`] = readFileSync(join(REPO_ROOT, "tools", name), "utf8");
+    const copy = createRepo(files);
+    symlinkSync(join(REPO_ROOT, "node_modules"), join(copy, "node_modules"), "dir");
+    const run = underPty(join(copy, "tools/record-phone-timing.mjs"), env);
     expect(run.status).toBe(2);
     expect(run.stdout).toContain("--build");
+    expect(run.stdout).not.toContain("needs a terminal");
+    expect(nothingWritten(env)).toBe(true);
+  });
+
+  it.skipIf(!hasExpect)("under a real pseudo-terminal the repository's own tool passes the terminal gate whether dist/ is stale or current, and never hangs", () => {
+    const { env } = isolatedEnvironment();
+    const run = underPty(RECORDER_PATH, env);
+    // Stale dist: exit 2 with --build. Current dist (the state right after `--build`): the recorder waits for its first answer, so expect(1) ends the wait.
+    expect([2, EXPECT_EXIT_PROMPTING]).toContain(run.status);
+    if (run.status === 2) expect(run.stdout).toContain("--build");
     expect(run.stdout).not.toContain("needs a terminal");
     expect(nothingWritten(env)).toBe(true);
   });

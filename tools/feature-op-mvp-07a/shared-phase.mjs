@@ -127,8 +127,8 @@ async function acceptedFirstPull(S) {
   out(`      sha256 of the ${paths.length} published files in B against A's and the manifest's: ${mismatches.length} mismatches`);
   check(`first pull: every file's sha256 in B equals A's and the manifest's (${mismatches.length} mismatches)`, mismatches.length === 0, mismatches.slice(0, 3).join(", "));
   const present = (await walkFiles(S.B.vault)).map((file) => file.path);
-  const extra = present.filter((path) => path !== ".ipfs-sync-fixture" && !(path in S.manifest1.files));
-  check("first pull: B holds exactly the published paths and the pulled-fixture marker, nothing else", extra.length === 0 && present.includes(".ipfs-sync-fixture") && (await readFile(join(S.B.vault, ".ipfs-sync-fixture"), "utf8")).trim() === "pulled-fixture", extra.slice(0, 3).join(", "));
+  const extra = present.filter((path) => !(path in S.manifest1.files));
+  check("first pull: B holds exactly the published paths and no fixture marker, nothing else", extra.length === 0 && !present.includes(".ipfs-sync-fixture"), extra.slice(0, 3).join(", "));
   const state = await readLocalState(S.B.vault, S.demoRoot);
   check("first pull: B recorded state (sequence 1, complete), the key-slot copy and the floor", state?.highestSequence === 1 && state.complete === true && (await exists(join(S.B.vault, ".ipfs-sync")))
     && (await exists(join(S.B.stateHome, "ipfs-sync", "sequence-floor.json"))), `state sequence ${state?.highestSequence}`);

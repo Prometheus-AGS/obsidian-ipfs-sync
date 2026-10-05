@@ -5,7 +5,7 @@ import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge"
 import { createPublishRunner, type PublishOutcome } from "../../src/plugin/publish-runner";
 import type { SessionKeys, UnlockOutcome } from "../../src/plugin/session-keys";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type SettingsStore } from "../../src/plugin/settings-store";
 import { createSyncLock } from "../../src/plugin/sync-lock";
 import { encodeLock } from "../../src/sync/publish-lock";
@@ -35,7 +35,7 @@ async function rig(): Promise<Rig> {
   adapter.put(".ipfs-sync-fixture", "fixture\n");
   adapter.put("notes/hello.md", "hello", 1000);
   const node = createFakeNode();
-  const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: MFS_ROOT } });
+  const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: MFS_ROOT } });
   await initVault(createObsidianHostBridge({ adapter }).fs, node, MFS_ROOT);
   const createClient = (): PublishClient => node.client;
   const keys = sessionRig({ store, adapter, createClient });

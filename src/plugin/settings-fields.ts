@@ -1,4 +1,4 @@
-import { parsePort, type AuthScheme } from "../core/config";
+import { composeEndpointUrl, parsePort, type AuthScheme } from "../core/config";
 import { parsePullName } from "./pull-target";
 import { parseReadCapMb } from "./read-cap";
 import { AUTH_SCHEMES, emptyAuth, isValidPullConfirmAboveMb, PULL_CONFIRM_RANGE_MESSAGE, type AuthSettings, type PluginSettings } from "./settings-model";
@@ -28,14 +28,36 @@ export const FIELD_IDS = [
 /** The fields added with pull (mvp-05), and the pull size ceiling (mvp-07a). Kept apart from `FIELD_IDS` because they are not endpoint or authentication fields. */
 export const PULL_FIELD_IDS = ["pullName", "catchUpOnLoad", "maxReadMb", "pullConfirmAboveMb"] as const;
 
+/**
+ * The gateway's own authentication block (mvp-07b task 2.6): a scheme picker with a default of "Same as node", and the fields of
+ * each explicit kind. Kept apart from `FIELD_IDS` because it is a second auth block, not another node field.
+ */
+export const GATEWAY_AUTH_FIELD_IDS = [
+  "gatewayAuthScheme",
+  "gatewayAuthUser",
+  "gatewayAuthPassword",
+  "gatewayAuthToken",
+  "gatewayAuthHeaderName",
+  "gatewayAuthHeaderValue",
+] as const;
+
 export type FieldId = (typeof FIELD_IDS)[number];
 export type PullFieldId = (typeof PULL_FIELD_IDS)[number];
+export type GatewayAuthFieldId = (typeof GATEWAY_AUTH_FIELD_IDS)[number];
 /** Every field the view model can edit. */
-export type EditableFieldId = FieldId | PullFieldId;
+export type EditableFieldId = FieldId | PullFieldId | GatewayAuthFieldId;
 export type FieldValues = Readonly<Record<EditableFieldId, string>>;
 
 /** Fields whose values are secrets: the tab masks them. */
 export const SECRET_FIELDS: readonly FieldId[] = ["authPassword", "authToken", "authHeaderValue"];
+
+/** The gateway block's secret fields: masked, and described by the plain-text warning beside them. */
+export const GATEWAY_SECRET_FIELDS: readonly GatewayAuthFieldId[] = ["gatewayAuthPassword", "gatewayAuthToken", "gatewayAuthHeaderValue"];
+
+/** The gateway picker's default: no block is stored, and the shared builder decides by origin. */
+export const GATEWAY_AUTH_SAME = "same";
+export type GatewayAuthChoice = AuthScheme | typeof GATEWAY_AUTH_SAME;
+export const GATEWAY_AUTH_CHOICES: readonly GatewayAuthChoice[] = [GATEWAY_AUTH_SAME, ...AUTH_SCHEMES];
 
 export type FieldGroup =
   | "rpc"
@@ -43,6 +65,7 @@ export type FieldGroup =
   | "publicationKey"
   | "mfsRoot"
   | "auth"
+  | "gatewayAuth"
   | "publishIntervalMinutes"
   | "pullName"
   | "catchUpOnLoad"
@@ -62,6 +85,12 @@ const GROUP_OF: Readonly<Record<EditableFieldId, FieldGroup>> = {
   authToken: "auth",
   authHeaderName: "auth",
   authHeaderValue: "auth",
+  gatewayAuthScheme: "gatewayAuth",
+  gatewayAuthUser: "gatewayAuth",
+  gatewayAuthPassword: "gatewayAuth",
+  gatewayAuthToken: "gatewayAuth",
+  gatewayAuthHeaderName: "gatewayAuth",
+  gatewayAuthHeaderValue: "gatewayAuth",
   publishIntervalMinutes: "publishIntervalMinutes",
   pullName: "pullName",
   catchUpOnLoad: "catchUpOnLoad",
@@ -73,9 +102,10 @@ export function groupOf(field: EditableFieldId): FieldGroup {
   return GROUP_OF[field];
 }
 
-/** Validation errors are keyed by `SettingsField`; every auth control shares the single `auth` error. */
+/** Validation errors are keyed by `SettingsField`; every node auth control shares the single `auth` error, every gateway auth control `gatewayAuth`. */
 export function errorKeyOf(field: EditableFieldId): SettingsField {
-  return GROUP_OF[field] === "auth" ? "auth" : (field as SettingsField);
+  const group = GROUP_OF[field];
+  return group === "auth" || group === "gatewayAuth" ? group : (field as SettingsField);
 }
 
 /** Error keys that belong to a group: an edit is blocked only by errors in its own group. */
@@ -104,18 +134,108 @@ export function visibleAuthFields(scheme: AuthScheme): readonly FieldId[] {
   }
 }
 
-function authValues(auth: AuthSettings): Pick<FieldValues, "authUser" | "authPassword" | "authToken" | "authHeaderName" | "authHeaderValue"> {
-  const blank = { authUser: "", authPassword: "", authToken: "", authHeaderName: "", authHeaderValue: "" };
+/** The five text slots of an auth block, whichever block (node or gateway) they belong to. */
+interface AuthTexts {
+  readonly user: string;
+  readonly password: string;
+  readonly token: string;
+  readonly headerName: string;
+  readonly headerValue: string;
+}
+
+const BLANK_AUTH_TEXTS: AuthTexts = { user: "", password: "", token: "", headerName: "", headerValue: "" };
+
+function authTexts(auth: AuthSettings): AuthTexts {
   switch (auth.scheme) {
     case "none":
-      return blank;
+      return BLANK_AUTH_TEXTS;
     case "basic":
-      return { ...blank, authUser: auth.user, authPassword: auth.password };
+      return { ...BLANK_AUTH_TEXTS, user: auth.user, password: auth.password };
     case "bearer":
-      return { ...blank, authToken: auth.token };
+      return { ...BLANK_AUTH_TEXTS, token: auth.token };
     case "header":
-      return { ...blank, authHeaderName: auth.headerName, authHeaderValue: auth.headerValue };
+      return { ...BLANK_AUTH_TEXTS, headerName: auth.headerName, headerValue: auth.headerValue };
   }
+}
+
+function authValues(auth: AuthSettings): Pick<FieldValues, "authUser" | "authPassword" | "authToken" | "authHeaderName" | "authHeaderValue"> {
+  const t = authTexts(auth);
+  return { authUser: t.user, authPassword: t.password, authToken: t.token, authHeaderName: t.headerName, authHeaderValue: t.headerValue };
+}
+
+function gatewayAuthValues(
+  auth: AuthSettings | undefined,
+): Pick<FieldValues, "gatewayAuthScheme" | "gatewayAuthUser" | "gatewayAuthPassword" | "gatewayAuthToken" | "gatewayAuthHeaderName" | "gatewayAuthHeaderValue"> {
+  const t = auth === undefined ? BLANK_AUTH_TEXTS : authTexts(auth);
+  return {
+    gatewayAuthScheme: auth === undefined ? GATEWAY_AUTH_SAME : auth.scheme,
+    gatewayAuthUser: t.user,
+    gatewayAuthPassword: t.password,
+    gatewayAuthToken: t.token,
+    gatewayAuthHeaderName: t.headerName,
+    gatewayAuthHeaderValue: t.headerValue,
+  };
+}
+
+/** The gateway controls to show for the picker's current choice: only the fields of the selected kind, none for "Same as node". */
+export function visibleGatewayAuthFields(choice: GatewayAuthChoice): readonly GatewayAuthFieldId[] {
+  switch (choice) {
+    case "same":
+    case "none":
+      return [];
+    case "basic":
+      return ["gatewayAuthUser", "gatewayAuthPassword"];
+    case "bearer":
+      return ["gatewayAuthToken"];
+    case "header":
+      return ["gatewayAuthHeaderName", "gatewayAuthHeaderValue"];
+  }
+}
+
+/**
+ * The scheme, host and port an endpoint talks to, or its trimmed URL text when that cannot be composed. A credential saved for one
+ * origin is never kept for another, so two endpoints with the same origin (different paths) are the same place.
+ */
+export function endpointOrigin(endpoint: { readonly url: string; readonly port?: number | undefined }): string {
+  const url = endpoint.url.trim();
+  if (url === "") return "";
+  try {
+    return new URL(composeEndpointUrl("rpc", url, endpoint.port)).origin;
+  } catch {
+    return url;
+  }
+}
+
+export interface CredentialClearing {
+  readonly settings: PluginSettings;
+  /** A stored credential was dropped because its endpoint moved to another origin. */
+  readonly cleared: boolean;
+  /** The endpoint of the edited group moved to another origin (whether or not a credential was stored). */
+  readonly originChanged: boolean;
+}
+
+/**
+ * A credential is saved for one origin. When an edit moves the endpoint it belongs to (RPC for the node block, gateway for the gateway
+ * block) to another origin, the credential is dropped so nothing typed for the old host is ever sent to the new one.
+ */
+export function clearCredentialOnOriginChange(before: PluginSettings, after: PluginSettings, group: FieldGroup): CredentialClearing {
+  if (group === "rpc" && endpointOrigin(before.rpc) !== endpointOrigin(after.rpc)) {
+    return { settings: { ...after, auth: emptyAuth("none") }, cleared: before.auth.scheme !== "none", originChanged: true };
+  }
+  if (group === "gateway" && endpointOrigin(before.gateway) !== endpointOrigin(after.gateway)) {
+    // An explicit "none" holds no secret and is a choice the operator made: it stays.
+    if (before.gatewayAuth === undefined || before.gatewayAuth.scheme === "none") return { settings: after, cleared: false, originChanged: true };
+    const { gatewayAuth: _dropped, ...rest } = after;
+    return { settings: rest, cleared: true, originChanged: true };
+  }
+  return { settings: after, cleared: false, originChanged: false };
+}
+
+/** A copy of the values with the named fields emptied. */
+export function withBlankedFields(values: FieldValues, fields: readonly EditableFieldId[]): FieldValues {
+  const next: Record<EditableFieldId, string> = { ...values };
+  for (const field of fields) next[field] = "";
+  return next;
 }
 
 export function valuesFrom(settings: PluginSettings): FieldValues {
@@ -128,6 +248,7 @@ export function valuesFrom(settings: PluginSettings): FieldValues {
     mfsRoot: settings.mfsRoot,
     authScheme: settings.auth.scheme,
     ...authValues(settings.auth),
+    ...gatewayAuthValues(settings.gatewayAuth),
     publishIntervalMinutes: String(settings.publishIntervalMinutes),
     pullName: settings.pullName,
     catchUpOnLoad: String(settings.catchUpOnLoad),
@@ -196,20 +317,29 @@ function parseCatchUpGroup(text: string): GroupParse {
   return { kind: "ok", apply: (settings) => ({ ...settings, catchUpOnLoad: enabled }) };
 }
 
-function authFrom(values: FieldValues): AuthSettings | undefined {
-  const scheme = values.authScheme;
+function authFromTexts(scheme: string, t: AuthTexts): AuthSettings | undefined {
   switch (scheme) {
     case "none":
       return emptyAuth("none");
     case "basic":
-      return { scheme, user: values.authUser.trim(), password: values.authPassword };
+      return { scheme, user: t.user.trim(), password: t.password };
     case "bearer":
-      return { scheme, token: values.authToken.trim() };
+      return { scheme, token: t.token.trim() };
     case "header":
-      return { scheme, headerName: values.authHeaderName.trim(), headerValue: values.authHeaderValue.trim() };
+      return { scheme, headerName: t.headerName.trim(), headerValue: t.headerValue.trim() };
     default:
       return undefined;
   }
+}
+
+function authFrom(values: FieldValues): AuthSettings | undefined {
+  return authFromTexts(values.authScheme, {
+    user: values.authUser,
+    password: values.authPassword,
+    token: values.authToken,
+    headerName: values.authHeaderName,
+    headerValue: values.authHeaderValue,
+  });
 }
 
 function isComplete(auth: AuthSettings): boolean {
@@ -231,6 +361,28 @@ function parseAuthGroup(values: FieldValues): GroupParse {
   return isComplete(auth) ? { kind: "ok", apply: (settings) => ({ ...settings, auth }) } : { kind: "incomplete" };
 }
 
+/** "Same as node" removes the block; any other kind stores an explicit one (none included) once every field of it is filled. */
+function parseGatewayAuthGroup(values: FieldValues): GroupParse {
+  if (values.gatewayAuthScheme === GATEWAY_AUTH_SAME) {
+    return {
+      kind: "ok",
+      apply: (settings) => {
+        const { gatewayAuth: _removed, ...rest } = settings;
+        return rest;
+      },
+    };
+  }
+  const gatewayAuth = authFromTexts(values.gatewayAuthScheme, {
+    user: values.gatewayAuthUser,
+    password: values.gatewayAuthPassword,
+    token: values.gatewayAuthToken,
+    headerName: values.gatewayAuthHeaderName,
+    headerValue: values.gatewayAuthHeaderValue,
+  });
+  if (gatewayAuth === undefined) return invalid("gatewayAuth", `unknown gateway authentication (use ${GATEWAY_AUTH_CHOICES.join(", ")})`);
+  return isComplete(gatewayAuth) ? { kind: "ok", apply: (settings) => ({ ...settings, gatewayAuth }) } : { kind: "incomplete" };
+}
+
 export function parseGroup(group: FieldGroup, values: FieldValues): GroupParse {
   switch (group) {
     case "rpc":
@@ -247,6 +399,8 @@ export function parseGroup(group: FieldGroup, values: FieldValues): GroupParse {
     }
     case "auth":
       return parseAuthGroup(values);
+    case "gatewayAuth":
+      return parseGatewayAuthGroup(values);
     case "publishIntervalMinutes":
       return parseInterval(values.publishIntervalMinutes);
     case "pullName":

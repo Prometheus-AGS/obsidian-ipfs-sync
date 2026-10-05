@@ -10,8 +10,9 @@ export interface KuboClientEndpoints {
   readonly rpc: ResolvedEndpoint;
   readonly gateway: ResolvedEndpoint;
   /**
-   * How requests reach the network. Defaults to the platform `fetch` (the CLI). The plugin passes an adapter over
-   * Obsidian's `requestUrl`, because the WebView's `fetch` is CORS-blocked by the node.
+   * How requests reach the network. Defaults to the platform `fetch` (the CLI). The plugin always passes its own transport
+   * (`pluginTransport()`: Node's `http`/`https` on desktop, an adapter over `requestUrl` on mobile), because the WebView's
+   * `fetch` is CORS-blocked by the node and follows redirects.
    */
   readonly transport?: Transport;
 }

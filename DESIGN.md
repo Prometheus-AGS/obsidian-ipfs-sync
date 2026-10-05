@@ -5,8 +5,9 @@ Companion to the README (operations) — this file is the architecture spec.
 
 ## 1. Goals
 
-- Sync an Obsidian vault over IPFS through our own kubo node
-  (`https://ipfs.prometheusags.ai`) — no Obsidian Sync subscription, no third-party cloud.
+- Sync an Obsidian vault over IPFS through a kubo node the user runs or trusts, set explicitly (there is no default
+  node; the maintainer's shared node is the operator's verification target only, not a default) — no Obsidian Sync
+  subscription, no third-party cloud.
 - Work on **desktop (macOS first), iOS, and Android** from the same plugin codebase.
 - Provide the substrate for a later AI layer: embeddings and indexes stored as
   content-addressed data pinned to the vault snapshot, so any device gets the
@@ -33,9 +34,9 @@ device**.
 
 ```
 ┌────────────┐   HTTPS RPC    ┌──────────────────────────┐
-│  Desktop   │◄──────────────►│  ipfs.prometheusags.ai   │
-│  (plugin)  │                │  kubo: storage + pins    │
-└────────────┘                │  + IPNS pointer          │
+│  Desktop   │◄──────────────►│  your kubo node (set     │
+│  (plugin)  │                │  by you; no default)     │
+└────────────┘                │  storage + pins + IPNS   │
                               └──────▲───────────────────┘
 ┌────────────┐   HTTPS (requestUrl RPC, gateway blobs)
 │  iOS app   │◄─────────────────────┘
@@ -144,7 +145,8 @@ under `manifests/`):
 **Pull (delta, streamed).** The plaintext steps this section first described (`cat` of `.ipfs-sync.manifest.json`, then
 `vault.create` / `vault.modify`) were the plaintext reader, which `mvp-07b` removed. The delivered pull
 of an encrypted vault, in the CLI and the plugin, is (details in §8.10):
-1. Refuse invalid flag combinations; check the destination (absent, empty, or marked `fixture` or `pulled-fixture`); take
+1. Refuse invalid flag combinations; check the destination (absent or a directory whose state folder is not a symbolic
+   link; the marker rule of earlier trees is gone on `mvp-07b-guard-removal`); take
    `publish.lock`; `name/resolve` (with `nocache=true`) → root CID; list the root once.
 2. Unlock from the local key-slot copy, else from the node's slots; authenticate `manifest.enc`; run the path policy over
    the whole manifest; decide the verdict against the record (state and sequence floor, §8.10). A first pull is shown and
@@ -171,8 +173,9 @@ manifest-driven). Scripts remain desktop tools; mobile uses the plugin only.
 
 ## 5. Server-side prerequisites (not plugin code)
 
-1. **Gate `/api/v0` with bearer auth at the proxy.** The endpoint is currently
-   open to the internet for writes (verified during bring-up). Plugin + scripts
+1. **Gate `/api/v0` with bearer auth at the proxy.** The maintainer's shared node (the operator's verification
+   target, not a default) is open to the internet for writes (verified during bring-up); any node you expose the
+   same way is too. Plugin + scripts
    already send `Authorization: Bearer $IPFS_RPC_TOKEN` when set.
 2. Optional: read-only gateway subdomain for content retrieval (`cat`/`get`
    without write scopes), if we want defense-in-depth.
@@ -223,22 +226,25 @@ the code (module named in the last column of §8.3).
 
 Read this first: the key-slot file is public, the node is open-write, and the only thing between an attacker and every
 note ever published is the passphrase. Encryption is implemented but has not been independently reviewed to a standard
-that permits real notes, and has never been run inside Obsidian. Real vaults are refused until that changes (§8.9).
+that permits real notes, and has never been run inside Obsidian. On branch `mvp-07b-guard-removal` real vaults are no
+longer refused; `main` still refuses them (§8.9). Whoever publishes a real vault there accepts those facts.
 
 ### 8.1 Status and state of review
 
 Delivered in `mvp-06`: encrypted-only publish in the CLI and the plugin; `ipfs-sync init`; the crypto core
 (`src/crypto/`); per-root state, journal, resume, `--repair`, lock file and history check (`src/sync/`); the plugin key
 session, setup, unlock and abandon dialogs (`src/plugin/`). Delivered in `mvp-07a` (not independently reviewed, not run in
-Obsidian, on a phone or by the operator against the shared node): the decrypting pull in the CLI and the plugin (§8.10),
+Obsidian, on a phone or by the operator against the shared node, which is the maintainer's own test node and the
+operator's verification target, not a default): the decrypting pull in the CLI and the plugin (§8.10),
 the sequence floor, restore, fork resolution, second-device publish, history names with a sequence prefix, the path
 policy for pulled manifests, and the `.obsidian/` and `.smart-env/` exclusions. Delivered in `mvp-07b` code tasks (same
 standing: automated tests with fake nodes; not independently reviewed; not run in Obsidian, on a phone or by the operator
 against the shared node): rewrap by `keys change-passphrase` and `keys increase-cost`, `keys accept-slots`, `keys
 discard`, the maintenance journal (§8.4), `prune-history` (§8.7), the mass-removal guard (§8.7), the removal of the
 plaintext reader and its latch (§8.7), the plugin's key rows, dialogs, cost confirmation and measure command, desktop Range
-streaming, and the guard-evidence checker with its recorder and release tool (§8.9). Not delivered: additional key slots,
-revocation, the operator-run script for `mvp-07b` (`tools/feature-op-mvp-07.mjs`), the guard-removal branch, coalescing
+streaming, the guard-evidence checker with its recorder and release tool, and the operator-run script
+`tools/feature-op-mvp-07.mjs` (§8.9). The guard-removal branch `mvp-07b-guard-removal` exists (§8.9). Not delivered:
+additional key slots, revocation, a recorded manual operator run, a review record, a phone timing, coalescing
 of auto-publishes (task 1.8 chose the CLI command plus a plugin prune action instead; the plugin action, task 2.5, is
 built and tested only with a fake DOM), the history store (`mvp-08`).
 
@@ -333,7 +339,7 @@ after release without a new format version.
 | Device-local store | outside every vault: CLI, a per-user directory (`$XDG_STATE_HOME/ipfs-sync`, else macOS `~/Library/Application Support/ipfs-sync`, Windows `%LOCALAPPDATA%\ipfs-sync`, otherwise `~/.local/state/ipfs-sync`; directory 0700, files 0600, owned by the user); plugin, the `deviceStore` section of the plugin data. Entries `device-id` (16 random bytes as 32 hex; the manifest `device` carries `<label>-<first 12 hex>`) and `sequence-floor.json` | `cli/device-store-node.ts`, `src/plugin/device-store-plugin.ts`, `src/sync/device-store.ts` |
 | Sequence floor | `sequence-floor.json`, format 1: per vault ID (32 hex), the highest accepted manifest `sequence`, its `identity` (64 hex) and the write time `at`; at most 64 vaults, the oldest `at` dropped beyond that; every write re-reads the file and keeps the higher sequence; strict decoding, a damaged file is refused and never repaired | `src/sync/sequence-floor.ts` |
 | Pull limits | in-flight segment memory budget 128 MiB; at most 6 files in flight (6 at segment exponent 23, 4 at 24); ask before fetching above 512 MiB (`--max-bytes`; plugin `pullConfirmAboveMb`, 64 to 8192); the plugin accepts a whole 200 body only up to 32 MiB and fetches only segment exponents of 20 or more; `--list-versions` and Restore list the newest 20 history names and decrypt files of at most 8 MiB. Every number is a proposal, not a measurement | `src/sync/pull-budget.ts`, `cli/pull-versions.ts`, `src/plugin/pull-restore.ts` |
-| Marker | `.ipfs-sync-fixture` holding `fixture` (user or generator) or `pulled-fixture` (pull, when it populated an empty directory; `publish` refuses it until the user writes `fixture` by hand); read up to 64 bytes | `src/sync/fixture-marker.ts`, `src/core/config/node-safety.ts` |
+| Marker (history) | `.ipfs-sync-fixture` held `fixture` (user or generator) or `pulled-fixture` (pull); read up to 64 bytes. Since `mvp-07b-guard-removal` nothing that gates an operation reads the result and pull writes none; the parsing stays exported. The names stay in `src/sync/fixture-constants.ts` | `src/sync/publish-guard.ts`, `src/sync/fixture-constants.ts` |
 
 Error classes (`src/crypto/errors.ts`): only a genuine AES-GCM authentication failure is reported as
 `authentication-failed`, and callers treat it as tampering, a wrong key or a moved object. `malformed-input` is
@@ -347,7 +353,8 @@ missing; a known-answer check of HKDF, HMAC and AES-GCM runs on first unlock.
 
 ### 8.4 What one publish does
 
-In this order: marker guard (before the passphrase is looked at and before any request); in the CLI, the publish lock
+In this order: (the marker guard of earlier trees, which ran before the passphrase and any request, is a no-op on
+`mvp-07b-guard-removal`); in the CLI, the publish lock
 and then the passphrase; a keyless idle check (below); unlock, from the local key-slot copy first, so the wrong-passphrase check is local (the run still sends two read-only
 requests, `files/stat` and `key/list`, before it unlocks); publication-key lookup; journal check and resume; read-only inspection of the MFS root (bounded
 listings, plaintext-root refusal, key slots and `manifest.enc` fetched through the gateway under their caps); sequence
@@ -395,8 +402,9 @@ routing timeout on a vault's first publish counts as `not-found` by rule.
 
 ### 8.5 Threat model
 
-The adversary is anyone who can reach the node: its RPC endpoint accepts unauthenticated writes from the internet
-(README, "Security: your RPC endpoint is wide open"), and its gateway serves every published object to anyone who knows
+The adversary is anyone who can reach the node. The maintainer's shared node accepts unauthenticated writes from the
+internet (README, "Security: an open RPC endpoint is wide open"). That is why no node is a default. Removing the default
+does not close the exposure; it stops fresh installs from walking into it. A node's gateway serves every published object to anyone who knows
 the root CID or the IPNS name. Old roots stay pinned and fetchable forever; this project never unpins.
 
 A node operator or any other writer CAN:
@@ -431,7 +439,9 @@ The uncomfortable parts, stated plainly:
   is not free of look-alike characters (S and 5, Z and 2, G and 6, I and L).
 - **There is no recovery.** A lost passphrase, together with the loss of every copy of the key slots, makes the vault
   permanently unreadable. The local slot copy protects only against the node deleting the file.
-- **The fixture marker is an accident guard, not a control.** Anyone who can create the file can override it (§8.9).
+- **Real notes are accepted on the branch, and nothing independent has reviewed it.** The old marker was an accident
+  guard, not a control, and is gone there (§8.9). What is left between a real vault and harm is the passphrase and the
+  limits listed in §8.7.
 - **Local state is plaintext at rest.** `state.<h>.json` and `journal.<h>.json` hold vault paths. The `.ipfs-sync/` folder
   must be excluded from iCloud, Dropbox, Syncthing, backup tools and any other synchronisation. Deleting it resets the
   local state and turns this device into a stranger to the roots it published to (§8.7). Since `mvp-07b` there is no
@@ -469,15 +479,178 @@ of each publish is visible in the clear in its history file name (the node could
 reads only: `name/resolve`, `key/list`, listings of the immutable root and gateway reads. Events keep their
 shape: `file.changed` carries its `path` inside the process only, and no persistent sink may store event paths.
 
+Which node sees this is the user's choice, made explicitly. The lowest configuration layer (`defaultLayer()` in
+`src/core/config/defaults.ts`) supplies no RPC or gateway URL. With none set by flag, environment variable or config
+file (or, in the plugin, settings), a command exits 2 with `no-rpc-url` or `no-gateway-url` and sends no request; both
+URLs are required because every pull, publish read-back, status and key command reads through the gateway. `abandon`
+needs neither (local state only). The plugin starts with empty URLs and refuses every node action with "Set your IPFS
+node in settings". The retired built-in host (`src/core/config/retired-default-hosts.ts`, a comparison only; the
+trailing-dot FQDN form counts) is cleared at load for every readable format. `loadSettings` in
+`src/plugin/settings-migration.ts` clears it for the version-3 and version-2 data (`clearRetiredNode`, when
+`namesRetiredHost` finds it in either URL), and `migrateLegacy` clears it for the previous plugin's format (no version
+marker). Both URLs become empty, and the auth tied to them is dropped: the legacy `authToken`, the node auth and the
+gateway auth. A one-time notice tells the user to set their own node and enter credentials again, and the cleared data
+is written back. A user who types that host in a session still sees the settings-tab warning
+(`src/plugin/node-status.ts`); the next load clears it. The cost falls on an upgrader who really used that node: they
+must enter it and its credentials again. The reason: the host that releases up to 0.2.0 built in is the maintainer's own
+node and is open to anyone, so a default would have sent every fresh install's encrypted blobs and their metadata
+there, and a credential written for it would have gone to whatever node is set next. The exposure of that node is not
+fixed by this change. The load-time notice call `warnAboutRetiredDefault` in `src/plugin/index.ts` and the
+`retiredDefaultNoticeShown` field are still in the code; since load now clears the host, they cannot fire from stored
+data and are effectively dead. They are not removed.
+
+Stored data with no version marker is the previous plugin's form only when `isLegacyForm` in
+`src/plugin/settings-migration.ts` says so: the object is empty, or has one of `LEGACY_KEYS` and none of
+`CURRENT_FORM_KEYS`. Anything else is `unreadable`: defaults are used, `persist` is false and the stored data stays
+untouched. This stops a current-form file that lost its `version` key from being migrated over with defaults, which
+would wipe `ownedKeys`, `gatewayAuth`, the device store and the sequence floor. In `migrateLegacy`, a previous-plugin
+`rpcUrl` with userinfo (`hasUserinfo`) is stored empty and `LEGACY_CREDENTIALS_NOTICE` is shown. The legacy
+`authToken` is dropped in that case too, as it is for the retired host; the user enters credentials again. Status shows addresses through `displayAddress` (`src/core/config/endpoint.ts`): scheme, host, port and
+path, or "invalid address", never userinfo, query or fragment. `redactUserinfo` covers everything between `//` and the
+last `@` before whitespace. An invalid auth header name is not echoed in the error. A custom auth header name cannot be
+Host, Transfer-Encoding, Connection, Content-Length, Upgrade, Expect, TE, Keep-Alive, Proxy-Connection or Trailer
+(the set `CONNECTION_FRAMING_HEADERS` in `src/core/config/connection-headers.ts`, shared by `buildAuth` and the desktop transport, so the two
+cannot drift): Node honours them as framing or routing, `fetch` ignored them. A credential header also cannot be Content-Type or Range
+(`CREDENTIAL_FORBIDDEN_HEADERS`), because `Headers` would merge it into the real one; the transport does not refuse those two, since the
+client sets them legitimately. The 401 or 403 gateway hint is
+added only when the resolved gateway endpoint has `credentialWithheld` (`src/core/config/build-config.ts`,
+`src/kubo/http.ts`): its origin differs from the RPC's, the RPC has a credential, and the gateway has none. A JWT
+whose `exp` is a finite number beyond the date range gives the fixed warning "expiry could not be read" in
+`authWarnings` instead of throwing; an `exp` that is missing or not a number gives no warning. Switching either authentication
+picker away from a kind clears that kind's draft secret fields (`src/plugin/settings-view-model.ts`).
+
+**Switching nodes.** Clearing a retired host resets only `rpc`, `gateway`, `auth` and `gatewayAuth`. `ownedKeys`,
+`pullName`, `lastPublish`, `lastPull`, `kv`, `deviceStore`, `publicationKey` and `mfsRoot` persist. Vault-side state under
+`.ipfs-sync/` is named by a hash of `mfsRoot`, not by the node, so a new empty node meets the old local key-slot copy and
+state. `openVault` in `src/sync/vault-keys.ts` finds a copy, finds no key slots on the node and finds local state, and
+throws `lost-slots`: a publish is refused, fail closed, with no new key generated. Abandon is the way out. It keeps the
+sequence floor and moves four local files aside: the key-slot copy, the state, the publish journal and the
+key-management (maintenance) journal. It deletes nothing, and that is the uncomfortable part: a refusal that has a
+one-click exit teaches users to click past refusals. A second uncomfortable part: the maintenance journal is the one
+record the tool needs to clean up after a rewrap or prune, and abandon can drop it. The node-side write is not withdrawn
+(a rewritten key-slot file may stay in the shared tree). Earlier text said `keys discard` withdraws it; that was wrong.
+`keys discard` withdraws a key-slot file only for a rewrap that has not yet published (`withdrawMaintenanceWrite`,
+`src/sync/republish-root.ts`: it returns false for a prune and for a journal at `published` or later). For a prune, or a
+rewrap that has published, it forgets the record and takes nothing back (`discardStatements`,
+`src/sync/key-management-text.ts`). Run it before abandon when you want an unpublished rewrap withdrawn, because abandon
+drops the record that would let it. The dialog says so (`ABANDON_COPY`, `src/plugin/encryption-copy.ts`). `pullName` is not cleared
+by the reset, so the user should clear it when switching nodes. Status keeps the old publish's root CID and time until
+the next publish (`lastPublished` in `src/plugin/sync-status.ts`, which reads the per-root record).
+
+**Credentials follow an origin, not a field.** `clearCredentialOnOriginChange` (`src/plugin/settings-fields.ts`) runs in the
+same write as an address edit. When the RPC origin (scheme, host, port) changes, `auth` becomes `none`. When the gateway
+origin changes, `gatewayAuth` is removed, unless it is an explicit `none`. The view model blanks the matching typed fields
+and sets a plain notice under the field (`RPC_CREDENTIAL_CLEARED`, `GATEWAY_CREDENTIAL_CLEARED`). Two addresses with the
+same origin and different paths are the same place. A previous-plugin `authToken` is kept only with the `rpcUrl` it was
+written for (`migrateLegacy`). An address, port or credential edit no longer calls the key check: the key section marks its
+answer stale ("Press Check again") and the check on opening the tab remains. Closing the tab empties its container.
+
+**An unreadable `data.json` is copied first.** The unreadable path leaves the data untouched until a save. The settings
+store (`createSettingsStore`) calls `UnreadableBackup.save` before that first save; the copy is
+`data.json.unreadable-<UTC stamp>` beside the file (`src/plugin/unreadable-backup.ts`), plain text with the same secrets,
+named to a free name if one exists. A copy that fails fails the save, so the original stays and memory does not run ahead
+of disk. This is a copy of a secret store with no encryption and no expiry; the notice tells the user to delete it.
+`MAX_PUBLISH_INTERVAL_MINUTES` is 35,000 (a timer holds about 35,791 minutes), applied by validation and, for an older
+stored value, by `rearmAutoPublish`. The interval is a whole number of minutes: `wholeMinutes` in `settings-parse.ts` loads a
+stored fraction, negative or non-finite value, and `null` (how JSON stores NaN and infinity), as 0 (off) instead of making the
+file unreadable, so credentials, owned keys and the floor stay; any other type stays unreadable; `rearmAutoPublish` treats a non-finite or non-positive value as off. The abandon and clear-stale-lock dialogs no
+longer report a cancel when Escape closes them mid-run: they report the real result, and a failure after the dialog is gone
+reaches the user as a notice (`AbandonOutcome.failure`). Since round 5 the abandon action returns one of three fixed lines
+(`ABANDON_FAILURES` in `src/plugin/abandon-flow.ts`: invalid MFS root, local files not all moved, unexpected error) and never
+reads an error's message. Since round 6 a move that stops part-way returns the count line instead, and a live lock held by another process returns the
+busy notice. Since round 7 a lock file that is unreadable or unsupported does not block abandon, unless a second read shows a live holder, which is round 8 (see section 8.7, "Reachable actions"). Round 4: any change of origin in the
+node or gateway block blanks that block's unsaved draft credential and puts its picker back to the stored kind
+(`originChanged` from `clearCredentialOnOriginChange`), not only a change that cleared a stored credential. The settings store
+clears its pending-copy flag only after the save succeeds, and the unreadable-file copy is read back before the save
+(`readsBack` in `unreadable-backup.ts`). One redirect sentence (`SECRETS_REDIRECT_NOTE`) sits in the Authentication section
+below the credential fields while a node or gateway credential kind is chosen; with only a gateway credential it is not beside
+the gateway fields, and `styles.css` does not exist, so it has no rule.
+
+Which endpoint gets the credential is decided in `src/core/config/build-config.ts`. The global auth is the RPC credential.
+The gateway inherits it only when the gateway origin (scheme, host and port) equals the RPC origin; on any other origin it
+gets auth kind `none` unless an explicit gateway auth is set, so the credential never goes to a host the operator did not
+name. The CLI sets explicit gateway auth with `IPFS_SYNC_GATEWAY_AUTH_*`. The plugin has the same control as an optional
+`gatewayAuth` block in its settings (`PluginSettings` in `src/plugin/settings-model.ts`), shown as **Gateway
+authentication** with the choices Same as node (the default), None, Basic, Bearer and Custom header. Absent means Same
+as node: `settingsToLayer` in `src/plugin/settings-to-config.ts` adds no gateway auth to the layer, and the builder
+applies the origin rule. Present means explicit, and `{ scheme: "none" }` is an explicit "no credential" that wins even
+when the origins match. The block goes to the gateway only. `SETTINGS_VERSION` stays 3: data stored without the block
+loads as absent, and the node credential is never copied into it. The secret is stored in plain text in `data.json`
+beside the node credential, and that file is excluded from publish. When a node credential is set and the gateway
+origin differs, the tab shows a line that the credential is withheld. A gateway answer of 401 or 403 on a request that
+carried no credential adds a fixed hint to the error that names the plugin setting and the CLI variables
+(`KuboAuthError` in `src/kubo/errors.ts`). The origin rule compares scheme, host and port, not path, so one credential
+is shared by every path of one host. This control was not rendered in Obsidian or on a phone. No mock of it exists in
+`docs/design/`, because the Open Design MCP did not connect, and `styles.css` does not exist.
+
 ### 8.7 Stated limits
 
-- **Desktop streaming.** On desktop, a GET with a `Range` header goes through Node `http` or `https`, found with
-  `globalThis.require` (`src/plugin/range-streaming-transport.ts`); the ranged source reads the header bytes and cancels,
-  which destroys the socket, so a hostile gateway cannot make the plugin buffer a large body for a header read. Whether
-  `globalThis.require` exists in real Obsidian is unconfirmed, and without it the plugin silently buffers through
-  `requestUrl`. Mobile always buffers. Redirects are not followed on this path and it has no timeout. "Abort" means the
-  plugin stops probing further size classes; it does not fail the pull.
-- **Plugin transport.** The Obsidian `requestUrl` transport buffers whole response bodies. The streaming caps and the
+- **Desktop transport.** On desktop every plugin request, of any method and body type, goes through Node `http` or
+  `https`, found with `globalThis.require` (`src/plugin/node-transport.ts`, chosen by `pluginTransport` in
+  `src/plugin/request-url-transport.ts`). The response body streams with one chunk of look-ahead and the socket is paused
+  while nothing reads, so the bounded readers cut a hostile body off before it is buffered. Cancelling destroys the
+  socket, so a hostile gateway cannot make the plugin buffer a large body for a header read. Mobile has no `require` and
+  keeps `requestUrl`, which buffers whole bodies; `requestUrl` is used only there. A desktop app whose `require` is missing
+  or throws gets `nodeUnavailableTransport`, which refuses every request with `NODE_UNAVAILABLE_MESSAGE` ("the desktop
+  network layer is unavailable, so the plugin will not send requests through the redirect-following fallback; reload the
+  plugin or report this") and sends nothing (`pluginTransport`). A response with a status outside 200-599 or headers that
+  `Headers` refuses is rejected with `NODE_RESPONSE_UNREADABLE_MESSAGE` ("the node answered with a response this plugin
+  cannot read"), both sockets are destroyed, and the promise settles, so the sync lock is released; before `7a9ce77` the
+  handler threw inside an event callback and the run hung with the lock held until reload. 204, 205 and 304 are bodyless;
+  101 and 103 no longer are. The fixes are unit-tested. This path has no timeout, so a 1xx interim response that never
+  gets a final answer hangs. An abort cannot hang it either: a signal already aborted rejects before a request is made; an
+  abort before the response destroys the request and rejects once; an abort after the response errors the body stream with
+  the abort reason; the promise settles once, and the abort listener is removed on every exit. Only a string `code` is read
+  from an error (`DOMException.code` is the legacy number 20). The transport refuses the ten connection-framing request
+  headers with `NODE_HEADER_REFUSED_MESSAGE`. "Abort" means the plugin stops probing
+  further size classes; it does not fail the pull. The cost: Node's TLS uses its own CA list, so a private CA needs
+  `NODE_EXTRA_CA_CERTS` (a certificate verification failure is reported with fixed text that says so, `TLS_FAILURE_MESSAGE`; a TLS
+  setup failure, `EPROTO`, `ERR_SSL_*` or `ERR_TLS_*`, gets `TLS_CONNECT_FAILURE_MESSAGE` and no CA advice; the variable must be
+  set in the environment Obsidian is launched with, and a macOS GUI launch does not inherit shell variables), and Node ignores
+  the system proxy and the Chromium trust store. A node reached through a system proxy, or through a private CA that Node
+  does not trust, fails on desktop.
+- **Redirects.** `requestEndpoint` in `src/kubo/http.ts` passes `redirect: "manual"` and refuses a 301, 302, 303, 307 or
+  308 answer (and a `fetch` opaque redirect) with the fixed `REDIRECT_REFUSED_MESSAGE`, which tells the operator to check
+  the URL's scheme and path. The `Location` is never echoed and never followed, on RPC and gateway requests alike
+  (`tests/unit/kubo-redirect.test.ts`). The CLI's `fetch` and the desktop Node transport hand the 3xx back, so it reaches
+  that check; the request, its method and its credential go to the configured URL only. Obsidian's `requestUrl`, which
+  mobile uses, follows redirects itself, has no option to stop it and exposes no final URL, so on mobile a followed
+  redirect is neither prevented nor detected. The guarantee exists only where Node's `http` is reachable; on mobile it
+  does not exist. Evidence, stated exactly:
+  - **Probed on a real desktop** (Obsidian installer 1.8.4, app 1.14.4, Electron 33.3.2, macOS), by the operator and by the
+    lead using computer control, with `tools/probe-redirect-forwarding.mjs`. With the old `requestUrl` path a node's
+    cross-origin 307 to `127.0.0.1` was followed and the POST replayed (method kept, no `Origin` header). With the current
+    build the probe reported "redirect NOT followed; the redirect target was not reached", and the request carried the
+    configured `X-Api-Key` to its own URL only and none of Chromium's `sec-fetch` headers.
+  - **Re-probed on the tenth-round build** (Obsidian 1.14.4 on macOS, computer control, local probe, `main.js` sha256
+    prefix `5b906b2f`). A 308 from the node was not followed, the target was never reached, and the request carried
+    `x-api-key` only and no Chromium headers. This is the only run of the current transport in Obsidian; abort handling and
+    TLS classification have run in unit tests only.
+  - **Probed on an iPhone** (CFNetwork, `requestUrl`). A cross-origin redirect was followed and the POST replayed with an
+    empty body (`key/list` carries none). `Authorization` was stripped on the cross-origin hop. A custom header
+    (`X-Api-Key`) was forwarded.
+  - **Not probed:** Android; body-carrying calls on mobile (the multipart upload); an https-to-http downgrade; Windows and
+    Linux desktops.
+  - **Finding history.** One reviewer rated the `requestUrl` redirect HIGH and two MEDIUM. The desktop probe confirmed the
+    loopback case, which is the HIGH criterion, and the desktop transport closes it. On mobile it stays a MEDIUM that the
+    plugin cannot fix: **iOS forwards a custom-header credential across origins and the plugin cannot stop it.** The
+    control that holds on a phone is operator choice of an endpoint that does not redirect, and Bearer or Basic over a
+    custom header; the settings tab says so (`SECRETS_REDIRECT_NOTE`, shown on every platform and unchanged).
+  The probe prints a `VERDICT` line per request and header names with short hashes of credential values, never values.
+- **Host bridge network access.** `net.fetch` in `src/plugin/obsidian-host-bridge.ts` calls the injected transport and nothing
+  else. With none injected it throws `HOST_NET_UNAVAILABLE_MESSAGE` ("network access is not available in this host") before
+  sending anything: there is no default, because the WebView `fetch` follows redirects and would bypass the desktop transport.
+  The body is typed as bytes and passed through; the Node transport sends text or bytes only, so a `Blob` body is a `TypeError`.
+  `net.fetch` calls the transport directly, so it does not go through `requestEndpoint` and does not enforce the redirect
+  refusal. No caller uses it today.
+- **Accepted and not fixed in the desktop transport and host bridge** (code-reading reviews, nothing executed). The Node
+  transport has no request timeout and no idle deadline: a node that accepts and goes silent leaves the call pending, by
+  design, because no caller passes a signal. `net.fetch` buffers the whole response with no byte cap. A body stream that
+  closes with neither `end` nor `error` is not explicitly errored. `NODE_TLS_REJECT_UNAUTHORIZED=0` in Obsidian's
+  environment would disable verification, because the transport sets no `rejectUnauthorized`. Some Node error texts outside
+  the two TLS classes (`ERR_OSSL_*`, invalid protocol) pass through, escaped. `escapeNodeText` does not cover U+2061 to
+  U+2064, U+180E, U+034F and U+FFF9 to U+FFFB.
+- **Plugin transport.** The Obsidian `requestUrl` transport, which mobile uses, buffers whole response bodies. The streaming caps and the
   one-segment memory bound therefore give no memory protection inside the plugin for what the transport has already
   buffered; Range requests reduce the exposure only against gateways that honour them. The CLI pull streams. The plugin
   pull holds up to the 128 MiB in-flight budget (`SEGMENT_MEMORY_BUDGET`, a design budget, not a measurement); a gateway
@@ -580,16 +753,49 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   lock (see the next two items). The abandon action
   (`abandonVault` in `src/sync/vault-keys.ts`) is reachable as `ipfs-sync abandon <vault>` (`cli/abandon-command.ts`;
   `--yes-abandon` confirms without a terminal) and, in the plugin, as the command "Abandon this vault" and a button in
-  the Encryption section (`src/plugin/abandon-flow.ts`). It moves the local key-slot copy, state, journal and any
-  maintenance journal for the MFS root to `.ipfs-sync/abandoned-<h>-<ms>/`, records no latch, prints the sequence floor it
-  keeps, never contacts the node and deletes nothing. The CLI holds the cross-process `publish.lock` while it moves files; the plugin holds only the in-process
-  sync lock (`src/plugin/abandon-flow.ts`), so a CLI publish running against the same vault folder is not stopped by a
-  plugin abandon. Refusal messages quote
+  the Encryption section (`src/plugin/abandon-flow.ts`). It previews and moves four local files for the MFS root (the
+  key-slot copy, the state, the publish journal and the maintenance journal) to `.ipfs-sync/abandoned-<h>-<ms>/`, records no
+  latch, prints the sequence floor it keeps, never contacts the node and deletes nothing. A pending rewrap or prune is
+  dropped; its node-side write is not withdrawn, so a rewritten key-slot file may stay in the shared tree and other devices
+  that then publish to that root see changed key slots. `ipfs-sync keys discard` withdraws a key-slot file only for a
+  rewrap that has not yet published; for a prune, or a rewrap that has published, it forgets the record and takes nothing
+  back. Run it before abandon if you want that withdrawal. The plugin has no discard action, so that step is on the
+  command line. Abandon stays allowed as the escape hatch. Since round 6 both the CLI and the plugin take the
+  cross-process `publish.lock` while files move (`acquireAbandonLock` in `src/sync/publish-lock.ts`; `moveUnderLock` in
+  `src/plugin/abandon-flow.ts`), and the plugin also holds its in-process sync lock. Since round 8 the lock policy is
+  this. A live lock held by another process (`lock-held`) gives the busy result and moves nothing. A lock file that is
+  unreadable (`lock-unreadable`: junk, over 64 KiB, or, for abandon only, a read error on the path such as a directory at
+  `publish.lock` or a file with no read permission) or unsupported (`lock-unsupported`: no hard links) does not block
+  abandon by itself, but the classification came from one failed call, so `acquireAbandonLock` reads the lock once more
+  (`liveHolder`). A record that decodes and is not stale is a live holder, including one on a volume without hard links
+  where the plugin's rename-based lock can be live: the result is `lock-held` and nothing moves. Only a lock that is still
+  unreadable, absent or stale lets abandon run with no lock, and it says so in one fixed line
+  (`ABANDON_WITHOUT_LOCK_LINE`, `src/sync/vault-keys.ts`: "the publish lock could not be used, so abandon ran without it;
+  make sure no publish is running"). The CLI prints it before the move; the plugin appends it to the success note and,
+  since round 8, to a partial-move result (`MoveOutcome` in `src/plugin/abandon-flow.ts` carries `ranWithoutLock` with the
+  partial-move error). The cost: with a broken lock a running publish is not excluded, and the line is the only warning;
+  abandon fails open on a broken lock. Any other acquisition error is passed on unchanged. A takeover that moved a live
+  lock aside and then fails to put it back with `lock-unsupported` (no hard links) refuses as `lock-held` and keeps the
+  moved file under its `.taken` name (`takeOver`). The lock is released through `releaseQuietly`, which swallows release
+  errors, so a failing release cannot replace the abandon result or a partial-move error; `release()` sets its done flag
+  only after the remove succeeded, so a second call retries. The heartbeat has a stopped flag and a set of beats in flight:
+  `release()` stops the timer, awaits the beats in flight (`settled`), then reads and removes, so a late beat cannot
+  recreate the lock. `writeIfToken` takes an `isStopped` argument that the CLI's lock file honors; the plugin's adapter
+  lock file ignores it and relies on release awaiting the beat, so a write that hangs would hold release (there is no
+  timeout). The plugin settles its session inside a guard (`settleSession`): if locking or re-reading the session throws,
+  the result keeps the move outcome and adds "reload the plugin". If the move finds no files, the CLI prints the same
+  "nothing was moved" message as for none at the start and exits 1. A failing or unusable device store does not
+  block the move: `floorKept` (`src/sync/vault-keys.ts`) turns any store error into `unavailable` and the four files
+  still move; `not-looked-up` means the vault id is no longer on the device. A rename that fails after the first file
+  moved throws `AbandonPartialMoveError` (counts only: "N of M files were moved. Run abandon again to move the rest into a new backup folder."); the
+  plugin locks the session and refreshes status, the CLI exits 1 without operating-system text, and a rerun moves the rest
+  into a new backup folder (the first files stay in the first one).
+  With no terminal and no `--yes-abandon` the CLI exits 2 even when nothing is there to move. Refusal messages quote
   `ABANDON_HOW` (`src/sync/abandon-hint.ts`). The abandon dialogs have never run in Obsidian.
-- **Legacy 0.2.0 markers.** `pull` refuses the three marker contents release 0.2.0 wrote or accepted (`fixture copy
-  created by ipfs-sync pull`, empty, `marker`) with a message that the marker predates this version and must be
-  re-marked deliberately (`src/sync/pull-guard.ts`, `src/sync/fixture-marker.ts`). `publish` uses that wording only for
-  the pulled-copy text; the other two get the generic refusal.
+- **Legacy 0.2.0 markers (history).** Before the guard removal, `pull` refused the three marker contents release 0.2.0
+  wrote or accepted (`fixture copy created by ipfs-sync pull`, empty, `marker`) and `publish` used that wording only for
+  the pulled-copy text. On `mvp-07b-guard-removal` no marker content is refused; `legacyMarkerProblem` and the marker
+  readers stay exported in `src/sync/publish-guard.ts` and nothing that gates an operation reads them.
 - **Plugin key-slot copy.** The plugin writes its local key-slot copy through Obsidian's adapter, and that write is not
   crash-atomic; the CLI copy is atomic (temporary file, then rename).
 - **Plugin lock file.** Creation is a check that the file does not exist, then a rename of a fully written temporary
@@ -615,8 +821,8 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   does not stop a CLI publish on the same vault folder. A lock file that cannot be parsed has no known age and is
   not clearable from the plugin: use `ipfs-sync publish --break-lock` on a computer. `--break-lock` deletes a live lock
   if it is run while a plugin publish is running. These actions have not run in Obsidian.
-- **Vault writes by the CLI host bridge.** `cli/node-host-bridge.ts` now creates directories 0700 and files 0600 for
-  vault writes, and writes through a temporary file. A crash can leave `.<name>.<pid>.<uuid>.tmp` inside a vault
+- **Vault writes by the CLI host bridge.** `cli/node-host-bridge.ts` creates files 0600 and the `.ipfs-sync` state folder
+  0700 (other folders keep the platform default; see section 8.8), and writes through a temporary file. A crash can leave `.<name>.<pid>.<uuid>.tmp` inside a vault
   directory.
 - **Plugin setup writes only the local copy.** Setup creates the local key-slot copy; the next publish writes
   `keyslots.json` to the node. The plugin cannot repair a vault; use the CLI.
@@ -650,13 +856,14 @@ shape: `file.changed` carries its `path` inside the process only, and no persist
   unexplained; the relaunch loop that followed was an iOS file-provider hang (watchdog 0x8BADF00D) cleared by restarting
   the phone. These are measurements of that build, not claims about the encrypted pull: an encrypted publish or pull
   has not run on a phone, nothing was measured above 50 MB, background and suspend behaviour is unknown, and Android is
-  untested. A phone test installs through BRAT from a GitHub pre-release with its own tag, and until the guard is
-  removed (`mvp-07b`) it is a fixture-only build.
+  untested. A phone test installs through BRAT from a GitHub pre-release with its own tag. On `mvp-07b-guard-removal`
+  such a build takes a real vault, and its behaviour with one is unmeasured.
 
 Unverified, or unenforced, at the time of writing:
 1. Anything inside Obsidian: the setup, unlock and abandon dialogs, an encrypted publish from the plugin, HKDF, HMAC and
    AES-GCM under Obsidian's WebView (only a SHA-256 digest is recorded as having run in Obsidian 1.13.7), and
-   `requestUrl` with multi-megabyte binary bodies and Range requests.
+   `requestUrl` with multi-megabyte binary bodies and Range requests, and the desktop Node transport beyond the redirect
+   probe (one macOS desktop, run before the fail-closed fixes of `7a9ce77`; Windows and Linux are untested).
 2. Encrypted publish and pull on a phone (Argon2id alone was timed on an iPhone; see "Mobile"), and Android.
 3. Zeroization beyond the arrays the core owns.
 4. Rollback and freeze prevention: a pull refuses a sequence below this device's record, and nothing detects a freeze or a
@@ -702,8 +909,9 @@ Deferred or accepted, recorded so they are not lost:
   up automatically (a few bytes in `.ipfs-sync/`); delete it by hand if you find one.
 - Cosmetic, accepted: after an abandon, a second Publish can open a second unlock dialog over the first (the first is
   cancelled by the generation check). Whether `settling` deduplicates it was not verified.
-- The pull notice `FIXTURE_ONLY_PULL_NOTICE` (`src/plugin/pull-notices.ts`) now reads "no files outside .obsidian/ and
-  .ipfs-sync/"; before, it named only `.obsidian/` although the guard also ignores `.ipfs-sync/`.
+- History: the pull notice `FIXTURE_ONLY_PULL_NOTICE` once read "no files outside .obsidian/ and .ipfs-sync/". On
+  `mvp-07b-guard-removal` the constant keeps its name and carries neutral text ("pull was refused. Nothing was sent to
+  the node and no file changed."), and no marker refusal reaches it.
 - W-14 (untouched blobs are never re-verified), W-15 (mass removal) and W-16 (the plugin's `readRange` re-reads
   the whole file per segment, so a file over 8 MiB edited during upload can be uploaded as a mix of versions) were
   preconditions for removing the guard in `mvp-07b`. W-15 is now partly answered by the mass-removal guard (the 49 percent
@@ -720,33 +928,103 @@ the user, not a symbolic link, not a pipe), `IPFS_SYNC_PASSPHRASE`, or, with sta
 prompt that does not echo (256-byte limit). In tests with injected streams the terminal is restored after
 Ctrl-C, Ctrl-D, a 257th byte, end of input and a failure to enter raw mode; restore on `SIGTERM`, `SIGHUP` and
 `SIGTSTP` is unverified. Both variables set is an error. There is no
-`--passphrase` flag and none is read from a configuration file. Every source passes the canonical passphrase function
+`--passphrase` flag and none is read from a configuration file. A passphrase file whose real path lies inside the vault
+folder is refused with exit 2 before any request (`passphraseFileInsideVault`, `cli/run.ts`), because the next publish
+would upload it; `init` and `abandon` do not read the variable and are not judged on it. Every source passes the canonical passphrase function
 before any request. `ipfs-sync init` is the only command that creates a vault; it generates the passphrase, ignores any
 passphrase in the environment, and either shows it once on a terminal and requires it to be typed again, or writes it to
 a new 0600 file created exclusively (`--passphrase-file`) and prints only the path. The plugin asks for the passphrase
 once per session, keeps only the non-extractable key set in memory, never writes a passphrase or key to `data.json`, and
 never opens a dialog from the timer.
 
-### 8.9 The publish guard
+The CLI's other input boundaries, from the third review round. Credentials come from the environment only:
+`--auth-password`, `--auth-token` and `--auth-header-value` are refused by name (`rejectCredentialFlags`, `cli/args.ts`) and
+the value is never echoed. A `./ipfs-sync.config.json` that was found, not asked for, may not set `rpc.url` or
+`gateway.url` while a credential comes from the environment or flags and the same address is not set there
+(`assertImplicitFileDoesNotSteerCredential`, `cli/load-config.ts`); `--config` lifts the check. A credential on a
+non-loopback `http:` endpoint gives a warning (`plainHttpWarnings`, `src/core/config/build-config.ts`). The state folder
+must not be a symbolic link for any command that takes a vault (`cli/state-folder-link.ts`, called from `assertDirectory`
+and from the key-value store and lock file on every operation), and `.ipfs-sync/` is created 0700. Standard input,
+standard output and standard error must all be terminals (`canAsk` in `cli/io.ts`) for `CliIo` to have a `confirm` or `prompt`;
+with any of them redirected the commands that need a yes refuse before sending anything, because the consequence text goes to
+standard output and the question to standard error. The unresolved-name pull error is fixed text (no node answer, no name
+echoed; `resolveRootCid`, `src/sync/target-resolution.ts`). The lock file's host name is free text, so `describeLock`
+(`src/sync/publish-lock.ts`) cuts a bounded prefix of it to 64 characters (`LOCK_HOST_DISPLAY_MAX`, marked when cut),
+escapes backslashes and double quotes, escapes the rest with the shared table and shows it in double quotes, so it cannot
+end its own quotes and write the words that follow. `decodeLock` keeps at most 255 characters of the host
+(`LOCK_HOST_MAX`) and reads no file over 64 KiB (`LOCK_MAX_BYTES`); such a file is rejected as unreadable. The
+stale-lock dialog escapes the description again. Node-supplied text is escaped in `status`, and `escapeNodeText` and the CLI's output stripping share one
+code-point table (`isUnsafeCodePoint`, `src/kubo/errors.ts`).
 
-Until `mvp-07b` removes it (below), publish (CLI and plugin) and `init` refuse any vault whose `.ipfs-sync-fixture` file does not
-hold the text `fixture`, before a passphrase is looked at and before any request. `pulled-fixture` (written by pull), an
-empty marker and any other text are refused; pull accepts `fixture` and `pulled-fixture`. A directory that pull populated
-therefore cannot be published from until the user writes `fixture` into the marker by hand, which is the user's own
-statement that it holds no real notes. The message states that encryption is implemented but not yet independently
-reviewed or verified in Obsidian. **The marker is not protection:
-anyone who can create a file in the vault can create it, and then the refusal is overridden.** Removing the guard is a
-named `mvp-07b` task that requires the security reviewer's sign-off, a recorded in-Obsidian run, and a phone timing of the
-key derivation or an explicit, informed operator acceptance (a timing on an iPhone now exists, §8.7 "Mobile"; whether it
-meets the precondition is for the operator and the reviewer). The case-fold and
-Windows path hardening for authenticated manifests landed in `mvp-07a` as the pull path policy (§8.10).
+**One CID rule (review round 4).** `isCidToken` in `src/sync/local-record.ts` (10 to 128 alphanumeric characters) is asked by
+every reader of a local file, every writer of one (`assertPersistableCid` in `writeJournal`, `writeMaintenanceJournal` and
+`writeRootState`: a value the readers would refuse is not persisted) and every place a node value becomes a CID
+(`src/sync/target-resolution.ts`, `commit-node.ts`, `maintenance-node.ts`). `rootOfPath` accepts only `/ipfs/<cid>`; any
+other shape is refused with fixed text. The gateway layer has its own copy of the bound (`src/kubo/gateway.ts` cannot import the
+sync layer). Earlier rounds fixed one value at a time and each fix passed its own example. The rule is now one function. Any
+place that still tests a CID against its own pattern is the next gap, and no search for such a place has been run.
 
-**How the guard is removed, and what gates the release (delivered as tools; the removal itself is not done).** The fixture
-policy is centralised on `main` in `src/sync/fixture-constants.ts` (no imports), `publish-guard.ts`, `pull-guard.ts` and
-`state-folder-guard.ts`, with the symlinked-state-folder check called from the first step of the pull independent of the
-policy. The removal is one commit on a branch `mvp-07b-guard-removal` cut from `main`: the two policy modules become
-permissive with every export name kept, and `main` keeps the guard until a fast-forward-only merge; neither the branch nor
-`tests/unit/guard-permissive.test.ts` exists yet. The release is gated by `tools/check-guard-preconditions.mjs`, which
+**Addresses (round 4).** `displayAddress` returns "invalid address" unless the parsed protocol is `http:` or `https:` and the
+host is not empty, so `user:secret@host:5001` (scheme `user:`) is not echoed; the "must use http or https" error is fixed text
+without the scheme. The explicit-port check runs on `parserView` of the text (tabs and line breaks removed, leading and
+trailing controls and spaces stripped, backslash read as slash), so it sees what the URL parser sees. A plain `http:`
+credential warning exempts `localhost`, `127.0.0.0/8` and `[::1]` only (`.localhost` names are no longer exempt).
+
+**CLI host bridge directory modes.** `fs.write`, `mkdir`, `rename` and `append` take the per-path mode: the state folder and
+everything below it is 0700 (the first path segment is compared by `foldKey`, so a case variant counts), other
+folders keep the platform default. Files are 0600.
+
+### 8.9 The publish guard, its removal and the release gate
+
+**History.** Until the removal below, publish (CLI and plugin) and `init` refused any vault whose `.ipfs-sync-fixture`
+file did not hold the text `fixture`, before a passphrase was looked at and before any request. `pulled-fixture`
+(written by pull), an empty marker and any other text were refused, and pull accepted `fixture` and `pulled-fixture`.
+**The marker was never protection: anyone who can create a file in the vault can create it.** Removing the guard was a
+named `mvp-07b` task that requires the security reviewer's sign-off, a recorded in-Obsidian run, and a phone timing of
+the key derivation or an explicit, informed operator acceptance (a timing on an iPhone exists, §8.7 "Mobile"; whether it
+meets the precondition is for the operator and the reviewer). The case-fold and Windows path hardening for authenticated
+manifests landed in `mvp-07a` as the pull path policy (§8.10). `main` still holds the guard.
+
+**The branch that now exists.** Branch `mvp-07b-guard-removal` was cut from `main` at `ef50b1c` (the 0.3.0 version bump
+in `manifest.json` and `package.json`, committed before the branch so the release tool edits no hashed file). It carries
+one removal commit, `38db5f8`, which replaces the contents of `src/sync/publish-guard.ts` and `src/sync/pull-guard.ts`
+with permissive versions and keeps every export name and signature. `assertPublishMarker` and `assertFixtureVault`
+return without checking, `enablesPull` answers true, `assertPullDestination` and `assertVaultPullDestination` return
+`{ needsMarker: false }`, `writeFixtureMarker` does nothing, and the notice, settings and help copy carry neutral text
+("Any vault can be published.", "Any directory can be pulled into."). The marker parsing stays exported for its callers;
+`src/sync/fixture-constants.ts` is unchanged. The commit also adds `tests/unit/guard-permissive.test.ts` (16 tests),
+deletes `tests/unit/fixture-marker.test.ts` on this branch only, and adapts 20 other test files that asserted the old
+refusals. It had not been run as a whole suite when this section was written; the phase gate (task 6.4) runs it once.
+
+What stays refused, independent of the old policy: a state folder that is a symbolic link (`state-folder-guard.ts`,
+called by the pull engine's first step and by both destination functions), a destination that exists and is not a
+directory, a mass removal (§8.7), a missing or wrong passphrase, the path policy (§8.10), the locks, a sequence below the
+recorded floor, and a plaintext root. After the removal a real vault publishes encrypted, a non-empty directory pulls
+with the conflict policy, and the pull writes no marker.
+
+**What the branch does not have.** No review record of this tree, no recorded manual operator run, no phone timing, no
+tag and no release record. v0.3.0 is not cut. Anyone who publishes a real vault from this branch does so on the strength
+of static reads of earlier trees by one model each (§8.1) and nothing else.
+
+**The uncomfortable fact about `main`.** `main` is one commit ahead of the branch's base: `871257c` (the vault-agent UI
+design set; it touches `docs/`, `AGENTS.md`, `.gitignore`, `.claude/agents/uiux-lead.md`,
+`.agent-team/ipfs-sync/team.json` and `.agents/UI_UX_PROTOCOL.md`, none of them in the scope of T). The branch does not
+contain it, so a fast-forward-only merge of the branch into `main` is not possible until the branch is rebased onto
+`main` or `main` is merged into it. Either changes commit ids. Do that before the review record is written, not after:
+the git-history form of item A binds the record to the reviewed commit, and the operator decides how.
+
+**What the checker and the release tool bind to.** They bind to the committed tree of the branch HEAD, never to `main`
+and never to the working tree. T is the hash over the scoped files of that commit (package and build files,
+`manifest.json`, `src/`, `cli/`, `tools/release/`, `tools/feature-op-mvp-07/` and the checker, recorder and release
+tools; the exact list is `TREE_SCOPE` in `tools/check-guard-preconditions.mjs`). The removal commit changes `src/`, so
+T of this branch differs from T of `main`, and the reviewer reads this tree. `README.md`, `CHANGELOG.md`, `DESIGN.md` and
+`docs/operator/encrypted-vault.md` are outside T. The checker hashes them from the commit into the evidence
+(`DOCUMENT_FILES`) and requires the six limit sentences in the README and in this section. A documentation commit on the
+branch therefore changes the documentation hashes in the evidence and does not change T; a change to any scoped file
+after the review record or after the operator run changes T, and both must be redone.
+
+**How the release is gated (delivered as tools).** The policy is centralised in `src/sync/fixture-constants.ts` (no
+imports), `publish-guard.ts`, `pull-guard.ts` and `state-folder-guard.ts`. The release is gated by `tools/check-guard-preconditions.mjs`, which
 exits 0 only when all of these pass: a tree hash T over a fixed scope of tracked files (blob bytes from the object
 database; untracked, ignored, staged or flagged files in scope fail); build hashes B from a clean export built twice with
 a scrubbed environment (`--build` copies the verified outputs into `dist/plugin/` and `dist/cli/` and writes
@@ -763,8 +1041,9 @@ checklist tests run in the clean export with zero skips, the limit sentences pre
 and `pnpm audit --prod` matched against dated accepted findings. The release tool (`tools/release-mvp-07.mjs`) runs the
 checker in the same invocation, copies the checked bytes, asserts their hashes, edits no scoped file, needs a typed
 `I accept an unsigned review record for <T8>` for the git form, and never runs git, tags, pushes or publishes. State
-today: the checker, the recorder and the release tool are built and tested; the operator-run script, the review record and
-the branch are not, so item B and item A cannot pass and no release can be recorded. The review record, the operator-run
+today: the checker, the recorder, the release tool, the operator-run script and the branch are built; the review record,
+a recorded manual operator run and a phone timing are not, so items A, B and C cannot pass and no release can be
+recorded. Item B counts only a manual run in Obsidian desktop against the shared node; a script-only result does not. The review record, the operator-run
 record and the phone-timing record are attestations, not proofs (§8.7).
 
 ### 8.10 What one pull does
@@ -780,7 +1059,8 @@ In order, and what each step may write:
 
 1. Flag combinations that are never valid are refused before any request (`--resolve-fork` with `--allow-rollback`;
    `--allow-rollback` without `--root-cid` or `--manifest`; `--resolve-fork` with either of those).
-2. The destination guard (marker rule above; state folder not a symbolic link). Refusal exits 2.
+2. The destination guard (the destination is absent or a directory, and the state folder is not a symbolic link; the
+   marker rule of earlier trees is gone on `mvp-07b-guard-removal`). Refusal exits 2.
 3. The in-process lock and `publish.lock` are taken (a held lock is a stop with publish's own text); `.ipfs-sync/tmp/` is
    swept while the lock is held; the state file is read (a damaged one is a stop); the target is resolved (name with
    `nocache`, `--root-cid`, or `--manifest`); the root is listed once; `keyslots.json` and `manifest.enc` are read by the
@@ -791,14 +1071,28 @@ In order, and what each step may write:
    passphrase, a damaged slot and a failed commitment are one outcome and one message.
 5. `manifest.enc` (or the chosen history entry) is authenticated and decoded; its `vaultId` must equal the slot file's; for
    `--manifest` its `rootCID` must equal the named CID. The path policy runs over the whole manifest.
-6. The verdict (below). A first pull is shown and confirmed. Only then are the key-slot copy and, for a first pull or a
+6. The verdict (below). A first pull is shown and confirmed. The confirmation also states how many existing local files
+   will be replaced ("at least N"), with a dated copy of each kept, and only when that count is above zero
+   (`countReplacedLocalFiles` in `src/sync/encrypted-pull.ts`, shown by `cli/pull-encrypted-command.ts` and
+   `src/plugin/first-pull-dialog-model.ts`). The count is a read-only preview: a first pull has no baseline, so it counts
+   every local file that differs from the manifest at a manifest path, and the stage plans again. The same confirmation is
+   required when the verdict is not `first-pull` but the directory has no state for this root (`run.state === undefined`
+   in `authorize`): the device holds a floor, the folder holds no baseline, and every differing file is a conflict. It asks
+   only when the preview count is above zero, and it shows `NO_STATE_PULL_STATEMENT` in place of the no-baseline statement.
+   Each question has its own flag, read in `confirmFirstPull`: `--accept-first-pull` (`acceptFirstPull`) skips only the
+   true first pull, and this no-state question needs `--accept-replace` (`acceptReplace`). A run with no way to ask stops
+   with `first-pull-not-confirmed` and names the flag that fits (`NO_STATE_NOT_CONFIRMED_MESSAGE` names `--accept-replace`). On a
+   true first pull into a non-empty directory, `--accept-first-pull` also covers the replace consequence (differing files are
+   replaced, dated copies kept); `--accept-replace` is the stateless flag. A
+   script that passed `--accept-first-pull` for the second case stops here now. The CLI passes the vault
+   path as `destination` and prints it; the plugin does not pass one. Only then are the key-slot copy and, for a first pull or a
    newer manifest, the floor written. Nothing is written before this step except the lock and the sweep.
 7. Plan: for every manifest path, the path policy first, then the symbolic-link prefix walk, then the three-way rule on
    plaintext sha256 (L missing: fetch; L = R: unchanged; L = B: replace; B = R: locally modified, left alone; otherwise
    conflict; with no `B`, a file that differs from the node's is a conflict). The size-and-mtime shortcut is bypassed when this device's exclusion
    list differs from the manifest's. A total above the ceiling needs a yes (otherwise every file to fetch is `unfetched`
-   and nothing is requested). The `pulled-fixture` marker is written before the first vault file when the destination was
-   empty. Blobs are listed and read from `/ipfs/<manifest.rootCID>/`, never the root's mutable `current/`, by a bounded
+   and nothing is requested). No marker is written (earlier trees wrote `pulled-fixture` before the first vault file
+   when the destination was empty). Blobs are listed and read from `/ipfs/<manifest.rootCID>/`, never the root's mutable `current/`, by a bounded
    pool; each file goes through the free-space check (CLI only), `.ipfs-sync/tmp/<id>.part` (every segment authenticated;
    identifier, size and sha256 equal to the entry), the write-time path check, a conflict copy of the local file where the
    pull would replace an edit (made first; if it cannot be written the replace is aborted), and the rename.

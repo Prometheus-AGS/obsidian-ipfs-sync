@@ -132,7 +132,8 @@ describe("restore without a state, then publish", () => {
     const refused = await rig.pull(["--manifest", first.rootCID, "--accept-first-pull"]);
     expect(refused.code).toBe(1);
     expect(refused.err).toContain("--allow-rollback");
-    const restored = await rig.pull(["--manifest", first.rootCID, "--allow-rollback", "--accept-first-pull"]);
+    // Round 4, A-L2: the state is gone but the floor is not, so this is the replace question (--accept-replace), not the first-pull question.
+    const restored = await rig.pull(["--manifest", first.rootCID, "--allow-rollback", "--accept-replace"]);
     expect(summary(restored)).toEqual({ code: 0, err: "" });
     expect(restored.out).toContain("not removed");
     expect(await readFile(join(rig.vaultB, "inbox.md"), "utf8")).not.toContain("second edition");

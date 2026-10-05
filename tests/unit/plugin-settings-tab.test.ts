@@ -8,19 +8,18 @@ import { byId, focusOrder, referencedText, type FakeEl } from "../support/fake-d
 import { App, Modal } from "../support/obsidian-stub";
 import { controlFor, flush, labelOf, memoryStore, NODE_KEYS, NOW, open, OWNED_ID, PEER_ID, type } from "../support/settings-tab-rig";
 
-const FIXTURE_TEXT =
-  "Encryption is implemented but not yet independently reviewed or verified in Obsidian. Until that review, this build only publishes " +
-  'fixture vaults: vaults with a .ipfs-sync-fixture file at the root holding the text "fixture". Real vaults are refused, and nothing is sent to the node for them.';
+const ENCRYPTION_NOTE = "Every publish is encrypted with your vault passphrase before anything leaves this device.";
 
 beforeEach(() => Modal.reset());
 
 describe("settings tab: labels and controls", () => {
-  it("shows the fixture-only notice first, with its own title and the required wording", async () => {
+  it("shows the encryption note first, with its own title, and no fixture-only or review-pending wording (the guard is removed)", async () => {
     const { root } = await open();
     const first = root.children[0];
     expect(first?.hasClass("callout")).toBe(true);
-    expect(first?.textContent()).toContain("Fixture-only build");
-    expect(first?.textContent()).toContain(FIXTURE_TEXT);
+    expect(first?.textContent()).toContain("Publishing is encrypted");
+    expect(first?.textContent()).toContain(ENCRYPTION_NOTE);
+    expect(root.textContent()).not.toMatch(/Fixture-only build|independently reviewed|only publishes fixture vaults/);
   });
 
   it("renders a labelled control for every view-model field, across all four schemes", async () => {
@@ -154,6 +153,7 @@ describe("settings tab: keyboard order", () => {
       "RPC port",
       "Gateway URL",
       "Gateway port",
+      "Gateway authentication",
       "Publication key name",
       "MFS root",
       "Auto-publish interval (minutes)",

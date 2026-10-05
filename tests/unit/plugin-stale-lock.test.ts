@@ -2,7 +2,7 @@ import type { App as ObsidianApp, PluginManifest, Plugin as ObsidianPlugin } fro
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
 import { ClearStaleLockDialog } from "../../src/plugin/clear-stale-lock-dialog";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore } from "../../src/plugin/settings-store";
 import { IpfsSyncSettingTab } from "../../src/plugin/settings-tab";
 import { createSettingsViewModel } from "../../src/plugin/settings-view-model";
@@ -183,7 +183,7 @@ describe("the stale-lock flow", () => {
     const h = flowOver(adapter);
     const done = h.flow.open();
     await flush();
-    expect(h.request()?.description).toMatch(/process 0 on obsidian-1a2b3c4d, last heartbeat \d+ s ago/);
+    expect(h.request()?.description).toMatch(/process 0 on "obsidian-1a2b3c4d", last heartbeat \d+ s ago/);
     expect(adapter.files.has(LOCK)).toBe(true);
     h.finish()?.({ cleared: false });
     expect(await done).toEqual({ notice: "" });
@@ -253,6 +253,46 @@ describe("the plugin: command and settings section", () => {
     await vi.waitFor(() => expect(Notice.shown.map((n) => n.message)).toContain(STALE_LOCK_COPY.cleared));
   });
 
+  // R5-L6 (b): the lock file's host is free text; it reaches the dialog truncated to 64 characters and escaped.
+  describe("a hostile host in the lock file", () => {
+    const hostile = (host: string, time = STALE): Uint8Array<ArrayBuffer> => encodeLock({ token: "old", pid: 0, host, time });
+
+    it.each([
+      ["a terminal escape", "evil\u001b[2Jhost", "evil\\u001b[2Jhost"],
+      ["a bidirectional override", "a‮b", "a\\u202eb"],
+      ["a line break", "a\nFORGED: line", "a\\u000aFORGED: line"],
+    ])("the control's description escapes %s", async (_label, host, escaped) => {
+      const adapter = new MemoryAdapter();
+      adapter.put(LOCK, hostile(host));
+      const view = await control(adapter).inspect();
+      expect(view).toMatchObject({ kind: "stale" });
+      const description = (view as { description: string }).description;
+      expect(description).toContain(escaped);
+      expect(description).not.toMatch(/[\u0000-\u001f\u007f-\u009f‪-‮]/);
+    });
+
+    it("the control's description cuts a long host to 64 characters (fresh and stale alike)", async () => {
+      for (const time of [STALE, FRESH]) {
+        const adapter = new MemoryAdapter();
+        adapter.put(LOCK, hostile("h".repeat(5000), time));
+        const view = await control(adapter).inspect();
+        const description = (view as { description: string }).description;
+        expect(description).toContain("h".repeat(64));
+        expect(description).not.toContain("h".repeat(65));
+      }
+    });
+
+    it("the dialog shows the description with the unsafe characters escaped even when it is handed raw ones", () => {
+      const app = new App(new MemoryAdapter());
+      const dialog = new ClearStaleLockDialog(app as unknown as ObsidianApp, { description: "process 0 on a\u001b[2Jb‮c, last heartbeat 999 s ago", clear: async () => ({ ok: true }) }, () => undefined);
+      dialog.onOpen();
+      const text = (dialog as unknown as { contentEl: FakeEl }).contentEl.textContent();
+      expect(text).toContain("a\\u001b[2Jb\\u202ec");
+      expect(text).not.toContain("\u001b");
+      expect(text).not.toContain("‮");
+    });
+  });
+
   it("the dialog puts Cancel first and shows a refusal as text", async () => {
     const adapter = new MemoryAdapter();
     const app = new App(adapter);
@@ -267,8 +307,28 @@ describe("the plugin: command and settings section", () => {
     expect(buttons[1]?.disabled).toBe(true); // as in the adopt dialog: read why, then cancel
   });
 
+  it("the dialog reports the real result, not a cancel, when it is closed while the lock is being cleared (review round 3, P-L2)", async () => {
+    let release: (result: { ok: true }) => void = () => undefined;
+    const pending = new Promise<{ ok: true }>((resolve) => {
+      release = resolve;
+    });
+    const finished = vi.fn();
+    const app = new App(new MemoryAdapter());
+    const dialog = new ClearStaleLockDialog(app as unknown as ObsidianApp, { description: "process 0 on h, last heartbeat 999 s ago", clear: () => pending }, finished);
+    dialog.open();
+    const content = (dialog as unknown as { contentEl: FakeEl }).contentEl;
+    const confirm = content.find((el) => el.tag === "button" && el.text === STALE_LOCK_COPY.confirm);
+    await confirm?.dispatch("click");
+    dialog.close();
+    expect(finished).not.toHaveBeenCalled();
+    release({ ok: true });
+    await flush();
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(finished).toHaveBeenCalledWith({ cleared: true });
+  });
+
   function tabOver(adapter: MemoryAdapter) {
-    const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { settings: defaultSettings(), outcome: "current", notices: [], persist: false });
+    const store = createSettingsStore({ loadData: async () => null, saveData: async () => undefined }, { settings: testNodeSettings(), outcome: "current", notices: [], persist: false });
     const vm = createSettingsViewModel({ store, now: () => new Date(NOW), listNodeKeys: async () => [] });
     const lockControl = control(adapter, createSyncLock(), NOW);
     const app = new App();

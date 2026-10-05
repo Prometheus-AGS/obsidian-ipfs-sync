@@ -25,6 +25,7 @@ import { HostPathError, createNodeHostBridge } from "./node-host-bridge";
 import { PassphraseInputError } from "./passphrase-errors";
 import { recordOwnedKey } from "./owned-keys-store";
 import { createNodeLockContext, createNodeLockFile } from "./publish-lock-file";
+import { refuseLinkedStateFolder } from "./state-folder-link";
 
 export interface PublishFlags {
   /** `--break-lock`: remove the publish lock after a confirmation, then continue. */
@@ -76,6 +77,8 @@ const REPORTED_FAILURES = [
 export async function assertDirectory(path: string): Promise<void> {
   const info = await stat(path).catch(() => undefined);
   if (info === undefined || !info.isDirectory()) throw new UsageError(`vault "${path}" is not a directory`);
+  // Every command that takes a vault passes here first, before any lock, state or request: none may reach its state through a link.
+  await refuseLinkedStateFolder(path);
 }
 
 function printHeader(ctx: PublishContext, vault: string): void {

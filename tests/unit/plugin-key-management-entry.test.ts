@@ -7,7 +7,7 @@ import { ACCEPT_SLOTS_COPY, KEY_ACTIONS_COPY, MASS_REMOVAL_COPY, PRUNE_HISTORY_C
 import { MEASURE_START_NOTICE } from "../../src/plugin/measure-notice";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
 import { setPluginSeams } from "../../src/plugin/plugin-seams";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { keySlotsCopyPath } from "../../src/sync/vault-keys";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
@@ -77,7 +77,7 @@ async function load(options: { readonly vault: boolean; readonly build?: boolean
   vi.stubGlobal("window", { setInterval: vi.fn(() => 7), clearInterval: vi.fn() });
   const plugin = new IpfsSyncPlugin(new StubApp(adapter) as unknown as App, MANIFEST);
   const stub = plugin as unknown as StubPlugin;
-  stub.data = { ...defaultSettings(), mfsRoot: ROOT, publishIntervalMinutes: 0 };
+  stub.data = { ...testNodeSettings(), mfsRoot: ROOT, publishIntervalMinutes: 0 };
   await plugin.onload();
   return { plugin, stub, adapter, node };
 }
@@ -129,12 +129,13 @@ beforeEach(() => {
   Modal.reset();
   resetRequestUrl();
   vi.stubGlobal("fetch", vi.fn());
+  Platform.isDesktopApp = false; // these tests run the mobile transport (requestUrl) against the stub; desktop would use Node's http
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   resetRequestUrl();
-  Object.assign(Platform, { isIosApp: false, isAndroidApp: false, isMobile: false });
+  Object.assign(Platform, { isDesktopApp: true, isIosApp: false, isAndroidApp: false, isMobile: false });
 });
 
 describe("plugin entry: Measure key derivation time", () => {

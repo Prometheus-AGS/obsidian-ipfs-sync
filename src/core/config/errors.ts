@@ -1,4 +1,6 @@
 export type ConfigErrorCode =
+  | "no-rpc-url"
+  | "no-gateway-url"
   | "invalid-url"
   | "invalid-port"
   | "port-conflict"

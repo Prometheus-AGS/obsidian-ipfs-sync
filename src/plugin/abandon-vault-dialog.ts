@@ -11,7 +11,14 @@ const ID = {
 } as const;
 
 export type AbandonResult = { readonly ok: true; readonly backupNote?: string } | { readonly ok: false; readonly reason: string };
-export type AbandonOutcome = { readonly abandoned: true; readonly backupNote?: string } | { readonly abandoned: false };
+/**
+ * `failure` is set only when the dialog was closed after Confirm and the action then failed: fixed, safe text (never an error message),
+ * so the caller can say so even though the dialog is gone. A plain Cancel has no `failure`.
+ */
+export type AbandonOutcome = { readonly abandoned: true; readonly backupNote?: string } | { readonly abandoned: false; readonly failure?: string };
+
+/** Shown instead of the text of an error the action threw: the console has the detail. */
+const UNEXPECTED_FAILURE = "an unexpected error occurred; see the developer console for details";
 
 export interface AbandonDialogRequest {
   /**
@@ -29,6 +36,7 @@ export interface AbandonDialogRequest {
 export class AbandonVaultDialog extends Modal {
   private readonly model: AbandonModel = createAbandonModel();
   private settled = false;
+  private closing = false;
   private field: HTMLInputElement | undefined;
   private failureEl: HTMLElement | undefined;
   private cancelButton: HTMLButtonElement | undefined;
@@ -69,9 +77,11 @@ export class AbandonVaultDialog extends Modal {
     this.cancelButton.focus();
   }
 
+  /** Closing while the abandon runs does not stop it: the real result is reported when it ends, not a cancel. */
   onClose(): void {
     this.contentEl.empty();
-    this.finish({ abandoned: false });
+    this.closing = true;
+    if (!this.model.state().busy) this.finish({ abandoned: false });
   }
 
   private apply(state: AbandonState): void {
@@ -91,15 +101,16 @@ export class AbandonVaultDialog extends Modal {
     try {
       result = await this.request.abandon();
     } catch (error) {
-      result = { ok: false, reason: error instanceof Error ? error.message : "unknown error" };
+      result = { ok: false, reason: UNEXPECTED_FAILURE };
     }
     if (result.ok) {
       this.finish({ abandoned: true, ...(result.backupNote === undefined ? {} : { backupNote: result.backupNote }) });
-      this.close();
+      if (!this.closing) this.close();
       return;
     }
     this.apply(this.model.fail(result.reason));
-    this.cancelButton?.focus();
+    if (this.closing) this.finish({ abandoned: false, failure: result.reason });
+    else this.cancelButton?.focus();
   }
 
   private finish(outcome: AbandonOutcome): void {

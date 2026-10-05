@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import { assertMfsMutationPath, validateMfsRoot, type EnvMap, type SyncConfig } from "../src/core/config";
-import { acquirePublishLock } from "../src/sync/publish-lock";
+import { acquireAbandonLock, releaseQuietly, type LockContext, type LockFile } from "../src/sync/publish-lock";
 import { PublishRefusedError } from "../src/sync/publish-refusals";
 import { DeviceStoreError, type DeviceStore } from "../src/sync/device-store";
-import { ABANDON_CONFIRMATION, STATE_DIR, VaultKeysError, abandonVault, describeAbandonFloor, rootDigest } from "../src/sync/vault-keys";
+import { ABANDON_CONFIRMATION, ABANDON_WITHOUT_LOCK_LINE, STATE_DIR, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, rootDigest } from "../src/sync/vault-keys";
 import { createLazyDeviceStore } from "./device-store-node";
 import { UsageError } from "./args";
 import { EXIT_CHECK_FAILED, EXIT_OK, type CliIo } from "./io";
@@ -12,7 +12,7 @@ import { assertDirectory } from "./publish-command";
 import { createNodeLockContext, createNodeLockFile } from "./publish-lock-file";
 
 export interface AbandonContext {
-  readonly config: SyncConfig;
+  readonly config: Pick<SyncConfig, "mfsRoot">;
   readonly io: CliIo;
   readonly vaultPath: string;
   readonly env: EnvMap;
@@ -21,20 +21,26 @@ export interface AbandonContext {
   readonly yesAbandon: boolean;
   /** The device-local store the floor is read from. Production leaves it out (the per-user directory); tests pass one. */
   readonly deviceStore?: DeviceStore;
+  /** The publish lock file and its process facts. Production leaves them out (the vault's lock file and the operating system's facts); tests pass them. */
+  readonly lockFile?: LockFile;
+  readonly lockContext?: LockContext;
 }
 
 /** The word typed on a terminal. The plugin's dialog accepts the same word, compared the same way. */
 export const ABANDON_WORD = "abandon";
 
-/** The local files `abandon` moves, in the order `abandonVault` moves them. */
-const LOCAL_KINDS = ["keyslots", "state", "journal"] as const;
+/** The local files `abandon` moves, in the order `abandonVault` moves them: all four kinds it looks for (`maintenance` is a pending rewrap or prune). */
+const LOCAL_KINDS = ["keyslots", "state", "journal", "maintenance"] as const;
+
+const NOTHING_TO_MOVE = "ipfs-sync: abandon: this device holds no key-slot copy, state, journal or key-management journal for this MFS root (check --mfs-root); nothing was moved";
 
 /** Failures `abandon` reports as a plain message with exit code 1. */
-const REPORTED_FAILURES = [VaultKeysError, PublishRefusedError, HostPathError, DeviceStoreError] as const;
+const REPORTED_FAILURES = [VaultKeysError, PublishRefusedError, HostPathError, DeviceStoreError, AbandonPartialMoveError] as const;
 
 const CONSEQUENCES: readonly string[] = [
-  "This device keeps a backup of its local key-slot copy, sync state and journal for this MFS root (moved, not deleted).",
+  "This device keeps a backup of its local key-slot copy, sync state, journal and key-management journal for this MFS root (moved, not deleted).",
   "Nothing on the node is changed or deleted. This command sends no request to it.",
+  "A pending key-slot rewrap or history prune is dropped from this device. Its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared tree. `ipfs-sync keys discard` withdraws that key-slot file only for a rewrap that has not yet published; for a prune, or a rewrap that has published, it forgets the record and takes nothing back (removed history files stay removed; a published key-slot file stays). Run it before you abandon if you want that withdrawal: abandon drops the record that would let it.",
   "You can then create a new vault, with `ipfs-sync init`, in an empty MFS root (use a new --mfs-root).",
 ];
 
@@ -52,21 +58,25 @@ async function presentFiles(fs: ReturnType<typeof createNodeHostBridge>["fs"], d
   return present;
 }
 
+/** No way to confirm (no terminal and no `--yes-abandon`) is a usage error, whether or not there is anything to move. */
+function assertCanConfirm(ctx: AbandonContext): void {
+  if (ctx.yesAbandon || ctx.io.prompt !== undefined) return;
+  throw new UsageError("abandon needs a terminal to type the word \"abandon\", or --yes-abandon to confirm without one; nothing was moved");
+}
+
 /**
  * Show the consequences, then obtain the confirmation. Returns false when the user typed something else (nothing is
  * moved). Throws `UsageError` when there is no way to confirm: no terminal and no `--yes-abandon`.
  */
 async function confirmAbandon(ctx: AbandonContext): Promise<boolean> {
+  assertCanConfirm(ctx);
   if (ctx.yesAbandon) return true;
-  if (ctx.io.prompt === undefined) {
-    throw new UsageError("abandon needs a terminal to type the word \"abandon\", or --yes-abandon to confirm without one; nothing was moved");
-  }
-  const typed = await ctx.io.prompt(`Type "${ABANDON_WORD}" to confirm: `);
+  const typed = await ctx.io.prompt?.(`Type "${ABANDON_WORD}" to confirm: `);
   return typed !== undefined && typedAbandonWord(typed);
 }
 
 /**
- * `ipfs-sync abandon <vault>`: move this MFS root's local key-slot copy, sync state and journal into a backup folder
+ * `ipfs-sync abandon <vault>`: move this MFS root's local key-slot copy, sync state, journal and key-management journal into a backup folder
  * under `<vault>/.ipfs-sync/abandoned-*`. It never sends a request to the node and never deletes anything (the spec's
  * "abandon this vault" action). The confirmation is the typed word on a terminal, or the explicit `--yes-abandon`.
  * The publish lock is held while files move, so a publish running on this vault cannot be writing them.
@@ -82,7 +92,8 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
     ctx.io.out(`  vault     ${vault}`);
     ctx.io.out(`  mfs root  ${mfsRoot}`);
     if (found.length === 0) {
-      ctx.io.err("ipfs-sync: abandon: this device holds no key-slot copy, state or journal for this MFS root (check --mfs-root); nothing was moved");
+      assertCanConfirm(ctx);
+      ctx.io.err(NOTHING_TO_MOVE);
       return EXIT_CHECK_FAILED;
     }
     for (const line of CONSEQUENCES) ctx.io.out(`  - ${line}`);
@@ -91,18 +102,28 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
       ctx.io.err(`ipfs-sync: abandon: the word "${ABANDON_WORD}" was not typed; nothing was moved`);
       return EXIT_CHECK_FAILED;
     }
-    const lock = await acquirePublishLock(createNodeLockFile(vault), createNodeLockContext(() => ctx.now().getTime()));
+    const { lock, ranWithoutLock } = await acquireAbandonLock(
+      ctx.lockFile ?? createNodeLockFile(vault),
+      ctx.lockContext ?? createNodeLockContext(() => ctx.now().getTime()),
+    );
+    if (ranWithoutLock) ctx.io.out(`note             ${ABANDON_WITHOUT_LOCK_LINE}`);
     try {
       // The per-user directory is located only when the floor is read, so a root with no resolvable vault never needs it.
       const deviceStore: DeviceStore = ctx.deviceStore ?? createLazyDeviceStore(ctx.env);
       const { backupDir, moved, floor } = await abandonVault({ fs: host.fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: ctx.now().getTime(), deviceStore });
+      if (moved.length === 0) {
+        // The files were gone by the time the lock was held: the same answer as when none were found at the start.
+        ctx.io.err(NOTHING_TO_MOVE);
+        return EXIT_CHECK_FAILED;
+      }
       ctx.io.out(`abandoned        ${moved.length} file${moved.length === 1 ? "" : "s"} moved to ${backupDir}`);
       ctx.io.out("node             not contacted; nothing on it was changed");
       ctx.io.out(describeAbandonFloor(floor));
       ctx.io.out("next: run `ipfs-sync init <vault> --mfs-root <new root>` to create a new vault in an empty MFS root");
       return EXIT_OK;
     } finally {
-      await lock.release();
+      // The outcome is decided; a lock that cannot be released must not replace it.
+      await releaseQuietly(lock);
     }
   } catch (error) {
     if (REPORTED_FAILURES.some((failure) => error instanceof failure)) {

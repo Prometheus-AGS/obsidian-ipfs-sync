@@ -4,10 +4,13 @@ import { join } from "node:path";
 import { PUBLISH_LOCK_KEY } from "../src/sync/root-files";
 import { decodeLock, type LockContext, type LockFile } from "../src/sync/publish-lock";
 import { lockUnsupported } from "../src/sync/publish-refusals";
+import { assertStateFolderUnlinked } from "./state-folder-link";
 
 /** The Node 24 side of the publish lock: files under `<vault>/.ipfs-sync/`, process facts from the operating system. */
 
 const STATE_DIRECTORY = ".ipfs-sync";
+/** The state folder is owner-only: it holds the record of every vault path and the key-slot copy. */
+const STATE_DIRECTORY_MODE = 0o700;
 
 /** A random hexadecimal token (122 random bits). Lock tokens and temporary names are not key material. */
 function randomToken(): string {
@@ -30,9 +33,13 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
   const lockPath = join(directory, PUBLISH_LOCK_KEY);
   const tempPath = (): string => join(directory, `.${PUBLISH_LOCK_KEY}.${randomToken().slice(0, 12)}.tmp`);
 
+  /** Called first by every operation: the lock lives under the state folder, which must not be a link (review round 3, C-M3). */
+  const guard = (): Promise<void> => assertStateFolderUnlinked(vaultRoot);
+
   return {
     createExclusive: async (bytes) => {
-      await mkdir(directory, { recursive: true });
+      await guard();
+      await mkdir(directory, { recursive: true, mode: STATE_DIRECTORY_MODE });
       const temp = tempPath();
       await writeFile(temp, bytes, { flag: "wx", mode: 0o600 });
       try {
@@ -48,6 +55,7 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
       }
     },
     read: async () => {
+      await guard();
       try {
         return new Uint8Array(await readFile(lockPath));
       } catch (error) {
@@ -56,6 +64,7 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
       }
     },
     write: async (bytes) => {
+      await guard();
       const temp = tempPath();
       await writeFile(temp, bytes, { flag: "wx", mode: 0o600 });
       await rename(temp, lockPath);
@@ -63,7 +72,8 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
     // POSIX has no compare-and-rename. The temporary file is written first, then the token is re-read and the rename
     // follows at once: the window is one read and one rename, not a whole heartbeat. It is narrowed, not closed; the
     // re-read after the write in the heartbeat still detects a lost race.
-    writeIfToken: async (expectedToken, bytes) => {
+    writeIfToken: async (expectedToken, bytes, isStopped) => {
+      await guard();
       const temp = tempPath();
       await writeFile(temp, bytes, { flag: "wx", mode: 0o600 });
       try {
@@ -73,7 +83,8 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
         } catch (error) {
           if (!isCode(error, "ENOENT")) throw error;
         }
-        if (current === undefined || decodeLock(current)?.token !== expectedToken) {
+        // The holder released while this beat was in flight: renaming now would put a lock back that nobody owns.
+        if (isStopped?.() === true || current === undefined || decodeLock(current)?.token !== expectedToken) {
           await rm(temp, { force: true });
           return false;
         }
@@ -84,8 +95,12 @@ export function createNodeLockFile(vaultRoot: string): LockFile {
         throw error;
       }
     },
-    remove: async () => rm(lockPath, { force: true }),
+    remove: async () => {
+      await guard();
+      await rm(lockPath, { force: true });
+    },
     moveAside: async () => {
+      await guard();
       const aside = join(directory, `.${PUBLISH_LOCK_KEY}.${randomToken().slice(0, 12)}.taken`);
       try {
         await rename(lockPath, aside);

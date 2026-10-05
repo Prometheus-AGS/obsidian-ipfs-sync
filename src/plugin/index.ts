@@ -5,6 +5,7 @@ import { createAdapterLockFile } from "./adapter-lock-file";
 import { createAbandonFlow, type AbandonFlow } from "./abandon-flow";
 import { AbandonVaultDialog, type AbandonOutcome } from "./abandon-vault-dialog";
 import { ClearStaleLockDialog } from "./clear-stale-lock-dialog";
+import { ABANDON_COPY } from "./encryption-copy";
 import { scheduleCatchUp } from "./catch-up";
 import { flushOpenEditors } from "./editor-flush";
 import { obsidianCostConfirmation } from "./cost-confirm-dialog";
@@ -22,10 +23,13 @@ import { createSessionDialogs, describeDialogError, obsidianDialogFactories, typ
 import { createSessionKeys, type SessionKeys } from "./session-keys";
 import { observed } from "./session-status";
 import { IpfsSyncSettingTab } from "./settings-tab";
-import { requestUrlTransport } from "./request-url-transport";
+import { pluginTransport } from "./request-url-transport";
 import { createStaleLockControl } from "./stale-lock";
 import { createStaleLockFlow, type StaleLockFlow } from "./stale-lock-flow";
+import { MAX_PUBLISH_INTERVAL_MINUTES } from "./settings-model";
+import { createUnreadableBackup, type UnreadableBackup } from "./unreadable-backup";
 import { openSettingsStore, type SettingsStore } from "./settings-store";
+import { retiredDefaultNotice } from "./node-status";
 import { settingsToConfig } from "./settings-to-config";
 import { createSettingsViewModel as buildSettingsViewModel, type SettingsViewModel } from "./settings-view-model";
 import { collectStatus, formatStatus } from "./sync-status";
@@ -71,9 +75,10 @@ export default class IpfsSyncPlugin extends Plugin {
   /** Reasons already explained by an unattended (auto-publish) run, so it never repeats itself. */
   private readonly explained = new Set<string>();
   async onload(): Promise<void> {
-    const { store, load } = await openSettingsStore(this);
+    const { store, load } = await openSettingsStore(this, this.unreadableBackup());
     this.store = store;
     for (const message of load.notices) new Notice(message, NOTICE_MS);
+    await this.warnAboutRetiredDefault();
     const adapter = this.app.vault.adapter;
     const lock = createSyncLock();
     this.syncLock = lock;
@@ -86,7 +91,7 @@ export default class IpfsSyncPlugin extends Plugin {
       this.dialogs.settling(
         createSessionKeys({
           dialogs: this.dialogs.callbacks,
-          open: createVaultOpener({ store, adapter, transport: requestUrlTransport, now, costPolicy: costConfirmation.policy }),
+          open: createVaultOpener({ store, adapter, transport: pluginTransport(), now, costPolicy: costConfirmation.policy }),
           vaultExists: createVaultProbe({ store, adapter, now }),
         }),
       ),
@@ -118,7 +123,7 @@ export default class IpfsSyncPlugin extends Plugin {
       store,
       adapter,
       lock,
-      transport: requestUrlTransport,
+      transport: pluginTransport(),
       now,
       dialogs: obsidianKeyDialogs(this.app),
       // A slot above the default cost is unlocked or accepted only after an explicit yes in the cost-confirm dialog.
@@ -144,6 +149,7 @@ export default class IpfsSyncPlugin extends Plugin {
       store,
       adapter,
       configDir: this.app.vault.configDir,
+      vaultName: this.app.vault.getName(),
       bus: this.bus,
       lock,
       flushEditors: () => flushOpenEditors(this.app.workspace, adapter),
@@ -207,6 +213,17 @@ export default class IpfsSyncPlugin extends Plugin {
     });
   }
 
+  /**
+   * A saved 0.2.0 setting equal to the retired default host is an explicit value and stays. Once, tell the operator that node is the
+   * maintainer's own and open to anyone. If recording "shown" fails the notice simply comes back at the next load.
+   */
+  private async warnAboutRetiredDefault(): Promise<void> {
+    const text = retiredDefaultNotice(this.store.get());
+    if (text === undefined) return;
+    new Notice(text, NOTICE_MS);
+    await this.store.update((settings) => ({ ...settings, retiredDefaultNoticeShown: true })).catch(() => undefined);
+  }
+
   /** Lock the session and close its dialogs when the plugin unloads: no key outlives the plugin. */
   onunload(): void {
     this.abandonFlow.dispose();
@@ -216,12 +233,34 @@ export default class IpfsSyncPlugin extends Plugin {
     this.dialogs.dispose();
   }
 
+  /**
+   * The copy made before the first save replaces an unreadable `data.json` with defaults. It says, once, where the copy is and that it is
+   * plain text with the same secrets as the original.
+   */
+  private unreadableBackup(): UnreadableBackup {
+    const folder = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    const copy = createUnreadableBackup({ adapter: this.app.vault.adapter, dataPath: `${folder}/data.json`, now: () => new Date() });
+    return {
+      save: async (fallbackText) => {
+        const path = await copy.save(fallbackText);
+        new Notice(
+          `IPFS Sync: your unreadable settings file was copied to ${path} before it was replaced with defaults. The copy is plain text and holds the same secrets as the original; delete it when you no longer need it.`,
+          NOTICE_MS,
+        );
+        return path;
+      },
+    };
+  }
+
   /** (Re)start the auto-publish timer from the stored interval; 0 turns it off. Call after the interval changes. */
   rearmAutoPublish(): void {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
-    const minutes = this.store.get().publishIntervalMinutes;
-    if (minutes <= 0) return;
+    const stored = this.store.get().publishIntervalMinutes;
+    // Zero, a negative or a value that is not a number turns the timer off (NaN would fire in a tight loop).
+    if (!Number.isFinite(stored) || stored <= 0) return;
+    // Whole minutes, at least one (a fraction would otherwise be a near-zero delay), and held at the cap: a longer delay overflows the timer.
+    const minutes = Math.min(Math.max(1, Math.floor(stored)), MAX_PUBLISH_INTERVAL_MINUTES);
     this.timer = window.setInterval(() => void this.publishVault({ quiet: true }), minutes * MS_PER_MINUTE);
     this.registerInterval(this.timer);
   }
@@ -233,7 +272,7 @@ export default class IpfsSyncPlugin extends Plugin {
       configDir: this.app.vault.configDir,
       listNodeKeys: () => {
         const config = settingsToConfig(this.store.get(), new Date());
-        return createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: requestUrlTransport }).keyList();
+        return createKuboClient({ rpc: config.rpc, gateway: config.gateway, transport: pluginTransport() }).keyList();
       },
       onSaved: () => {
         this.rearmAutoPublish();
@@ -318,6 +357,8 @@ export default class IpfsSyncPlugin extends Plugin {
     const outcome = await this.abandonFlow.open();
     if (outcome === "busy") new Notice(busyNotice(undefined), NOTICE_MS);
     else if (outcome.abandoned) new Notice(`IPFS Sync: vault abandoned. ${outcome.backupNote ?? ""}`.trim(), NOTICE_MS);
+    // The dialog was closed while the action ran and the action failed: the device may be in a partial state, so say so.
+    else if (outcome.failure !== undefined) new Notice(`IPFS Sync: ${ABANDON_COPY.failed}: ${outcome.failure}. Check the settings before trying again.`, NOTICE_MS);
     return outcome;
   }
 

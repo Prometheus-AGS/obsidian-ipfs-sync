@@ -1,5 +1,5 @@
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createNodeLockContext, createNodeLockFile } from "../../cli/publish-lock-file";
 import { acquirePublishLock } from "../../src/sync/publish-lock";
@@ -82,6 +82,31 @@ describe("first pull", () => {
     await expectNothingPulled();
   });
 
+  it("shows how many existing local files the pull will replace, and a no still writes nothing", async () => {
+    const [published] = Object.keys(await publishedFiles(rig.vaultA));
+    if (published === undefined) throw new Error("the fixture vault published no file");
+    const local = join(rig.vaultB, published);
+    await mkdir(dirname(local), { recursive: true });
+    await writeFile(local, "my own text, different from the node's\n");
+    const result = await rig.pull([], { confirm: no });
+    expect(result.code).toBe(1);
+    const shown = `${result.out}\n${result.err}`;
+    expect(shown).toMatch(/replaces\s+at least 1 existing local file\b/);
+    expect(shown).toContain("a dated copy of each is kept");
+    expect(await readFile(local, "utf8")).toBe("my own text, different from the node's\n");
+    expect(blobGets()).toEqual([]);
+  });
+
+  it("names the destination directory in the prompt text (review round 3, S-M1)", async () => {
+    const result = await rig.pull([], { confirm: no });
+    expect(`${result.out}\n${result.err}`).toMatch(new RegExp(`into\\s+${rig.vaultB.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  });
+
+  it("shows no replace line when the directory holds none of the vault's files", async () => {
+    const result = await rig.pull([], { confirm: no });
+    expect(`${result.out}\n${result.err}`).not.toMatch(/replaces\s+\d/);
+  });
+
   it("pulls the vault after a yes at the prompt, byte for byte, reading the node only", async () => {
     const result = await rig.pull([], { confirm: yes });
     expect(result.code).toBe(0);
@@ -89,7 +114,7 @@ describe("first pull", () => {
     expect(result.out).toMatch(/\d+ fetched, 0 unchanged, 0 conflicts, 0 integrity-failed, 0 unfetched/);
     expect(result.out).toContain("sequence  1");
     expect(rig.requests.filter((request) => /^(files\/(write|rm)|key\/gen|pin\/add|name\/publish)$/.test(request))).toEqual([]);
-    expect(await readFile(join(rig.vaultB, ".ipfs-sync-fixture"), "utf8")).toContain("pulled-fixture");
+    expect(await exists(join(rig.vaultB, ".ipfs-sync-fixture"))).toBe(false);
     expect(await readdir(join(rig.vaultB, ".ipfs-sync", "tmp"))).toEqual([]);
     expect(await exists(join(rig.stateB, "ipfs-sync", FLOOR_FILE))).toBe(true);
   });

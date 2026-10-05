@@ -27,12 +27,13 @@ async function published(): Promise<Rig> {
 const rejection = async (promise: Promise<unknown>): Promise<unknown> => promise.then(() => undefined, (error: unknown) => error);
 
 describe("encrypted publish: guards that send no request", () => {
-  it("refuses a vault without the fixture marker before anything else, with or without a passphrase", async () => {
+  it("asks for no fixture marker: a vault without one is published, and without a passphrase it is still refused first (the guard is removed)", async () => {
     const rig = createRig({ marker: false });
     seedVault(rig.host);
-    await expect(rig.publish()).rejects.toMatchObject({ code: "fixture-marker-required" });
-    await expect(rig.publish({ passphrase: undefined })).rejects.toMatchObject({ code: "fixture-marker-required" });
+    await rig.init();
+    await expect(rig.publish({ passphrase: undefined })).rejects.toMatchObject({ code: "passphrase-required" });
     expect(rig.node.calls).toEqual([]);
+    expect((await rig.publish()).published).toBe(true);
   });
 
   it("refuses to publish without a passphrase, before any request, however the vault looks", async () => {

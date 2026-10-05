@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,8 +6,13 @@ import type { CliIo } from "../../cli/io";
 import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
-import { SEQUENCE_FLOOR_FILE, raiseFloor } from "../../src/sync/sequence-floor";
+import { runAbandon, type AbandonContext } from "../../cli/abandon-command";
+import { DeviceStoreError } from "../../src/sync/device-store";
+import { LOCK_MAX_BYTES, encodeLock, type LockFile } from "../../src/sync/publish-lock";
+import { lockUnsupported } from "../../src/sync/publish-refusals";
+import { SEQUENCE_FLOOR_FILE, SequenceFloorError, raiseFloor } from "../../src/sync/sequence-floor";
 import { rootDigest } from "../../src/sync/vault-keys";
+import { expectDiscardCaveat } from "../helpers/abandon-discard-text";
 import { stateEnv } from "../helpers/cli-state-env";
 import { createNodeDeviceStore, deviceStoreDirectory } from "../../cli/device-store-node";
 
@@ -144,6 +149,337 @@ describe("ipfs-sync abandon", () => {
     expect(s.out.join("\n")).toContain("2 files moved");
   });
 
+  describe("R5-M1: every file kind abandonVault moves is previewed and counted", () => {
+    const ALL_KINDS = ["keyslots", "state", "journal", "maintenance"] as const;
+
+    it("names all four kinds in the preview and moves all four", async () => {
+      await writeFile(stateFile("maintenance"), "maintenance-body");
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      const text = s.out.join("\n");
+      for (const kind of ALL_KINDS) expect(text).toContain(`will move .ipfs-sync/${kind}.${digest}.json`);
+      expect(text).toContain("4 files moved");
+      const backup = join(vault, ".ipfs-sync", (await backupDirs())[0] ?? "");
+      expect(await readFile(join(backup, "maintenance.json"), "utf8")).toBe("maintenance-body");
+      expect(await exists(stateFile("maintenance"))).toBe(false);
+    });
+
+    it.each(ALL_KINDS)("a vault whose only local file is the %s file previews it and abandons (not 'nothing to move')", async (only) => {
+      for (const kind of ["keyslots", "state", "journal"]) await rm(stateFile(kind));
+      await writeFile(stateFile(only), `${only}-body`);
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      expect(s.out.join("\n")).toContain(`will move .ipfs-sync/${only}.${digest}.json`);
+      expect(s.out.join("\n")).toContain("1 file moved");
+      expect(s.err.join("\n")).not.toContain("holds no");
+      const backup = join(vault, ".ipfs-sync", (await backupDirs())[0] ?? "");
+      expect(await readFile(join(backup, `${only}.json`), "utf8")).toBe(`${only}-body`);
+    });
+
+    it("says before asking that a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard withdraws only an unpublished rewrap (R6-M2)", async () => {
+      const s = sink(["nope"]);
+      await abandon(s);
+      const text = s.out.join("\n");
+      expect(text.replace(/\s+/g, " ")).toContain("ipfs-sync keys discard");
+      expectDiscardCaveat(text);
+    });
+  });
+
+  describe("R6-L4: no terminal and no --yes-abandon is a usage error before anything else", () => {
+    it("exits 2 with the --yes-abandon hint when the root holds nothing to move", async () => {
+      const s = sink();
+      const code = await runCli(["abandon", vault, "--mfs-root", "/obsidian-vault-sync/unknown-root"], deps(), s.io);
+      expect(code).toBe(2);
+      expect(s.err.join("\n")).toContain("--yes-abandon");
+      expect(s.err.join("\n")).not.toContain("holds no");
+      expect(await backupDirs()).toEqual([]);
+    });
+
+    it("keeps exit 1 for nothing to move with --yes-abandon", async () => {
+      const s = sink();
+      const code = await runCli(["abandon", vault, "--mfs-root", "/obsidian-vault-sync/unknown-root", "--yes-abandon"], deps(), s.io);
+      expect(code).toBe(1);
+      expect(s.err.join("\n")).toContain("holds no");
+    });
+
+    it("keeps exit 1 for nothing to move on a terminal, and does not prompt", async () => {
+      const s = sink(["abandon"]);
+      const code = await runCli(["abandon", vault, "--mfs-root", "/obsidian-vault-sync/unknown-root"], deps(), s.io);
+      expect(code).toBe(1);
+      expect(s.prompts).toEqual([]);
+    });
+  });
+
+  describe("R6-M3: an unusable device store does not block the move", () => {
+    const VAULT_ID = "e".repeat(32);
+
+    it("with no HOME (the per-user directory cannot be located) it still abandons and says the floor could not be read", async () => {
+      await writeFile(stateFile("state"), JSON.stringify({ vaultId: VAULT_ID }));
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      for (const kind of ["keyslots", "state", "journal"]) expect(await exists(stateFile(kind))).toBe(false);
+      const text = s.out.join("\n");
+      expect(text).toContain("3 files moved");
+      expect(text).toContain("sequence floor kept: not read");
+      expect(text).toContain("could not be read");
+      expect(text).not.toContain("HOME");
+      expect(fetchStub).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["a DeviceStoreError", new DeviceStoreError("secret-path-1")],
+      ["a generic Error", new Error("secret-path-2")],
+      ["a SequenceFloorError", new SequenceFloorError("secret-path-3")],
+    ])("%s from the store: all files move, fixed text, no message", async (_label, failure) => {
+      await writeFile(stateFile("state"), JSON.stringify({ vaultId: VAULT_ID }));
+      const deviceStore = {
+        get: async () => {
+          throw failure;
+        },
+        set: async () => undefined,
+      };
+      const s = sink(["abandon"]);
+      const code = await runAbandon({ config: { mfsRoot: MFS_ROOT }, io: s.io, vaultPath: vault, env: {}, now: () => NOW, yesAbandon: false, deviceStore });
+      expect(code).toBe(0);
+      for (const kind of ["keyslots", "state", "journal"]) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain("could not be read");
+      expect([...s.out, ...s.err].join("\n")).not.toContain("secret-path");
+    });
+  });
+
+  describe("R6-M4: a rename that fails after the first is reported as a partial move", () => {
+    const OS_WORDS = /EISDIR|ENOTEMPTY|EEXIST|EPERM|errno|rename|syscall/i;
+
+    async function block(kind: string): Promise<string> {
+      const backup = join(vault, ".ipfs-sync", `abandoned-${digest}-${NOW.getTime()}`);
+      const target = join(backup, `${kind}.json`);
+      await mkdir(target, { recursive: true });
+      await writeFile(join(target, "occupied"), "x");
+      return target;
+    }
+
+    it.each([
+      ["the second", "state", ["keyslots"], "1 of 3"],
+      ["the third", "journal", ["keyslots", "state"], "2 of 3"],
+    ])("failing %s rename: exit 1, the fixed statement, no operating-system text", async (_label, blocked, movedKinds, counts) => {
+      await block(blocked);
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(1);
+      const err = s.err.join("\n");
+      expect(err).toContain(`${counts} files were moved. Run abandon again to move the rest into a new backup folder.`);
+      expect(err).not.toMatch(OS_WORDS);
+      expect(err).not.toContain(vault);
+      for (const kind of ["keyslots", "state", "journal"]) expect(await exists(stateFile(kind)), kind).toBe(!movedKinds.includes(kind));
+      expect(s.out.join("\n")).not.toContain("abandoned        ");
+      expect(await exists(join(vault, ".ipfs-sync", "publish.lock"))).toBe(false);
+      expect(fetchStub).not.toHaveBeenCalled();
+    });
+
+    it("the fourth of four fails: 3 of 4, and a second run moves the rest", async () => {
+      await writeFile(stateFile("maintenance"), "maintenance-body");
+      const target = await block("maintenance");
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(1);
+      expect(s.err.join("\n")).toContain("3 of 4 files were moved. Run abandon again to move the rest into a new backup folder.");
+      expect(await exists(stateFile("maintenance"))).toBe(true);
+      await rm(target, { recursive: true, force: true });
+      const again = sink(["abandon"]);
+      expect(await abandon(again)).toBe(0);
+      expect(again.out.join("\n")).toContain("1 file moved");
+      expect(await exists(stateFile("maintenance"))).toBe(false);
+      expect(await readFile(join(vault, ".ipfs-sync", `abandoned-${digest}-${NOW.getTime()}`, "maintenance.json"), "utf8")).toBe("maintenance-body");
+    });
+
+    it("a failure before any file moved keeps today's behaviour (not the partial statement)", async () => {
+      await block("keyslots");
+      const s = sink(["abandon"]);
+      await abandon(s).then(
+        () => undefined,
+        () => undefined,
+      );
+      expect(s.err.join("\n")).not.toContain("files were moved");
+      for (const kind of ["keyslots", "state", "journal"]) expect(await exists(stateFile(kind))).toBe(true);
+    });
+  });
+
+  describe("R7-M1 and R7-M2: the publish lock never decides the outcome", () => {
+    const WITHOUT_LOCK = "the publish lock could not be used, so abandon ran without it; make sure no publish is running";
+    const KINDS3 = ["keyslots", "state", "journal"];
+    const NO_STORE = { get: async () => undefined, set: async () => undefined };
+
+    function memoryLock(overrides: Partial<LockFile> = {}, initial?: Uint8Array<ArrayBuffer>): LockFile {
+      let bytes = initial;
+      return {
+        createExclusive: async (b) => {
+          if (bytes !== undefined) return false;
+          bytes = b;
+          return true;
+        },
+        read: async () => bytes,
+        write: async (b) => {
+          bytes = b;
+        },
+        remove: async () => {
+          bytes = undefined;
+        },
+        moveAside: async () => undefined,
+        ...overrides,
+      };
+    }
+
+    const run = (s: Sink, extra: Partial<AbandonContext> = {}): Promise<number> =>
+      runAbandon({ config: { mfsRoot: MFS_ROOT }, io: s.io, vaultPath: vault, env: {}, now: () => NOW, yesAbandon: false, deviceStore: NO_STORE, ...extra });
+
+    const releaseThrows = (): LockFile =>
+      memoryLock({
+        remove: async () => {
+          throw new Error("secret-lock-path EIO");
+        },
+      });
+
+    it("a release that throws after a full success still exits 0 with the normal output and no error text", async () => {
+      const s = sink(["abandon"]);
+      expect(await run(s, { lockFile: releaseThrows() })).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain("3 files moved");
+      expect([...s.out, ...s.err].join("\n")).not.toContain("secret-lock-path");
+      expect(s.err).toEqual([]);
+    });
+
+    it("a release that throws after a partial move still exits 1 with the counts and no error text", async () => {
+      const backup = join(vault, ".ipfs-sync", `abandoned-${digest}-${NOW.getTime()}`);
+      await mkdir(join(backup, "state.json"), { recursive: true });
+      await writeFile(join(backup, "state.json", "occupied"), "x");
+      const s = sink(["abandon"]);
+      expect(await run(s, { lockFile: releaseThrows() })).toBe(1);
+      const err = s.err.join("\n");
+      expect(err).toContain("1 of 3 files were moved. Run abandon again to move the rest into a new backup folder.");
+      expect([...s.out, ...s.err].join("\n")).not.toContain("secret-lock-path");
+    });
+
+    it.each([
+      ["a junk lock file", "this is not a lock record\n"],
+      ["a 70 KiB lock file", "x".repeat(70 * 1024)],
+    ])("%s does not block abandon: the files move, the fixed line appears, no error text", async (_label, body) => {
+      expect(body.length).toBeGreaterThan(body.startsWith("x") ? LOCK_MAX_BYTES : 0);
+      const lockPath = join(vault, ".ipfs-sync", "publish.lock");
+      await writeFile(lockPath, body);
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+      expect(s.err).toEqual([]);
+      expect([...s.out, ...s.err].join("\n")).not.toContain("--break-lock");
+      expect(await readFile(lockPath, "utf8")).toBe(body);
+    });
+
+    it("a file system without hard links does not block abandon, and the hard-link advice is not shown", async () => {
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock({
+        createExclusive: async () => {
+          throw lockUnsupported("EPERM");
+        },
+      });
+      expect(await run(s, { lockFile })).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      const text = [...s.out, ...s.err].join("\n");
+      expect(text).toContain(WITHOUT_LOCK);
+      expect(text).not.toContain("hard links");
+      expect(text).not.toContain("EPERM");
+    });
+
+    it("a live lock held by another process stays busy and moves nothing", async () => {
+      const foreign = encodeLock({ token: "other-token", pid: 4242, host: "other-host", time: NOW.getTime() });
+      const s = sink(["abandon"]);
+      expect(await run(s, { lockFile: memoryLock({}, foreign) })).toBe(1);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(true);
+      expect(await backupDirs()).toEqual([]);
+      expect(s.err.join("\n")).toContain("another publish is running");
+      expect(s.out.join("\n")).not.toContain(WITHOUT_LOCK);
+    });
+
+    it("a normal run does not show the without-lock line", async () => {
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      expect(s.out.join("\n")).not.toContain(WITHOUT_LOCK);
+    });
+
+    it("R8-M1: no hard links with a fresh live lock present stays busy and moves nothing", async () => {
+      const foreign = encodeLock({ token: "other-token", pid: 4242, host: "other-host", time: NOW.getTime() });
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock(
+        {
+          createExclusive: async () => {
+            throw lockUnsupported("EPERM");
+          },
+        },
+        foreign,
+      );
+      expect(await run(s, { lockFile })).toBe(1);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(true);
+      expect(await backupDirs()).toEqual([]);
+      expect(s.err.join("\n")).toContain("another publish is running");
+      expect(s.out.join("\n")).not.toContain(WITHOUT_LOCK);
+    });
+
+    it("R8-M1: no hard links with a stale lock present goes on without the lock", async () => {
+      const stale = encodeLock({ token: "other-token", pid: 4242, host: "other-host", time: NOW.getTime() - 16 * 60_000 });
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock(
+        {
+          createExclusive: async () => {
+            throw lockUnsupported("EPERM");
+          },
+        },
+        stale,
+      );
+      expect(await run(s, { lockFile })).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+    });
+
+    it("R8-L3: a directory at publish.lock does not block abandon", async () => {
+      const lockPath = join(vault, ".ipfs-sync", "publish.lock");
+      await mkdir(lockPath);
+      const s = sink(["abandon"]);
+      expect(await abandon(s)).toBe(0);
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+      expect(s.err).toEqual([]);
+      expect((await stat(lockPath)).isDirectory()).toBe(true);
+    });
+
+    it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("R8-L3: a lock file with no read permission does not block abandon", async () => {
+      const lockPath = join(vault, ".ipfs-sync", "publish.lock");
+      await writeFile(lockPath, "x");
+      await chmod(lockPath, 0o000);
+      const s = sink(["abandon"]);
+      try {
+        expect(await abandon(s)).toBe(0);
+      } finally {
+        await chmod(lockPath, 0o600);
+      }
+      for (const kind of KINDS3) expect(await exists(stateFile(kind))).toBe(false);
+      expect(s.out.join("\n")).toContain(WITHOUT_LOCK);
+      expect(s.err).toEqual([]);
+    });
+
+    it("R8-L7: when the files vanish before the move (moved: 0) it reports nothing to abandon, exit 1, not 'abandoned 0 files moved'", async () => {
+      const s = sink(["abandon"]);
+      const lockFile = memoryLock({
+        createExclusive: async () => {
+          for (const kind of KINDS3) await rm(stateFile(kind));
+          return true;
+        },
+      });
+      expect(await run(s, { lockFile })).toBe(1);
+      expect(s.out.join("\n")).not.toContain("abandoned");
+      expect(s.out.join("\n")).not.toContain("0 files moved");
+      expect(s.err.join("\n")).toContain("holds no key-slot copy, state, journal or key-management journal for this MFS root (check --mfs-root); nothing was moved");
+      expect(await backupDirs()).toEqual([]);
+    });
+  });
+
   it("reports that there is nothing to abandon for a root this device does not know, exit 1, no backup folder", async () => {
     const s = sink(["abandon"]);
     const code = await runCli(["abandon", vault, "--mfs-root", "/obsidian-vault-sync/unknown-root"], deps(), s.io);
@@ -171,7 +507,8 @@ describe("ipfs-sync abandon", () => {
 
   describe("sequence floor", () => {
     const VAULT_ID = "e".repeat(32);
-    const env = stateEnv();
+    // No node is named: abandon is local-only and must work without one.
+    const { IPFS_SYNC_RPC_URL: _rpc, IPFS_SYNC_GATEWAY_URL: _gateway, ...env } = stateEnv();
     const floorPath = join(deviceStoreDirectory(env), SEQUENCE_FLOOR_FILE);
 
     async function seedFloor(sequence: number): Promise<void> {

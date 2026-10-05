@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   LOCK_HEARTBEAT_MS,
+  LOCK_HOST_MAX,
+  LOCK_MAX_BYTES,
   LOCK_STALE_MS,
+  acquireAbandonLock,
   acquirePublishLock,
   breakPublishLock,
   decodeLock,
@@ -13,6 +16,7 @@ import {
   type LockRecord,
 } from "../../src/sync/publish-lock";
 import { guardKv } from "../../src/sync/guarded-kv";
+import { lockUnsupported } from "../../src/sync/publish-refusals";
 
 interface Rig {
   readonly file: LockFile & { bytes: Uint8Array<ArrayBuffer> | undefined };
@@ -73,7 +77,7 @@ describe("publish lock", () => {
     second.ctx.alive.add(4242); // the first publish is a live process on this host
     const error = await acquirePublishLock(r.file, { ...second.ctx, newToken: () => "second-token" }).catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "lock-held" });
-    expect((error as Error).message).toContain("process 4242 on host-a");
+    expect((error as Error).message).toContain('process 4242 on "host-a"');
     expect((error as Error).message).toContain("--break-lock");
     expect((error as Error).message).not.toContain("token-1");
   });
@@ -106,6 +110,38 @@ describe("publish lock", () => {
     taken.file.bytes = encodeLock(other());
     await mine.release();
     expect(decodeLock(taken.file.bytes)?.token).toBe("other-token");
+  });
+
+  it("R7-M1: a release whose remove throws is retried by the next release, which removes the file (the heartbeat is stopped once)", async () => {
+    const r = rig();
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    const remove = r.file.remove.bind(r.file);
+    let failures = 1;
+    r.file.remove = async () => {
+      if (failures-- > 0) throw new Error("EIO");
+      await remove();
+    };
+    await expect(lock.release()).rejects.toThrow("EIO");
+    expect(r.file.bytes).toBeDefined();
+    await lock.release();
+    expect(r.file.bytes).toBeUndefined();
+    expect(r.ctx.stopped).toBe(1);
+    await lock.release();
+    expect(r.ctx.stopped).toBe(1);
+  });
+
+  it("R7-M1: a release whose read throws is retried too", async () => {
+    const r = rig();
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    const read = r.file.read.bind(r.file);
+    let failures = 1;
+    r.file.read = async () => {
+      if (failures-- > 0) throw new Error("EIO");
+      return read();
+    };
+    await expect(lock.release()).rejects.toThrow("EIO");
+    await lock.release();
+    expect(r.file.bytes).toBeUndefined();
   });
 
   it("assertHeld throws lock-lost when the lock was taken over or removed", async () => {
@@ -287,7 +323,7 @@ describe("--break-lock", () => {
     expect(r.file.bytes).toBeDefined();
     expect(await breakPublishLock(r.file, r.ctx.now, async (d) => (asked.push(d), true))).toBe("removed");
     expect(r.file.bytes).toBeUndefined();
-    expect(asked).toEqual(["process 999 on host-a, last heartbeat 90 s ago", "process 999 on host-a, last heartbeat 90 s ago"]);
+    expect(asked).toEqual(['process 999 on "host-a", last heartbeat 90 s ago', 'process 999 on "host-a", last heartbeat 90 s ago']);
   });
 
   it("reports when there is no lock and can break a lock that cannot be read", async () => {
@@ -318,7 +354,94 @@ describe("lock records", () => {
   });
 
   it("describes a lock without its token", () => {
-    expect(describeLock(other({ pid: 7, host: "box" }), 1_800_000_000_000 + 5_000)).toBe("process 7 on box, last heartbeat 5 s ago");
+    expect(describeLock(other({ pid: 7, host: "box" }), 1_800_000_000_000 + 5_000)).toBe('process 7 on "box", last heartbeat 5 s ago');
+  });
+
+  // R6-L5: the record's size and host length are bounded before anything walks the text.
+  it("keeps at most LOCK_HOST_MAX characters of a host (the token still reads), and reads nothing from a file over the size cap", () => {
+    const text = (host: string, pad = 0): Uint8Array => new TextEncoder().encode(JSON.stringify({ host, pid: 1, time: 1, token: "t" }) + " ".repeat(pad));
+    expect(decodeLock(text("h".repeat(LOCK_HOST_MAX)))?.host).toBe("h".repeat(LOCK_HOST_MAX));
+    const long = decodeLock(text("h".repeat(LOCK_HOST_MAX + 1)));
+    expect(long).toEqual({ host: "h".repeat(LOCK_HOST_MAX), pid: 1, time: 1, token: "t" });
+    expect(decodeLock(text("h".repeat(5_000)))?.host).toHaveLength(LOCK_HOST_MAX);
+    // A valid record padded past the size cap is not read at all (it would parse without the cap).
+    const padded = text("h", LOCK_MAX_BYTES);
+    expect(padded.length).toBeGreaterThan(LOCK_MAX_BYTES);
+    expect(decodeLock(padded)).toBeUndefined();
+    expect(decodeLock(text("h", 100))).toMatchObject({ token: "t" });
+  });
+
+  // R5-L6 (b): the host is free text from the lock file (any process or machine that shares the folder can write it).
+  describe("the host is truncated to 64 characters, escaped with the shared table and quoted", () => {
+    const NOW_MS = 1_800_000_000_000;
+    const describeHost = (host: string): string => describeLock(other({ pid: 7, host }), NOW_MS + 5_000);
+
+    it("keeps a host of exactly 64 characters whole", () => {
+      const host = "h".repeat(64);
+      expect(describeHost(host)).toBe(`process 7 on "${host}", last heartbeat 5 s ago`);
+    });
+
+    it.each([65, 200, 5000])("cuts a host of %i characters to 64 and marks the cut", (length) => {
+      const text = describeHost("h".repeat(length));
+      expect(text).toContain(`on "${"h".repeat(64)}`);
+      expect(text).not.toContain("h".repeat(65));
+      expect(text.length).toBeLessThan(120);
+      expect(text).toMatch(/", last heartbeat 5 s ago$/);
+    });
+
+    // R6-L5: a host cannot forge the sentence that follows it.
+    it.each([
+      ["a forged heartbeat clause", "h, last heartbeat 3 s ago", 'process 7 on "h, last heartbeat 3 s ago", last heartbeat 5 s ago'],
+      ["a quote that tries to close the host", 'a", last heartbeat 0 s ago, process 1 on "b', 'process 7 on "a\\", last heartbeat 0 s ago, process 1 on \\"b", last heartbeat 5 s ago'],
+      ["a trailing backslash that tries to escape the closing quote", "a\\", 'process 7 on "a\\\\", last heartbeat 5 s ago'],
+    ])("%s stays inside the quotes", (_label, host, expected) => {
+      expect(describeHost(host)).toBe(expected);
+    });
+
+    it("tells a real escape character from the text of one (a literal backslash is doubled, an escape is not)", () => {
+      expect(describeHost("\u001b")).toBe('process 7 on "\\u001b", last heartbeat 5 s ago');
+      expect(describeHost("\\u001b")).toBe('process 7 on "\\\\u001b", last heartbeat 5 s ago');
+    });
+
+    it("cuts a host of millions of characters before it splits it into characters: nothing longer than 128 units is walked", () => {
+      const spy = vi.spyOn(Array, "from");
+      try {
+        const text = describeHost("😀".repeat(2_000_000));
+        expect(text).toBe(`process 7 on "${"😀".repeat(64)}...", last heartbeat 5 s ago`);
+        for (const call of spy.mock.calls) {
+          const subject = call[0] as { readonly length?: number };
+          expect(subject.length ?? 0).toBeLessThanOrEqual(128);
+        }
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it.each([
+      ["a terminal escape", "\u001b[2J", "\\u001b[2J"],
+      ["a line break", "a\nb", "a\\u000ab"],
+      ["a carriage return", "a\rb", "a\\u000db"],
+      ["a bidirectional override", "a‮b", "a\\u202eb"],
+      ["a C1 control", "a\u009bb", "a\\u009bb"],
+      ["a zero-width space", "a​b", "a\\u200bb"],
+    ])("escapes %s in the host", (_label, host, escaped) => {
+      const text = describeHost(host);
+      expect(text).toBe(`process 7 on "${escaped}", last heartbeat 5 s ago`);
+      for (const raw of ["\u001b", "\n", "\r", "‮", "\u009b", "​"]) expect(text).not.toContain(raw);
+    });
+
+    it("cuts before it escapes, so an escape is never split and the host part stays bounded", () => {
+      const text = describeHost("\u001b".repeat(200));
+      expect(text).toContain("\\u001b".repeat(64));
+      expect(text).not.toContain("\\u001b".repeat(65));
+      expect(text).not.toMatch(/\\u00(?!1b)/);
+    });
+
+    it("counts a character above the basic plane as one", () => {
+      const host = "😀".repeat(64);
+      expect(describeHost(host)).toBe(`process 7 on "${host}", last heartbeat 5 s ago`);
+      expect(describeHost("😀".repeat(65))).not.toContain("😀".repeat(65));
+    });
   });
 });
 
@@ -411,5 +534,151 @@ describe("publish lock races (N3-03)", () => {
     expect(error).toMatchObject({ code: "lock-held" });
     expect(discarded).toBe(1);
     expect(decodeLock(r.file.bytes ?? new Uint8Array())?.token).toBe("live-token");
+  });
+});
+
+describe("R8-M1, R8-L3: the abandon lock never goes on past a live foreign lock", () => {
+  const unsupported = (r: Rig): void => {
+    r.file.createExclusive = async () => {
+      throw lockUnsupported("EPERM");
+    };
+  };
+  const live = (r: Rig): Uint8Array<ArrayBuffer> => encodeLock(other({ host: "host-b", pid: 77, time: r.ctx.time }));
+
+  it("link() unsupported and a fresh live record present: busy, and nothing is moved or written", async () => {
+    const r = rig();
+    unsupported(r);
+    r.file.bytes = live(r);
+    const before = r.file.bytes;
+    const moveAside = vi.spyOn(r.file, "moveAside");
+    const error = await acquireAbandonLock(r.file, r.ctx).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "lock-held" });
+    expect((error as Error).message).toContain('process 77 on "host-b"');
+    expect(moveAside).not.toHaveBeenCalled();
+    expect(r.file.bytes).toBe(before);
+  });
+
+  it("link() unsupported and a stale record: abandon goes on without the lock and leaves the file alone", async () => {
+    const r = rig();
+    unsupported(r);
+    r.file.bytes = encodeLock(other({ host: "host-b", time: r.ctx.time - LOCK_STALE_MS - 1 }));
+    const before = r.file.bytes;
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+    expect(r.file.bytes).toBe(before);
+  });
+
+  it("link() unsupported and a junk file: abandon goes on without the lock", async () => {
+    const r = rig();
+    unsupported(r);
+    r.file.bytes = new TextEncoder().encode("this is not a lock record\n");
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+  });
+
+  it("link() unsupported and no file: abandon goes on without the lock", async () => {
+    const r = rig();
+    unsupported(r);
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+  });
+
+  it("an unreadable file that a live holder replaced by the second look: busy", async () => {
+    const r = rig();
+    r.file.bytes = new TextEncoder().encode("junk\n");
+    const read = r.file.read;
+    let reads = 0;
+    r.file.read = async () => {
+      reads += 1;
+      if (reads === 2) r.file.bytes = live(r);
+      return read();
+    };
+    const error = await acquireAbandonLock(r.file, r.ctx).catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "lock-held" });
+    expect(reads).toBe(2);
+  });
+
+  it("a takeover whose put-back is unsupported after it moved a live lock aside is lock-held, the moved file is kept, and abandon is busy too", async () => {
+    const make = (): { r: Rig; discarded: () => number } => {
+      const r = rig();
+      r.file.bytes = encodeLock(other({ token: "stale-token", time: r.ctx.time - LOCK_STALE_MS - 1, pid: 1 }));
+      let discards = 0;
+      let calls = 0;
+      r.file.createExclusive = async () => {
+        calls += 1;
+        if (calls === 1) return false;
+        throw lockUnsupported("EPERM");
+      };
+      r.file.moveAside = async () => {
+        const moved = encodeLock(other({ token: "live-token", time: r.ctx.time }));
+        r.file.bytes = undefined;
+        return { bytes: moved, discard: async () => void (discards += 1) };
+      };
+      return { r, discarded: () => discards };
+    };
+    const publish = make();
+    expect(await acquirePublishLock(publish.r.file, publish.r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "lock-held" });
+    expect(publish.discarded()).toBe(0);
+    const abandon = make();
+    expect(await acquireAbandonLock(abandon.r.file, abandon.r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "lock-held" });
+    expect(abandon.discarded()).toBe(0);
+  });
+
+  it("R8-L3: a read that throws after the file exists is lock-unreadable for abandon (it goes on), and stays the raw error for publish", async () => {
+    const r = rig();
+    r.file.bytes = new TextEncoder().encode("x");
+    r.file.read = async () => {
+      throw Object.assign(new Error("EISDIR: illegal operation on a directory"), { code: "EISDIR" });
+    };
+    expect(await acquireAbandonLock(r.file, r.ctx)).toEqual({ lock: undefined, ranWithoutLock: true });
+    expect(await acquirePublishLock(r.file, r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "EISDIR" });
+  });
+
+  it("R8-L3: other acquisition errors still pass through abandon unchanged", async () => {
+    const r = rig();
+    r.file.createExclusive = async () => {
+      throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+    };
+    expect(await acquireAbandonLock(r.file, r.ctx).catch((e: unknown) => e)).toMatchObject({ code: "EACCES" });
+  });
+});
+
+describe("R8-L1: a beat in flight cannot write after release", () => {
+  function gated(r: Rig, honorStop: boolean): { open: () => void; stoppedSeen: boolean[] } {
+    let open = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const stoppedSeen: boolean[] = [];
+    r.file.writeIfToken = async (_expected, bytes, isStopped) => {
+      await gate;
+      stoppedSeen.push(isStopped?.() ?? false);
+      if (honorStop && isStopped?.() === true) return false;
+      r.file.bytes = bytes;
+      return true;
+    };
+    return { open: () => open(), stoppedSeen };
+  }
+
+  it("the beat is told it is stopped and writes nothing; the lock file is removed", async () => {
+    const r = rig();
+    const g = gated(r, true);
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    r.ctx.time += LOCK_HEARTBEAT_MS;
+    r.ctx.ticks[0]?.();
+    const released = lock.release();
+    g.open();
+    await released;
+    expect(g.stoppedSeen).toEqual([true]);
+    expect(r.file.bytes).toBeUndefined();
+  });
+
+  it("a file that ignores the stop signal still cannot resurrect the lock: release waits for the beat, then removes", async () => {
+    const r = rig();
+    const g = gated(r, false);
+    const lock = await acquirePublishLock(r.file, r.ctx);
+    r.ctx.time += LOCK_HEARTBEAT_MS;
+    r.ctx.ticks[0]?.();
+    const released = lock.release();
+    g.open();
+    await released;
+    expect(r.file.bytes).toBeUndefined();
   });
 });

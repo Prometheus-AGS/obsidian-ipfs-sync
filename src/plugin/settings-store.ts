@@ -1,6 +1,7 @@
 import { mergeDeviceStore } from "./device-store-plugin";
 import { loadSettings, type LoadResult } from "./settings-migration";
 import type { PluginSettings } from "./settings-model";
+import type { UnreadableBackup } from "./unreadable-backup";
 
 /** The part of Obsidian's `Plugin` that stores plugin data (`data.json`). */
 export interface PluginDataPort {
@@ -28,16 +29,26 @@ export interface LoadedStore {
   readonly load: LoadResult;
 }
 
-export function createSettingsStore(port: PluginDataPort, initial: LoadResult): SettingsStore {
+export function createSettingsStore(port: PluginDataPort, initial: LoadResult, backup?: UnreadableBackup, fallbackText = ""): SettingsStore {
   let current = initial.settings;
   let queue: Promise<unknown> = Promise.resolve();
+  // Unreadable data is left untouched until the first save; that save would replace the file with defaults, so the original is copied first.
+  let backupPending = initial.outcome === "unreadable" && backup !== undefined;
 
   async function apply(change: (settings: PluginSettings) => PluginSettings): Promise<PluginSettings> {
     const changed = change(current);
+    let copying = false;
+    if (backupPending && backup !== undefined) {
+      // A copy that cannot be written (or read back identical) fails the save: the original stays, and memory does not run ahead of disk.
+      await backup.save(fallbackText);
+      copying = true;
+    }
     // Whatever `change` was built from, the saved sequence floor and device id are never lowered or replaced.
     const deviceStore = mergeDeviceStore(current.deviceStore, changed.deviceStore);
     const next = deviceStore === changed.deviceStore ? changed : { ...changed, deviceStore };
     await port.saveData(next);
+    // Only a save that went through replaced the file: until then the next attempt copies again.
+    if (copying) backupPending = false;
     current = next;
     return next;
   }
@@ -54,9 +65,11 @@ export function createSettingsStore(port: PluginDataPort, initial: LoadResult): 
 }
 
 /** Read the stored data, migrate it if needed, and write the migrated form back once. */
-export async function openSettingsStore(port: PluginDataPort): Promise<LoadedStore> {
-  const load = loadSettings(await port.loadData());
-  const store = createSettingsStore(port, load);
+export async function openSettingsStore(port: PluginDataPort, backup?: UnreadableBackup): Promise<LoadedStore> {
+  const stored = await port.loadData();
+  const load = loadSettings(stored);
+  // The parsed value, as text, is the copy's content only when the file cannot be read back as it was.
+  const store = createSettingsStore(port, load, backup, JSON.stringify(stored) ?? "");
   if (load.persist) await store.update((settings) => settings);
   return { store, load };
 }

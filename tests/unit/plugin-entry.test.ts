@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import * as entry from "../../src/main";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { App as StubApp, Notice, requestUrlCalls, resetRequestUrl, type Plugin as StubPlugin } from "../support/obsidian-stub";
@@ -50,7 +50,7 @@ describe("plugin entry", () => {
     expect(stub.statusBarItems).toHaveLength(1);
   });
 
-  it("refuses to publish a vault without the marker: a notice, and no request to the node", async () => {
+  it("does not refuse a vault for lacking the marker (the guard is removed): no review-pending notice, and no request before set-up", async () => {
     const adapter = new MemoryAdapter();
     adapter.put("notes/real.md", "private");
     const { stub } = await loadPlugin(null, adapter);
@@ -59,10 +59,7 @@ describe("plugin entry", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(requestUrlCalls).toEqual([]);
     const messages = Notice.shown.map((n) => n.message);
-    expect(messages.some((m) => m.includes("not yet independently reviewed or verified in Obsidian"))).toBe(true);
-    // The progress notice was dismissed and the status bar cleared.
-    expect(Notice.shown.filter((n) => n.message === "IPFS Sync: publishing...").every((n) => n.hidden)).toBe(true);
-    expect(stub.statusBarItems[0]?.text).toBe("");
+    expect(messages.some((m) => m.includes("independently reviewed"))).toBe(false);
   });
 
   it("migrates the previous settings once, stores the new form, and shows the key notice", async () => {
@@ -83,17 +80,34 @@ describe("plugin entry", () => {
   it("arms the timer from the stored interval and explains a refusal at most once per session", async () => {
     const setInterval = vi.fn(() => 7);
     vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });
-    const { stub } = await loadPlugin({ ...defaultSettings(), publishIntervalMinutes: 5 });
+    const { plugin, stub } = await loadPlugin({ ...testNodeSettings(), publishIntervalMinutes: 5 });
     expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 5 * 60_000);
     expect(stub.intervals).toEqual([7]);
 
+    // The tick is fire-and-forget and the refusal waits on real file-system reads, so a timer turn is not a completion signal.
+    // Spy on the instance method the tick calls: it passes through and records each run's promise to await.
+    const publishSpy = vi.spyOn(plugin, "publishVault");
+    const setUpNotices = (): number => Notice.shown.filter((n) => n.message.includes("no encrypted vault is set up")).length;
     const tick = (setInterval.mock.calls[0] as unknown as [() => void])[0];
     tick();
-    await flush();
+    await vi.waitFor(() => expect(setUpNotices()).toBe(1));
     tick();
-    await flush();
-    expect(Notice.shown.filter((n) => n.message.includes("not yet independently reviewed or verified in Obsidian"))).toHaveLength(1);
+    expect(publishSpy).toHaveBeenCalledTimes(2);
+    const outcomes = await Promise.all(publishSpy.mock.results.map((r) => r.value as Promise<{ kind: string; reason?: string }>));
+    // Both runs finished and both were the set-up refusal, so the single notice is suppression, not a second run that never ended.
+    expect(outcomes.map((o) => `${o.kind}:${o.reason}`)).toEqual(["refused:not-set-up", "refused:not-set-up"]);
+    // The vault has no marker and no encrypted vault on this device: the refusal is the set-up one, explained once.
+    expect(setUpNotices()).toBe(1);
+    expect(Notice.shown.filter((n) => n.message.includes("independently reviewed"))).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("holds a stored interval above the cap at the cap, so the timer delay cannot overflow", async () => {
+    const setInterval = vi.fn(() => 7);
+    vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });
+    await loadPlugin({ ...testNodeSettings(), publishIntervalMinutes: 999_999 });
+    expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 35_000 * 60_000);
+    expect(35_000 * 60_000).toBeLessThanOrEqual(2_147_483_647);
   });
 
   it("does not arm a timer when the interval is 0", async () => {
@@ -104,7 +118,7 @@ describe("plugin entry", () => {
   });
 
   it("shows the status without contacting the node when the settings are invalid", async () => {
-    const { plugin } = await loadPlugin({ ...defaultSettings(), mfsRoot: "/obsidian-vault-staging" });
+    const { plugin } = await loadPlugin({ ...testNodeSettings(), mfsRoot: "/obsidian-vault-staging" });
     await plugin.showStatus();
     const message = Notice.shown.at(-1)?.message ?? "";
     expect(message).toContain("unknown");

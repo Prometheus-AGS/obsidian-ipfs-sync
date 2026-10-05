@@ -28,6 +28,23 @@ export const HEX32 = /^[0-9a-f]{32}$/;
 export const HEX64 = /^[0-9a-f]{64}$/;
 export const CID_TOKEN = /^[A-Za-z0-9]{10,128}$/;
 
+/**
+ * THE CID rule of this build: 10 to 128 alphanumeric characters, nothing else. Everything that turns a node value into a CID, reads one back from a
+ * local file or writes one to a local file asks this one function, so the three can never disagree (review round 4, A-M1).
+ */
+export function isCidToken(value: unknown): value is string {
+  return typeof value === "string" && CID_TOKEN.test(value);
+}
+
+/**
+ * The writers' side of the rule: a root identifier (or `null`/`undefined` for "none") that the readers would refuse is not persisted. The message names
+ * the field only; the value is never echoed.
+ */
+export function assertPersistableCid(value: string | null | undefined, field: string): void {
+  if (value === null || value === undefined || isCidToken(value)) return;
+  throw new RootStateError(`${field} is not a root identifier this build can read back; nothing was written`);
+}
+
 export type JsonRecord = Readonly<Record<string, unknown>>;
 
 export function isJsonRecord(value: unknown): value is JsonRecord {

@@ -1,20 +1,25 @@
-import { assertMfsMutationPath, validateMfsRoot } from "../core/config";
-import { ABANDON_CONFIRMATION, abandonVault, describeAbandonFloor, type AbandonFloor } from "../sync/vault-keys";
+import { ConfigError, assertMfsMutationPath, validateMfsRoot } from "../core/config";
+import { DeviceStoreError } from "../sync/device-store";
+import { acquireAbandonLock, releaseQuietly, type LockContext, type LockFile } from "../sync/publish-lock";
+import { PublishRefusedError } from "../sync/publish-refusals";
+import { ABANDON_CONFIRMATION, ABANDON_WITHOUT_LOCK_LINE, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, partialMoveLine, type AbandonFloor } from "../sync/vault-keys";
 import type { AbandonDialogRequest, AbandonOutcome } from "./abandon-vault-dialog";
+import { createAdapterLockFile, createPluginLockContext } from "./adapter-lock-file";
 import { createPluginDeviceStore } from "./device-store-plugin";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
 import type { SessionKeys } from "./session-keys";
-import { describeDialogError } from "./session-dialogs";
+import { UNEXPECTED_TEXT } from "./session-dialogs";
 import type { SettingsStore } from "./settings-store";
-import { settingsToConfig } from "./settings-to-config";
+import { settingsToLocalConfig } from "./settings-to-config";
 import { busyNotice, type SyncLock } from "./sync-lock";
 
 /**
  * The plugin side of "Abandon this vault": it opens the confirmation dialog (`abandon-vault-dialog.ts`) and, once the
  * word is typed, moves this device's key-slot copy, sync state and journal for the configured MFS root into
- * `.ipfs-sync/abandoned-*` with `abandonVault`. The node is never contacted (no client exists here). The sync lock is
- * held while files move, so a publish or pull cannot be writing them; the key session is locked afterwards and asked
+ * `.ipfs-sync/abandoned-*` with `abandonVault`. The node is never contacted (no client exists here). The sync lock and the
+ * `publish.lock` file (the one the command line tool and a second window honor) are held while files move, so a publish or
+ * pull cannot be writing them; a move that stops part-way is reported by count, and the key session is locked then too. The key session is locked afterwards and asked
  * to look again, so the Encryption section shows "Not set up" and the next setup can create a vault in a new root.
  */
 
@@ -27,6 +32,9 @@ export interface AbandonFlowDeps {
   /** `app.vault.adapter`. */
   readonly adapter: VaultAdapter;
   readonly lock: SyncLock;
+  /** The cross-process `publish.lock` file and its process facts. Production leaves them out (the adapter's lock file and a plugin context). */
+  readonly lockFile?: LockFile;
+  readonly lockContext?: LockContext;
   readonly session: Pick<SessionKeys, "lock" | "refresh">;
   readonly now: () => Date;
   /** Opens the confirmation dialog. Production passes a factory over `AbandonVaultDialog`. */
@@ -42,37 +50,93 @@ export interface AbandonFlow {
 
 export const NOTHING_TO_ABANDON = "this device holds no key-slot copy, state or journal for this MFS root, so nothing was moved. Check the MFS root in the settings.";
 
+/**
+ * The only failure lines the action returns. The dialog shows them and, when it was closed after Confirm, passes them on as the outcome's
+ * `failure` ("fixed, safe text"), so no error message is ever read: a `ConfigError` echoes the typed MFS root, and a device-store or file
+ * error can carry a path.
+ */
+export const ABANDON_FAILURES = {
+  invalidRoot: "the MFS root in the settings is not valid, so nothing was moved. Check it in the settings.",
+  local: "this device's files for the MFS root could not all be moved. Check the .ipfs-sync folder in the vault before trying again.",
+  unexpected: UNEXPECTED_TEXT,
+} as const;
+
+function failureLine(error: unknown): string {
+  if (error instanceof ConfigError) return ABANDON_FAILURES.invalidRoot;
+  if (error instanceof VaultKeysError || error instanceof DeviceStoreError) return ABANDON_FAILURES.local;
+  return ABANDON_FAILURES.unexpected;
+}
+
 /** Number of files a call moved, and the backup note the dialog passes back. */
 function backupNote(backupDir: string, count: number, floor: AbandonFloor): string {
   return `${count} file${count === 1 ? "" : "s"} moved to ${backupDir} in the vault folder. Nothing on the node was changed. ${describeAbandonFloor(floor)}. To start a new vault, choose an empty MFS root in the settings, then run Publish.`;
 }
 
+/** Added to a result when the session could not be locked or looked at again after the move. */
+const RELOAD_SUFFIX = " The vault status could not be re-read; reload the plugin.";
+
+/** What the move came to; `ranWithoutLock` is true when the publish lock file could not be used. */
+type MoveOutcome =
+  | { readonly kind: "moved"; readonly result: Awaited<ReturnType<typeof abandonVault>>; readonly ranWithoutLock: boolean }
+  | { readonly kind: "partial"; readonly error: AbandonPartialMoveError; readonly ranWithoutLock: boolean };
+
+/** One open dialog: its handle is set after `openDialog` returns, and a dialog that finished before that is never recorded as open. */
+interface OpenDialog {
+  handle: AbandonDialogHandle | undefined;
+  finished: boolean;
+}
+
 export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
-  let open: AbandonDialogHandle | undefined;
+  let open: OpenDialog | undefined;
 
   /** The action behind the dialog's button. Never throws: a failure is returned as text for the dialog. */
+  /** The vault state changed: lock the key session and look again. Returns the sentence to append when the look failed. */
+  async function settleSession(): Promise<string> {
+    try {
+      deps.session.lock();
+      await deps.session.refresh();
+      return "";
+    } catch {
+      // The move is done: a session that cannot be locked or looked at again never changes its outcome, it only adds the reload advice.
+      return RELOAD_SUFFIX;
+    }
+  }
+
+  /** The move itself, under the cross-process publish lock (released in `finally`). A held lock file is `lock-held`. A partial move comes back as a value so the lock facts travel with it. */
+  async function moveUnderLock(mfsRoot: string): Promise<MoveOutcome> {
+    const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
+    const { lock, ranWithoutLock } = await acquireAbandonLock(
+      deps.lockFile ?? createAdapterLockFile(deps.adapter),
+      deps.lockContext ?? createPluginLockContext(() => deps.now().getTime()),
+    );
+    try {
+      const result = await abandonVault({ fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: deps.now().getTime(), deviceStore: createPluginDeviceStore(deps.store) });
+      return { kind: "moved", result, ranWithoutLock };
+    } catch (error) {
+      if (error instanceof AbandonPartialMoveError) return { kind: "partial", error, ranWithoutLock };
+      throw error;
+    } finally {
+      // The outcome (a result or a partial-move error) is decided; a lock that cannot be released must not replace it.
+      await releaseQuietly(lock);
+    }
+  }
+
   async function abandon(): Promise<Awaited<ReturnType<AbandonDialogRequest["abandon"]>>> {
     const release = deps.lock.tryAcquire("abandon");
     if (release === undefined) return { ok: false, reason: busyNotice(deps.lock.holder()) };
     try {
-      const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToConfig(deps.store.get(), deps.now()).mfsRoot));
-      const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
-      const { backupDir, moved, floor } = await abandonVault({
-        fs,
-        mfsRoot,
-        confirmation: ABANDON_CONFIRMATION,
-        nowMs: deps.now().getTime(),
-        deviceStore: createPluginDeviceStore(deps.store),
-      });
+      const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToLocalConfig(deps.store.get()).mfsRoot));
+      const outcome = await moveUnderLock(mfsRoot);
+      const withoutLock = outcome.ranWithoutLock ? ` Note: ${ABANDON_WITHOUT_LOCK_LINE}.` : "";
+      // Some files moved and some did not: the vault state changed, so the session is locked and looked at again here too.
+      if (outcome.kind === "partial") return { ok: false, reason: partialMoveLine(outcome.error.moved, outcome.error.total) + withoutLock + (await settleSession()) };
+      const { backupDir, moved, floor } = outcome.result;
       if (moved.length === 0) return { ok: false, reason: NOTHING_TO_ABANDON };
-      deps.session.lock();
-      const reread = await deps.session.refresh().then(
-        () => "",
-        () => " The vault status could not be re-read; reload the plugin.",
-      );
-      return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + reread };
+      const reread = await settleSession();
+      return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + withoutLock + reread };
     } catch (error) {
-      return { ok: false, reason: describeDialogError(error) };
+      if (error instanceof PublishRefusedError && error.code === "lock-held") return { ok: false, reason: busyNotice(undefined) };
+      return { ok: false, reason: failureLine(error) };
     } finally {
       release();
     }
@@ -81,13 +145,22 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
   return {
     open: () => {
       if (deps.lock.holder() !== undefined) return Promise.resolve("busy");
+      // At most one dialog is open: the lock is taken only when Confirm is pressed, so a second request closes the first.
+      open?.handle?.close();
       return new Promise<AbandonOutcome | "busy">((resolve) => {
-        open = deps.openDialog({ abandon }, (outcome) => {
-          open = undefined;
+        const mine: OpenDialog = { handle: undefined, finished: false };
+        mine.handle = deps.openDialog({ abandon }, (outcome) => {
+          mine.finished = true;
+          // Only this dialog's own record is dropped: a late finish of an earlier dialog must not forget the one open now.
+          if (open === mine) open = undefined;
           resolve(outcome);
         });
+        if (!mine.finished) open = mine;
       });
     },
-    dispose: () => open?.close(),
+    dispose: () => {
+      open?.handle?.close();
+      open = undefined;
+    },
   };
 }

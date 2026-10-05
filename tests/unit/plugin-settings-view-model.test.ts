@@ -155,6 +155,29 @@ describe("settings view model: authentication", () => {
     expect(r.vm.visibleAuthFields()).toEqual(["authHeaderName", "authHeaderValue"]);
   });
 
+  it("clears the typed node secret when the scheme leaves that kind, so bearer -> none -> bearer needs the token again", async () => {
+    const r = rig();
+    await r.vm.edit("authScheme", "bearer");
+    expect((await r.vm.edit("authToken", "T1")).saved).toBe(true);
+    expect((await r.vm.edit("authScheme", "none")).saved).toBe(true);
+    expect(r.vm.state().values.authToken).toBe("");
+    const back = await r.vm.edit("authScheme", "bearer");
+    expect(back).toMatchObject({ saved: false, state: { authPending: true } });
+    expect(r.store.get().auth).toEqual({ scheme: "none" });
+    expect(JSON.stringify(r.store.get())).not.toContain("T1");
+  });
+
+  it("clears the left kind's fields and keeps them when the same scheme is picked again", async () => {
+    const r = rig();
+    await r.vm.edit("authScheme", "header");
+    await r.vm.edit("authHeaderName", "X-Key");
+    await r.vm.edit("authHeaderValue", "hv-1");
+    await r.vm.edit("authScheme", "header");
+    expect(r.vm.state().values).toMatchObject({ authHeaderName: "X-Key", authHeaderValue: "hv-1" });
+    await r.vm.edit("authScheme", "basic");
+    expect(r.vm.state().values).toMatchObject({ authHeaderName: "", authHeaderValue: "" });
+  });
+
   it("ignores an unknown scheme", async () => {
     const r = rig();
     expect((await r.vm.edit("authScheme", "kerberos")).saved).toBe(false);

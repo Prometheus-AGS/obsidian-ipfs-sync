@@ -1,5 +1,5 @@
 import { Setting } from "obsidian";
-import { errorKeyOf, SECRET_FIELDS, type EditableFieldId, type FieldId } from "./settings-view-model";
+import { errorKeyOf, GATEWAY_SECRET_FIELDS, SECRET_FIELDS, type EditableFieldId } from "./settings-view-model";
 import { FIELD_COPY } from "./settings-tab-copy";
 import type { SettingsField } from "./settings-to-config";
 
@@ -16,6 +16,12 @@ export const descId = (field: string): string => `ipfs-sync-desc-${field}`;
 export const errorId = (key: string): string => `ipfs-sync-error-${key}`;
 /** Live region under the authentication fields: warnings (expired JWT) and the "not saved yet" hint. */
 export const AUTH_STATUS_ID = "ipfs-sync-auth-status";
+/** Live region under the gateway authentication fields: warnings (expired JWT) and the "not saved yet" hint. */
+export const GATEWAY_AUTH_STATUS_ID = "ipfs-sync-gateway-auth-status";
+/** The line that says the node credential is not sent to the gateway; it also describes the gateway authentication picker. */
+export const GATEWAY_AUTH_NOTICE_ID = "ipfs-sync-gateway-auth-notice";
+/** The plain-text warning shown beside the gateway secret fields; they are described by it. */
+export const GATEWAY_SECRETS_NOTE_ID = "ipfs-sync-secrets-warning-gateway";
 /** The line that says which IPNS name will be pulled; it also describes the pull name field. */
 export const PULL_TARGET_ID = "ipfs-sync-pull-target";
 
@@ -92,12 +98,16 @@ export interface FieldContext {
 function describedBy(field: EditableFieldId, key: SettingsField, ctx: FieldContext): string {
   const ids = [descId(field), errorId(key)];
   if (key === "auth") ids.push(AUTH_STATUS_ID);
+  if (key === "gatewayAuth") ids.push(GATEWAY_AUTH_STATUS_ID);
+  if (field === "gatewayAuthScheme") ids.push(GATEWAY_AUTH_NOTICE_ID);
   if (field === "pullName") ids.push(PULL_TARGET_ID);
-  if (isSecret(field)) ids.push(ctx.secretNoteId);
+  if (isGatewaySecret(field)) ids.push(GATEWAY_SECRETS_NOTE_ID);
+  else if (isSecret(field)) ids.push(ctx.secretNoteId);
   return ids.join(" ");
 }
 
-const isSecret = (field: EditableFieldId): boolean => (SECRET_FIELDS as readonly EditableFieldId[]).includes(field);
+const isGatewaySecret = (field: EditableFieldId): boolean => (GATEWAY_SECRET_FIELDS as readonly EditableFieldId[]).includes(field);
+const isSecret = (field: EditableFieldId): boolean => isGatewaySecret(field) || (SECRET_FIELDS as readonly EditableFieldId[]).includes(field);
 
 /** One labelled row: name, description, and for non-auth fields its own error line under the description. */
 function fieldRow(parent: HTMLElement, field: EditableFieldId, ctx: FieldContext): Setting {
@@ -106,7 +116,7 @@ function fieldRow(parent: HTMLElement, field: EditableFieldId, ctx: FieldContext
   const setting = new Setting(parent).setName(copy.name).setDesc(copy.desc);
   setting.nameEl.id = labelId(field);
   setting.descEl.id = descId(field);
-  if (key !== "auth") ctx.slots.create(key, setting.infoEl);
+  if (key !== "auth" && key !== "gatewayAuth") ctx.slots.create(key, setting.infoEl);
   return setting;
 }
 
@@ -168,7 +178,7 @@ export function addToggleField(parent: HTMLElement, field: EditableFieldId, ctx:
 /** A dropdown over `{value: label}`; a pick is committed at once. */
 export function addSelectField(
   parent: HTMLElement,
-  field: FieldId,
+  field: EditableFieldId,
   options: Readonly<Record<string, string>>,
   ctx: FieldContext,
 ): HTMLSelectElement {

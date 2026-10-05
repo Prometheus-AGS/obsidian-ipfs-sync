@@ -93,7 +93,7 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     await lock.release();
     expect(result.code).toBe(1);
     expect(result.err).toContain("another publish is running in this vault");
-    expect(result.err).toContain(`process ${process.pid} on ${hostname()}`);
+    expect(result.err).toContain(`process ${process.pid} on "${hostname()}"`);
     expect(result.err).toContain("--break-lock");
     expect(requests).toEqual([]);
   });
@@ -129,7 +129,7 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     const lock = await holder();
     const declined = await publish(false, ["--break-lock"]);
     expect(declined.code).toBe(1);
-    expect(declined.questions[0]).toContain(`process ${process.pid} on ${hostname()}`);
+    expect(declined.questions[0]).toContain(`process ${process.pid} on "${hostname()}"`);
     expect(await lockExists()).toBe(true);
     expect(requests).toEqual([]);
 
@@ -161,14 +161,17 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     expect(s.err.join("\n")).toContain("--break-lock is only valid for the publish command");
   });
 
-  it("writes nothing into a vault without the fixture marker: no lock file, no state folder", async () => {
+  it("a publish that refuses before doing work (no encrypted vault at the MFS root, no marker needed) writes nothing: no lock file, no state folder, no node write", async () => {
     const real = join(dir, "real");
     await mkdir(real);
     await writeFile(join(real, "note.md"), "private");
     const s = sink(undefined);
-    expect(await runCli(["publish", real, "--config", configPath], deps(), s.io)).toBe(2);
-    expect(await readdir(real)).toEqual(["note.md"]);
-    expect(requests).toEqual([]);
+    expect(await runCli(["publish", real, "--config", configPath], deps(), s.io)).toBe(1);
+    expect(s.err.join("\n")).toContain("this MFS root holds no encrypted vault yet");
+    // The lock is taken before the vault check (the marker guard that used to refuse first is gone), so an empty .ipfs-sync folder may remain; the lock file and any state may not.
+    expect((await readdir(real)).filter((name) => name !== ".ipfs-sync")).toEqual(["note.md"]);
+    expect(await readdir(join(real, ".ipfs-sync")).catch(() => [])).toEqual([]);
+    expect(requests.filter((r) => /\/api\/v0\/(files\/(write|mkdir|rm|cp|mv|flush)|add|name\/publish|pin)/.test(r))).toEqual([]);
   });
 
   it("the lock file holds the token, process id, host and time, and is private to the user", async () => {
@@ -207,5 +210,15 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     expect(decodeLock(new Uint8Array(await readFile(lockPath())))?.token).toBe("theirs");
     expect((await readdir(join(vault, ".ipfs-sync"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
     if (process.platform !== "win32") expect((await stat(lockPath())).mode & 0o077).toBe(0);
+  });
+
+  it("R8-L1: a writeIfToken whose caller has stopped does not rename, returns false and leaves no temporary file", async () => {
+    const file = createNodeLockFile(vault);
+    const mine = encodeLock({ token: "mine", pid: process.pid, host: hostname(), time: NOW.getTime() });
+    const refreshed = encodeLock({ token: "mine", pid: process.pid, host: hostname(), time: NOW.getTime() + 60_000 });
+    expect(await file.createExclusive(mine)).toBe(true);
+    expect(await file.writeIfToken?.("mine", refreshed, () => true)).toBe(false);
+    expect(decodeLock(new Uint8Array(await readFile(lockPath())))?.time).toBe(NOW.getTime());
+    expect((await readdir(join(vault, ".ipfs-sync"))).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 });

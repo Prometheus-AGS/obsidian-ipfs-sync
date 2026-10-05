@@ -6,7 +6,7 @@ import { createCommitNode, type CommitClient, type CommitNodeConfig } from "./co
 import type { CommitNode } from "./commit-ports";
 import { listHistory, type HistoryView } from "./history-check";
 import { isHistoryName } from "./history-names";
-import { CID_TOKEN } from "./local-record";
+import { isCidToken } from "./local-record";
 import { KEYSLOTS_READ_CAP, MANIFEST_READ_CAP, readFileIfPresent, readRemoteFile } from "./node-reader";
 import { remoteObjectInvalid } from "./publish-refusals";
 
@@ -51,7 +51,7 @@ export function createMaintenanceNode(config: MaintenanceNodeConfig): Maintenanc
     pinRoot: commit.pinRoot,
     publishRoot: commit.publishRoot,
     readKeySlotsFile: () => readFileIfPresent(client, `${mfsRoot}/keyslots.json`, "keyslots.json", KEYSLOTS_READ_CAP),
-    readKeySlotsFileAt: async (rootCid) => (CID_TOKEN.test(rootCid) ? readFileIfPresent(client, `/ipfs/${rootCid}/keyslots.json`, "keyslots.json", KEYSLOTS_READ_CAP) : undefined),
+    readKeySlotsFileAt: async (rootCid) => (isCidToken(rootCid) ? readFileIfPresent(client, `/ipfs/${rootCid}/keyslots.json`, "keyslots.json", KEYSLOTS_READ_CAP) : undefined),
     writeKeySlotsFile: async (bytes) => {
       config.beforeWrite();
       await writeBytesToMfs(client, assertMfsMutationPath(`${mfsRoot}/keyslots.json`), bytes, "keyslots.json");
@@ -68,7 +68,7 @@ export function createMaintenanceNode(config: MaintenanceNodeConfig): Maintenanc
     },
     listHistory: () => listHistory(client, mfsRoot),
     listHistoryAt: async (rootCid) => {
-      if (!CID_TOKEN.test(rootCid)) return undefined;
+      if (!isCidToken(rootCid)) return undefined;
       try {
         return await client.ipfsLs(`/ipfs/${rootCid}/manifests`);
       } catch (error) {

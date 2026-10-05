@@ -4,7 +4,7 @@ import {
   type KeyClassification,
   type SyncConfig,
 } from "../src/core/config";
-import { KuboAuthError, KuboNetworkError, isMissingPathError, type KuboClient } from "../src/kubo";
+import { KuboAuthError, KuboNetworkError, escapeNodeText, isMissingPathError, type KuboClient } from "../src/kubo";
 import { EXIT_CHECK_FAILED, EXIT_OK, type CliIo } from "./io";
 
 interface StatusContext {
@@ -18,8 +18,11 @@ interface CheckFailure {
   readonly abort: boolean;
 }
 
+/** Everything the node answers is printed escaped: a name, a version or a key ID could otherwise drive the terminal. */
+const safe = escapeNodeText;
+
 function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return safe(error instanceof Error ? error.message : String(error));
 }
 
 function failure(io: CliIo, label: string, error: unknown): CheckFailure {
@@ -38,8 +41,8 @@ function printHeader({ config, io }: StatusContext): void {
 async function checkNode({ client, io }: StatusContext): Promise<CheckFailure | undefined> {
   try {
     const [identity, version] = await Promise.all([client.id(), client.version()]);
-    io.out(`peer id   ${identity.peerId}`);
-    io.out(`version   ${version.version} (${version.commit || "no commit"})  ${identity.agentVersion}`);
+    io.out(`peer id   ${safe(identity.peerId)}`);
+    io.out(`version   ${safe(version.version)} (${safe(version.commit) || "no commit"})  ${safe(identity.agentVersion)}`);
     return undefined;
   } catch (error) {
     return failure(io, "node", error);
@@ -50,7 +53,7 @@ async function checkMfsListing({ config, client, io }: StatusContext): Promise<C
   try {
     const entries = await client.filesLs(config.mfsRoot);
     io.out(`mfs ${config.mfsRoot}: ${entries.length} ${entries.length === 1 ? "entry" : "entries"}`);
-    for (const entry of entries) io.out(`  ${entry.type.padEnd(9)} ${entry.name}  ${entry.cid}  ${entry.size} bytes`);
+    for (const entry of entries) io.out(`  ${safe(entry.type).padEnd(9)} ${safe(entry.name)}  ${safe(entry.cid)}  ${entry.size} bytes`);
     return undefined;
   } catch (error) {
     if (isMissingPathError(error)) {
@@ -84,11 +87,11 @@ async function verifyProbe(
   if (stat.size !== payload.length) {
     throw new Error(`wrote ${payload.length} bytes but files/stat reports ${stat.size}`);
   }
-  io.out(`probe OK  (files/write field "data" -> files/stat ${stat.size} bytes -> cid ${stat.cid})`);
+  io.out(`probe OK  (files/write field "data" -> files/stat ${stat.size} bytes -> cid ${safe(stat.cid)})`);
   try {
     const fetched = await client.gatewayFetch(stat.cid);
     if (!sameBytes(fetched, payload)) throw new Error("gateway returned different bytes than were written");
-    io.out(`gateway fetch OK  (${config.gateway.baseUrl}/ipfs/${stat.cid}, ${fetched.length} bytes)`);
+    io.out(`gateway fetch OK  (${config.gateway.baseUrl}/ipfs/${safe(stat.cid)}, ${fetched.length} bytes)`);
     return undefined;
   } catch (error) {
     return failure(io, "gateway fetch", error);
@@ -139,8 +142,8 @@ async function checkProbe(ctx: StatusContext): Promise<readonly CheckFailure[]> 
 }
 
 function describeKey(name: string, result: KeyClassification): string {
-  const id = result.id === undefined ? "" : ` id ${result.id}`;
-  return `key ${name}: ${result.state}${id}  (${result.reason})`;
+  const id = result.id === undefined ? "" : ` id ${safe(result.id)}`;
+  return `key ${safe(name)}: ${result.state}${id}  (${safe(result.reason)})`;
 }
 
 async function checkKey({ config, client, io }: StatusContext): Promise<CheckFailure | undefined> {

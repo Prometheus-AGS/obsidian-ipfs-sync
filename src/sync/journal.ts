@@ -1,10 +1,11 @@
 import type { Bytes, HostKv } from "../core/host-bridge";
 import type { EncryptedManifest } from "./encrypted-manifest";
 import {
-  CID_TOKEN,
   HEX32,
   HEX64,
   RootStateError,
+  assertPersistableCid,
+  isCidToken,
   isJsonRecord,
   parseJsonObject,
   parseManifestField,
@@ -69,7 +70,7 @@ export function encodeJournal(journal: PublishJournal): Bytes {
 function parseStartRoot(record: Readonly<Record<string, unknown>>): string | null {
   const value = record["startRoot"];
   if (value === null) return null;
-  if (typeof value === "string" && CID_TOKEN.test(value)) return value;
+  if (isCidToken(value)) return value;
   throw new RootStateError('journal field "startRoot" is missing or malformed');
 }
 
@@ -120,6 +121,7 @@ export async function readJournal(kv: Pick<HostKv, "get">, mfsRoot: string): Pro
 }
 
 export async function writeJournal(kv: Pick<HostKv, "set">, journal: PublishJournal): Promise<void> {
+  assertPersistableCid(journal.startRoot, "journal startRoot");
   await kv.set(rootFileNames(journal.mfsRoot).journal, encodeJournal(journal));
 }
 

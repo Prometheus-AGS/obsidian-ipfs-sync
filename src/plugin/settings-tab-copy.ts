@@ -1,5 +1,4 @@
 import { DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, type AuthScheme } from "../core/config";
-import { FIXTURE_MARKER } from "../sync/publish-guard";
 import { DEFAULT_MAX_READ_MB, MAX_MAX_READ_MB, MIN_MAX_READ_MB } from "./read-cap";
 import type { EditableFieldId } from "./settings-fields";
 import { DEFAULT_PULL_CONFIRM_ABOVE_MB, MAX_PULL_CONFIRM_ABOVE_MB, MIN_PULL_CONFIRM_ABOVE_MB } from "./settings-model";
@@ -22,7 +21,7 @@ export interface FieldCopy {
 export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   rpcUrl: {
     name: "RPC URL",
-    desc: "The kubo RPC endpoint the plugin publishes through.",
+    desc: "The kubo RPC endpoint the plugin publishes through. There is no default node: set your own.",
     placeholder: "https://ipfs.example.org",
     wide: true,
   },
@@ -34,7 +33,7 @@ export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   },
   gatewayUrl: {
     name: "Gateway URL",
-    desc: "The kubo gateway endpoint. It can differ from the RPC endpoint in host, port and scheme.",
+    desc: "The kubo gateway endpoint. It can differ from the RPC endpoint in host, port and scheme, and it is never derived from the RPC URL.",
     placeholder: "https://gateway.example.org",
     wide: true,
   },
@@ -81,8 +80,7 @@ export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   catchUpOnLoad: {
     name: "Catch up on load",
     desc:
-      "Pull once when this vault opens. Off by default. It is a per-device setting: it is saved on this device only " +
-      `and is not synced. In this release it takes effect only in fixture vaults (vaults containing ${FIXTURE_MARKER}); in any other vault it does nothing.`,
+      "Pull once when this vault opens. Off by default. It is a per-device setting: it is saved on this device only and is not synced.",
   },
   maxReadMb: {
     name: "Read cap (MB)",
@@ -95,14 +93,42 @@ export const FIELD_COPY: Readonly<Record<EditableFieldId, FieldCopy>> = {
   },
   authScheme: {
     name: "Authentication scheme",
-    desc: "Applies to both the RPC and the gateway endpoint.",
+    desc:
+      "The credential for the RPC endpoint. The gateway receives it only when its address (scheme, host and port) is the same as the RPC address. " +
+      "Otherwise the gateway gets no credential unless you set one under Gateway authentication.",
   },
   authUser: { name: "User", desc: "The user name for basic authentication." },
   authPassword: { name: "Password", desc: "The password for basic authentication." },
   authToken: { name: "Bearer token", desc: "A static token or a JWT. A JWT that has expired is reported here." },
   authHeaderName: { name: "Header name", desc: "The name of the request header, for example X-Api-Key." },
   authHeaderValue: { name: "Header value", desc: "The value sent in that header." },
+  gatewayAuthScheme: {
+    name: "Gateway authentication",
+    desc:
+      "The credential for the gateway endpoint only; it is never sent to the RPC endpoint. " +
+      "Same as node: the gateway gets the node credential when its address matches the RPC address, and no credential otherwise. " +
+      "Any other choice is used as set, and None sends no credential even when the addresses match.",
+  },
+  gatewayAuthUser: { name: "Gateway user", desc: "The user name for basic authentication to the gateway." },
+  gatewayAuthPassword: { name: "Gateway password", desc: "The password for basic authentication to the gateway." },
+  gatewayAuthToken: { name: "Gateway bearer token", desc: "A static token or a JWT, sent to the gateway only. A JWT that has expired is reported here." },
+  gatewayAuthHeaderName: { name: "Gateway header name", desc: "The name of the request header sent to the gateway, for example X-Api-Key." },
+  gatewayAuthHeaderValue: { name: "Gateway header value", desc: "The value sent in that header to the gateway." },
 };
+
+/** The picker's default choice: no gateway block is stored and the node credential follows the origin rule. */
+export const GATEWAY_AUTH_SAME_LABEL = "Same as node";
+
+/** Shown near the gateway fields when the node credential is held back because the gateway address differs. Holds no secret. */
+export const GATEWAY_AUTH_NOTICE =
+  "The node credential is not sent to the gateway because its address differs. Set a gateway credential below if it needs one.";
+
+/** Shown next to the address after an edit moved it to another host or port and the credential saved for the old one was cleared. Hold no secret. */
+export const RPC_CREDENTIAL_CLEARED = "The node credential was cleared because the address changed. Enter it again for the new node.";
+export const GATEWAY_CREDENTIAL_CLEARED =
+  "The gateway credential was cleared because the gateway address changed. Enter it again if the new gateway needs one.";
+
+export const GATEWAY_AUTH_INCOMPLETE = "Not saved yet: fill in every gateway field for this kind.";
 
 export const AUTH_SCHEME_LABELS: Readonly<Record<AuthScheme, string>> = {
   none: "None",
@@ -111,9 +137,13 @@ export const AUTH_SCHEME_LABELS: Readonly<Record<AuthScheme, string>> = {
   header: "Custom header",
 };
 
-export const FIXTURE_NOTICE_TITLE = "Fixture-only build";
+export const FIXTURE_NOTICE_TITLE = "Publishing is encrypted";
 
 export const SECRETS_WARNING_TITLE = "Secrets are stored in plain text";
+/** One sentence under the credential fields, shown while a node or gateway credential kind is chosen. */
+export const SECRETS_REDIRECT_NOTE =
+  "Requests may follow redirects the plugin cannot see, so use a node address you trust and prefer Basic or Bearer over a custom header.";
+
 export const SECRETS_WARNING =
   "The password, token and header value are saved unencrypted in this plugin's data file, " +
   ".obsidian/plugins/ipfs-sync/data.json. That file is excluded from sync, so it is never published. " +
@@ -156,6 +186,7 @@ export const EXCLUSIONS_COPY = {
 export const KEYS_COPY = {
   stateName: "Publication key",
   checking: "Asking the node...",
+  stale: "Not checked since the settings changed. Press Check again to ask the node.",
   refreshButton: "Check again",
   ownedName: "Owned key IDs",
   ownedDesc: "Keys this plugin created or you adopted. The plugin publishes only to keys listed here.",

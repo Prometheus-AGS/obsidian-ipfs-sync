@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONNECTION_FRAMING_HEADERS,
   ConfigError,
   REDACTED,
+  isConnectionFramingHeader,
   authWarnings,
   buildAuth,
   composeEndpointUrl,
@@ -14,6 +16,13 @@ import {
 } from "../../src/core/config";
 
 const NOW = new Date("2026-09-29T12:00:00Z");
+
+/** No node is a default, so a test that resolves a whole config names one. */
+const NODE = { rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } };
+
+/** One reverse proxy that serves both the RPC API and the gateway: the same scheme, host and port. */
+const SAME_ORIGIN_NODE = { rpc: { url: "https://node.example" }, gateway: { url: "https://node.example/gateway" } };
+const GLOBAL_BEARER = { IPFS_SYNC_AUTH_SCHEME: "bearer", IPFS_SYNC_AUTH_TOKEN: "rpc-secret" };
 
 function jwt(claims: Record<string, unknown>): string {
   const enc = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -44,6 +53,22 @@ describe("composeEndpointUrl", () => {
     "rejects %s",
     (url) => {
       expect(() => composeEndpointUrl("rpc", url)).toThrowError(ConfigError);
+    },
+  );
+
+  it.each(["https://u:pa#ss@host", "https://u:pa/ss@host", "https://u:pa?ss@host", "http://user:se/cr?et#x@[bad", "http://u:p@a@[bad"])(
+    "does not echo any part of a password that holds / ? or # (%s)",
+    (url) => {
+      let message = "";
+      try {
+        composeEndpointUrl("rpc", url);
+      } catch (error) {
+        message = String(error);
+      }
+      // Round 3 (K-L4): an unparsable URL is not echoed at all; the fixed phrase "invalid address" replaces the redacted echo
+      // (and its "ss" is why the pattern now names the password fragments, not "pa" and "ss" alone).
+      expect(message).not.toMatch(/pa#ss|pa\/ss|pa\?ss|se\/cr|cr\?et|et#x|user|p@a|u:p/);
+      expect(message).toContain("invalid address");
     },
   );
 
@@ -92,6 +117,80 @@ describe("buildAuth", () => {
     expect(() => buildAuth(input, "auth")).toThrowError(message);
   });
 
+  it.each([
+    "Host",
+    "host",
+    "Transfer-Encoding",
+    "CONNECTION",
+    "Content-Length",
+    "Upgrade",
+    "Expect",
+    "TE",
+    "te",
+    "Keep-Alive",
+    "Proxy-Connection",
+    "Trailer",
+  ])("rejects the connection-level header name %s without echoing it", (name) => {
+    try {
+      buildAuth({ scheme: "header", headerName: name, headerValue: "v" }, "auth");
+      throw new Error("expected a failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError);
+      expect((error as Error).message).toBe("auth: that header name is controlled by the HTTP connection and cannot carry a credential");
+      expect((error as Error).message).not.toContain(name);
+    }
+  });
+
+  it("shares one framing-header set with the transport: ten names, all lower case", () => {
+    expect([...CONNECTION_FRAMING_HEADERS].sort()).toEqual(
+      ["connection", "content-length", "expect", "host", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade"],
+    );
+    expect(isConnectionFramingHeader("Transfer-Encoding")).toBe(true);
+    expect(isConnectionFramingHeader("Content-Type")).toBe(false);
+    expect(isConnectionFramingHeader("Range")).toBe(false);
+  });
+
+  it.each(["Content-Type", "content-type", "CONTENT-TYPE", "Range", "range", "RANGE", "rAnGe"])(
+    "refuses %s as the custom credential header: it would merge with the real header",
+    (name) => {
+      try {
+        buildAuth({ scheme: "header", headerName: name, headerValue: "secret" }, "auth");
+        throw new Error("expected a failure");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        expect((error as Error).message).toBe("auth: that header name is set by the request itself and cannot carry a credential");
+        expect((error as Error).message).not.toContain(name);
+      }
+    },
+  );
+
+  it.each(["HOST", "Transfer-Encoding", "cOnNeCtIoN", "CONTENT-LENGTH", "Upgrade", "EXPECT", "Te", "KEEP-ALIVE", "Proxy-Connection", "TRAILER"])(
+    "refuses %s in any casing for the credential header",
+    (name) => {
+      expect(() => buildAuth({ scheme: "header", headerName: name, headerValue: "v" }, "auth")).toThrowError(/controlled by the HTTP connection/);
+    },
+  );
+
+  it("still accepts an ordinary custom header name", () => {
+    expect(buildAuth({ scheme: "header", headerName: "X-Host-Token", headerValue: "v" }, "auth")).toEqual({
+      kind: "header",
+      name: "X-Host-Token",
+      value: "v",
+    });
+  });
+
+  it("does not echo a header name that was a pasted secret", () => {
+    const pasted = "sk-live-9f8e7d6c bearer";
+    try {
+      buildAuth({ scheme: "header", headerName: pasted, headerValue: "v" }, "auth");
+      throw new Error("expected a failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError);
+      expect((error as Error).message).toMatch(/not a valid HTTP header name/);
+      expect((error as Error).message).not.toMatch(/sk-live|9f8e7d6c|bearer/);
+    }
+  });
+
   it("redacts every secret and never returns the original secret", () => {
     const basic = redactAuth({ kind: "basic", user: "u", password: "p" });
     const bearer = redactAuth({ kind: "bearer", token: "tok" });
@@ -124,6 +223,15 @@ describe("JWT expiry warning", () => {
     expect(warnings).toEqual(["rpc bearer token (JWT) expired at 2023-11-14T22:13:20.000Z"]);
   });
 
+  it("never throws for a finite but huge exp; it says the expiry could not be read", () => {
+    for (const exp of [1e300, 8.65e12, -8.65e12, 1e20]) {
+      const token = jwt({ exp });
+      expect(() => authWarnings("rpc", { kind: "bearer", token }, NOW)).not.toThrow();
+      expect(authWarnings("rpc", { kind: "bearer", token }, NOW)).toEqual(["rpc bearer token (JWT) expiry could not be read"]);
+    }
+    expect(() => resolveSyncConfig([NODE, { auth: { scheme: "bearer", token: jwt({ exp: 1e300 }) } }], NOW)).not.toThrow();
+  });
+
   it("does not warn for a live JWT, a static token or other schemes", () => {
     const live = jwt({ exp: Math.floor(NOW.getTime() / 1000) + 3600 });
     expect(authWarnings("rpc", { kind: "bearer", token: live }, NOW)).toEqual([]);
@@ -135,26 +243,27 @@ describe("JWT expiry warning", () => {
 describe("secret resolution and precedence", () => {
   it("reads auth secrets from IPFS_SYNC_AUTH_* env", () => {
     const layer = envLayer({ IPFS_SYNC_AUTH_SCHEME: "basic", IPFS_SYNC_AUTH_USER: "u", IPFS_SYNC_AUTH_PASSWORD: "p" });
-    const config = resolveSyncConfig([layer], NOW);
+    const config = resolveSyncConfig([SAME_ORIGIN_NODE, layer], NOW);
     expect(config.rpc.auth).toEqual({ kind: "basic", user: "u", password: "p" });
     expect(config.gateway.auth).toBe(config.rpc.auth);
   });
 
   it("flags beat env, env beats file, file beats defaults", () => {
-    const file = parseConfigFile(JSON.stringify({ rpc: { url: "https://file.example" }, publicationKey: "obsidian-vault-file" }));
+    const file = parseConfigFile(JSON.stringify({ rpc: { url: "https://file.example" }, gateway: { url: "https://gw.example" }, publicationKey: "obsidian-vault-file" }));
     const env = envLayer({ IPFS_SYNC_RPC_URL: "https://env.example", IPFS_SYNC_KEY: "obsidian-vault-env" });
     const flags = { rpc: { url: "https://flag.example" } };
     const config = resolveSyncConfig([file, env, flags], NOW);
     expect(config.rpc.baseUrl).toBe("https://flag.example");
     expect(config.publicationKey).toBe("obsidian-vault-env");
-    expect(config.gateway.baseUrl).toBe("https://ipfs.prometheusags.ai");
+    // No node is a default: the gateway comes from a layer, never from the RPC URL or a built-in host.
+    expect(config.gateway.baseUrl).toBe("https://gw.example");
     expect(config.mfsRoot).toBe("/obsidian-vault-sync/default");
   });
 
   it("merges auth field by field across layers", () => {
     const file = parseConfigFile(JSON.stringify({ auth: { scheme: "basic", user: "u" } }));
     const env = envLayer({ IPFS_SYNC_AUTH_PASSWORD: "p" });
-    expect(resolveSyncConfig([file, env], NOW).rpc.auth).toEqual({ kind: "basic", user: "u", password: "p" });
+    expect(resolveSyncConfig([NODE, file, env], NOW).rpc.auth).toEqual({ kind: "basic", user: "u", password: "p" });
   });
 
   it("lets an endpoint override the global auth", () => {
@@ -163,9 +272,55 @@ describe("secret resolution and precedence", () => {
       IPFS_SYNC_AUTH_TOKEN: "t",
       IPFS_SYNC_GATEWAY_AUTH_SCHEME: "none",
     });
-    const config = resolveSyncConfig([env], NOW);
+    const config = resolveSyncConfig([NODE, env], NOW);
     expect(config.rpc.auth).toEqual({ kind: "bearer", token: "t" });
     expect(config.gateway.auth).toEqual({ kind: "none" });
+  });
+
+  it("gives the gateway the global auth only when it has the RPC endpoint's origin", () => {
+    const config = resolveSyncConfig([SAME_ORIGIN_NODE, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.gateway.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+    // The default port of the scheme is the same origin as the port written out.
+    const explicitPort = resolveSyncConfig([{ rpc: { url: "https://node.example" }, gateway: { url: "https://node.example:443" } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(explicitPort.gateway.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+  });
+
+  it("does not send the global auth to a gateway on another host", () => {
+    const config = resolveSyncConfig([{ rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.rpc.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+    expect(config.gateway.auth).toEqual({ kind: "none" });
+  });
+
+  it("does not send the global auth to a gateway on another port of the same host", () => {
+    const config = resolveSyncConfig([{ rpc: { url: "https://node.example", port: 5001 }, gateway: { url: "https://node.example", port: 8080 } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.gateway.baseUrl).toBe("https://node.example:8080");
+    expect(config.gateway.auth).toEqual({ kind: "none" });
+  });
+
+  it("does not send the global auth to a gateway on another scheme", () => {
+    const config = resolveSyncConfig([{ rpc: { url: "https://node.example" }, gateway: { url: "http://node.example" } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.gateway.auth).toEqual({ kind: "none" });
+  });
+
+  it("lets an explicit gateway auth win on a different origin and on the same origin", () => {
+    const own = { IPFS_SYNC_GATEWAY_AUTH_SCHEME: "basic", IPFS_SYNC_GATEWAY_AUTH_USER: "g", IPFS_SYNC_GATEWAY_AUTH_PASSWORD: "gp" };
+    const elsewhere = resolveSyncConfig([{ rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } }, envLayer({ ...GLOBAL_BEARER, ...own })], NOW);
+    expect(elsewhere.rpc.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+    expect(elsewhere.gateway.auth).toEqual({ kind: "basic", user: "g", password: "gp" });
+    const sameOrigin = resolveSyncConfig([SAME_ORIGIN_NODE, envLayer({ ...GLOBAL_BEARER, ...own })], NOW);
+    expect(sameOrigin.gateway.auth).toEqual({ kind: "basic", user: "g", password: "gp" });
+  });
+
+  it("marks the gateway credentialWithheld only when it has none because the origin differs from a credentialed RPC", () => {
+    const other = { rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } };
+    const withheld = resolveSyncConfig([other, envLayer(GLOBAL_BEARER)], NOW);
+    expect(withheld.gateway.credentialWithheld).toBe(true);
+    expect(withheld.rpc.credentialWithheld).toBeUndefined();
+    // Same origin: inherited. No node credential: nothing was withheld. Explicit none or explicit auth: the operator chose.
+    expect(resolveSyncConfig([SAME_ORIGIN_NODE, envLayer(GLOBAL_BEARER)], NOW).gateway.credentialWithheld).toBeUndefined();
+    expect(resolveSyncConfig([other], NOW).gateway.credentialWithheld).toBeUndefined();
+    expect(resolveSyncConfig([{ ...other, gateway: { url: "https://gw.example", auth: { scheme: "none" } } }, envLayer(GLOBAL_BEARER)], NOW).gateway.credentialWithheld).toBeUndefined();
+    expect(resolveSyncConfig([{ ...other, gateway: { url: "https://gw.example", auth: { scheme: "bearer", token: "g" } } }, envLayer(GLOBAL_BEARER)], NOW).gateway.credentialWithheld).toBeUndefined();
   });
 
   it("composes separate RPC and gateway hosts and ports", () => {
@@ -178,14 +333,17 @@ describe("secret resolution and precedence", () => {
   });
 
   it("does not inherit a lower layer's port when a higher layer sets only a URL", () => {
-    const config = resolveSyncConfig([{ rpc: { url: "https://a.example", port: 5001 } }, { rpc: { url: "https://b.example" } }], NOW);
+    const config = resolveSyncConfig([NODE, { rpc: { url: "https://a.example", port: 5001 } }, { rpc: { url: "https://b.example" } }], NOW);
     expect(config.rpc.baseUrl).toBe("https://b.example");
   });
 
   it("collects a single warning when both endpoints share an expired JWT", () => {
     const token = jwt({ exp: 1_700_000_000 });
-    const config = resolveSyncConfig([{ auth: { scheme: "bearer", token } }], NOW);
+    const config = resolveSyncConfig([SAME_ORIGIN_NODE, { auth: { scheme: "bearer", token } }], NOW);
     expect(config.warnings).toEqual(["auth bearer token (JWT) expired at 2023-11-14T22:13:20.000Z"]);
+    // Another origin no longer shares the credential, so only the RPC endpoint carries (and warns about) it.
+    const split = resolveSyncConfig([NODE, { auth: { scheme: "bearer", token } }], NOW);
+    expect(split.warnings).toEqual(["rpc bearer token (JWT) expired at 2023-11-14T22:13:20.000Z"]);
   });
 
   it("fails closed on unsafe root and key before returning a config", () => {

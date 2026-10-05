@@ -67,7 +67,7 @@ describe("settings tab: pull section", () => {
 });
 
 describe("settings tab: catch-up toggle", () => {
-  it("is a switch, off by default, that says it is per device and fixture-only", async () => {
+  it("is a switch, off by default, that says it is per device and no longer says it is fixture-only", async () => {
     const { root, store } = await open();
     const box = controlFor(root, "Catch up on load");
     expect(box.type).toBe("checkbox");
@@ -76,8 +76,8 @@ describe("settings tab: catch-up toggle", () => {
     expect(store.get().catchUpOnLoad).toBe(false);
     const text = describedText(root, "Catch up on load");
     expect(text).toContain("per-device");
-    expect(text).toContain(".ipfs-sync-fixture");
-    expect(text).toContain("only in fixture vaults");
+    expect(text).not.toContain(".ipfs-sync-fixture");
+    expect(text).not.toContain("fixture");
   });
 
   it("saves true and false, and shows the stored state when reopened", async () => {

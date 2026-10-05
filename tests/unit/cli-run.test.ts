@@ -4,6 +4,8 @@ import { UsageError, parseCliArgs } from "../../cli/args";
 import type { CliIo } from "../../cli/io";
 import type { ConfigDeps } from "../../cli/load-config";
 import { runCli } from "../../cli/run";
+import { NODE_ENV } from "../helpers/cli-state-env";
+import { TEST_RPC_URL } from "../helpers/test-node-settings";
 
 const PEER_ID = "QmSrPmbaUKA3ZodhzPWZnpFgcPMFWF4QsxXbkWfEptTBJd";
 const CID = "bafkreigh2akiscaildcqabsyg3dfr6chu3fgpregiymsck7e7aqa4s52zy";
@@ -22,7 +24,7 @@ function sink(): Sink {
 
 function deps(env: Record<string, string> = {}, files: Record<string, string> = {}): ConfigDeps {
   return {
-    env,
+    env: { ...NODE_ENV, ...env },
     now: () => new Date("2026-09-29T12:00:00Z"),
     readText: async (path) => files[path],
   };
@@ -194,7 +196,7 @@ describe("runCli", () => {
     const code = await runCli(["status"], deps({ IPFS_SYNC_AUTH_SCHEME: "bearer", IPFS_SYNC_AUTH_TOKEN: "tok" }), s.io);
     const text = s.out.join("\n");
     expect(code).toBe(1);
-    expect(text).toContain("credentials rejected by the rpc endpoint https://ipfs.prometheusags.ai (HTTP 401)");
+    expect(text).toContain(`credentials rejected by the rpc endpoint ${TEST_RPC_URL} (HTTP 401)`);
     expect(text).not.toContain("tok");
     expect(node.requests.every((r) => !r.includes("files/write"))).toBe(true);
   });
@@ -218,7 +220,7 @@ describe("runCli", () => {
       const s = sink();
       await runCli(["status", "--show-request"], deps(env), s.io);
       const text = s.out.join("\n");
-      expect(text).toContain("request POST https://ipfs.prometheusags.ai/api/v0/id");
+      expect(text).toContain(`request POST ${TEST_RPC_URL}/api/v0/id`);
       expect(text).toContain(expected[index] ?? "");
       expect(text).not.toContain("hunter2");
     }

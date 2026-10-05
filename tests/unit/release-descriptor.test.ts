@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { gunzipSync } from "node:zlib";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GOLDEN_DIR, buildFixture, normalizeText, snapshotDirectory } from "../helpers/release-fixture.ts";
 
@@ -18,6 +20,7 @@ interface Descriptor {
   readonly repo: string;
   readonly minAppVersion: string;
   readonly cliTarball: string;
+  readonly cliTarballFiles: readonly { from: string; as: string; mode: number }[];
   readonly outDir: string;
   readonly featureOpFile: string;
   readonly commitMessage: string;
@@ -39,6 +42,7 @@ interface Modules {
   readonly descriptors: { RELEASE_1: Descriptor; makeDescriptor(spec: Record<string, unknown>): Descriptor };
   readonly facts: { gatherFacts(root: string, options: { featureOpPath?: string; descriptor: Descriptor }): Facts };
   readonly plan: { renderPlan(facts: Facts, options: { descriptor: Descriptor; outDir?: string }): { text: string; blockerCount: number } };
+  readonly tar: { buildTarball(entries: readonly { from: string; as: string; mode: number }[]): Buffer };
   readonly steps: { outwardSteps(input: { descriptor: Descriptor; facts: Facts; outDir?: string; assetNames: string[] }): Step[] };
   readonly record: {
     runRecord(input: { descriptor: Descriptor; root: string; outRel?: string; featureOpPath?: string; evidenceSpecs?: string[]; noBuild?: boolean; out: (text: string) => void }): number;
@@ -57,12 +61,47 @@ const freshRoot = (prefix: string): string => {
 const golden = (rel: string): string => readFileSync(join(GOLDEN_DIR, rel), "utf8");
 const goldenBytes = (rel: string): Buffer => readFileSync(join(GOLDEN_DIR, rel));
 
+/*
+ * The CLI tarball is a ustar archive passed through zlib's gzipSync at level 9. The ustar bytes and the gzip header are
+ * the tool's own and fixed; the deflate stream is zlib's, and zlib's output differs between builds (Node 22 and 24 bundle
+ * zlib 1.3.x and write 195 bytes for the golden archive; the Homebrew Node 26 links the system zlib 1.2.12 and writes 193
+ * for the same archive). So the golden compares what the tool controls: the gzip header, the decompressed archive, and the
+ * size and hash that the plan, the record and the sums file print for the compressed bytes. Those printed values are
+ * checked against the real bytes, then mapped to the golden's values before the byte-for-byte comparison of the text.
+ */
+const TGZ_NAME = "ipfs-sync-cli-0.2.0.tgz";
+const GZIP_HEADER_LENGTH = 10;
+const sha256Hex = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
+interface Compressed {
+  readonly size: number;
+  readonly sha256: string;
+}
+const measure = (bytes: Uint8Array): Compressed => ({ size: bytes.length, sha256: sha256Hex(bytes) });
+const GOLDEN_TGZ = goldenBytes(`record/out/${TGZ_NAME}`);
+const GOLDEN_TGZ_MEASURE = measure(GOLDEN_TGZ);
+
+/** Same archive: the gzip header (magic, method, flags, mtime 0, xfl, os) and the decompressed ustar bytes equal the golden's. */
+function expectSameArchive(actual: Uint8Array): Compressed {
+  expect(Buffer.from(actual.subarray(0, GZIP_HEADER_LENGTH)).toString("hex")).toBe(GOLDEN_TGZ.subarray(0, GZIP_HEADER_LENGTH).toString("hex"));
+  expect(gunzipSync(actual).equals(gunzipSync(GOLDEN_TGZ))).toBe(true);
+  return measure(actual);
+}
+
+/** Maps the printed size and hash of the compressed archive to the golden's, wherever the tool prints them. */
+function pinCompressed(text: string, actual: Compressed): string {
+  const pinned = text.split(actual.sha256).join(GOLDEN_TGZ_MEASURE.sha256);
+  return pinned
+    .replace(new RegExp(`(${TGZ_NAME}\\s+)${actual.size}( bytes)`), `$1${GOLDEN_TGZ_MEASURE.size}$2`)
+    .replace(`"size": ${actual.size},\n      "sha256": "${GOLDEN_TGZ_MEASURE.sha256}"`, `"size": ${GOLDEN_TGZ_MEASURE.size},\n      "sha256": "${GOLDEN_TGZ_MEASURE.sha256}"`);
+}
+
 beforeAll(async () => {
   const load = async (name: string): Promise<unknown> => import(/* @vite-ignore */ pathToFileURL(join(TOOLS, `${name}.mjs`)).href);
   m = {
     descriptors: (await load("descriptors")) as Modules["descriptors"],
     facts: (await load("facts")) as Modules["facts"],
     plan: (await load("plan")) as Modules["plan"],
+    tar: (await load("tar")) as Modules["tar"],
     steps: (await load("steps")) as Modules["steps"],
     record: (await load("record")) as Modules["record"],
   };
@@ -77,8 +116,21 @@ describe("Release 1 regression: the descriptor reproduces the pre-refactor outpu
     buildFixture(root, {});
     const d = m.descriptors.RELEASE_1;
     const { text, blockerCount } = m.plan.renderPlan(m.facts.gatherFacts(root, { descriptor: d }), { descriptor: d, outDir: d.outDir });
-    expect(normalizeText(text, root)).toBe(golden("plan.txt"));
+    // The archive the plan describes, rebuilt from the same fixture: same archive as the golden's, and the plan prints its real size and hash.
+    const archive = expectSameArchive(m.tar.buildTarball(d.cliTarballFiles.map((entry) => ({ ...entry, from: join(root, entry.from) }))));
+    expect(text).toContain(`${archive.sha256}  ${TGZ_NAME}`);
+    expect(pinCompressed(normalizeText(text, root), archive)).toBe(golden("plan.txt"));
     expect(`${blockerCount}\n`).toBe(golden("plan-blocker-count.txt"));
+  });
+
+  it("builds the CLI tarball reproducibly within one run", () => {
+    const root = freshRoot("rel1-tar-");
+    buildFixture(root, {});
+    const entries = m.descriptors.RELEASE_1.cliTarballFiles.map((entry) => ({ ...entry, from: join(root, entry.from) }));
+    const first = m.tar.buildTarball(entries);
+    const second = m.tar.buildTarball(entries);
+    expect(second.equals(first)).toBe(true);
+    expect(measure(second)).toEqual(measure(first));
   });
 
   it("prints the same outward steps", () => {
@@ -102,15 +154,17 @@ describe("Release 1 regression: the descriptor reproduces the pre-refactor outpu
     const lines: string[] = [];
     const code = m.record.runRecord({ descriptor: d, root, outRel: d.outDir, evidenceSpecs: ["evidence/demo.txt=pull with conflict shown"], noBuild: true, out: (text) => lines.push(text) });
     expect(`${code}\n`).toBe(golden("record/exit-code.txt"));
-    expect(`${normalizeText(lines.join("\n"), root)}\n`).toBe(golden("record/stdout.txt"));
+    const snapshot = snapshotDirectory(join(root, d.outDir), root);
+    const archive = expectSameArchive(snapshot[TGZ_NAME] as Uint8Array);
+    expect(`${pinCompressed(normalizeText(lines.join("\n"), root), archive)}\n`).toBe(golden("record/stdout.txt"));
     expect(readFileSync(join(root, "manifest.json"), "utf8")).toBe(golden("record/root-manifest.json"));
     expect(readFileSync(join(root, "package.json"), "utf8")).toBe(golden("record/root-package.json"));
-    const snapshot = snapshotDirectory(join(root, d.outDir), root);
     const names = Object.keys(snapshot).sort();
     expect(names).toEqual(readdirSync(join(GOLDEN_DIR, "record", "out")).sort());
     for (const name of names) {
       const actual = snapshot[name] as string | Uint8Array;
-      if (typeof actual === "string") expect(actual, name).toBe(golden(`record/out/${name}`));
+      if (typeof actual === "string") expect(pinCompressed(actual, archive), name).toBe(golden(`record/out/${name}`));
+      else if (name === TGZ_NAME) expect(expectSameArchive(actual), name).toEqual(archive);
       else expect(Buffer.from(actual).equals(goldenBytes(`record/out/${name}`)), name).toBe(true);
     }
   });

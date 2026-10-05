@@ -62,7 +62,7 @@ export async function readRemoteFile(client: Pick<KuboClient, "gatewayStream">, 
   if (object.type !== "file") throw remoteObjectInvalid(what);
   if (object.size > cap) throw remoteObjectTooLarge(what, cap);
   // Ask for at most cap + 1 bytes: a gateway that honours Range is bounded by the request, and one that does not is cut off below.
-  // (The plugin's requestUrl transport buffers a whole body before this loop sees it; that limit is stated in the threat model.)
+  // (On desktop the body streams from Node's http and this loop cuts it off; only the mobile requestUrl transport buffers a whole body first, a limit stated in the threat model.)
   const stream = await client.gatewayStream(object.cid, "", { start: 0, length: cap + 1 });
   const parts: Uint8Array[] = [];
   let total = 0;

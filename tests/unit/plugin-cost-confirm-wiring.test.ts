@@ -11,7 +11,7 @@ import { unlockForRestore } from "../../src/plugin/pull-restore";
 import { createPublishRunner, type PublishOutcome } from "../../src/plugin/publish-runner";
 import type { PullOutcome } from "../../src/plugin/pull-runner";
 import { loadSettings } from "../../src/plugin/settings-migration";
-import { defaultSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createSettingsStore, type PluginDataPort, type SettingsStore } from "../../src/plugin/settings-store";
 import { pullEncryptedVault } from "../../src/sync/encrypted-pull-stage";
 import { publishVault } from "../../src/sync/publish";
@@ -132,7 +132,7 @@ const PUBLISH_ROOT = "/obsidian-vault-sync/mvp07b-cost";
 
 function store(): SettingsStore {
   const port: PluginDataPort = { loadData: async () => null, saveData: async () => undefined };
-  return createSettingsStore(port, { ...loadSettings(null), settings: { ...defaultSettings(), mfsRoot: PUBLISH_ROOT } });
+  return createSettingsStore(port, { ...loadSettings(null), settings: { ...testNodeSettings(), mfsRoot: PUBLISH_ROOT } });
 }
 
 interface PublishRig {

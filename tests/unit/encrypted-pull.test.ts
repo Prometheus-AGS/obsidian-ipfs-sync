@@ -13,12 +13,12 @@ import { MANIFEST_MAX_FILE_BYTES, canonicalizePassphraseText } from "../../src/c
 import { KuboHttpError } from "../../src/kubo";
 import type { FirstPullDetails } from "../../src/sync/encrypted-pull";
 import { manifestIdentity } from "../../src/sync/manifest-identity";
-import { PullGuardError } from "../../src/sync/pull-errors";
 import { describeLock, encodeLock } from "../../src/sync/publish-lock";
 import { lockHeld } from "../../src/sync/publish-refusals";
 import { rootFileNames } from "../../src/sync/root-files";
 import { SEQUENCE_FLOOR_FILE, readFloor } from "../../src/sync/sequence-floor";
 import { keySlotsCopyPath } from "../../src/sync/vault-keys";
+import { createMemoryDeviceStore } from "../helpers/memory-device-store";
 import { createMemoryHost } from "../helpers/memory-host";
 import { KEY, ROOT, blobPaths, type Rig } from "../helpers/publish-rig";
 import {
@@ -76,7 +76,7 @@ describe("a first pull that is confirmed", () => {
     expect(floor).toEqual({ sequence: 1, identity: verified.identity, at: NOW });
     expect(verified.keySlotsStored).toBe(true);
     expect(verified.floorWritten).toBe(true);
-    expect(verified.needsMarker).toBe(true);
+    expect(verified.needsMarker).toBe(false);
     expect(verified.policy.refusals).toEqual([]);
   });
 
@@ -153,6 +153,49 @@ describe("the first-pull confirmation", () => {
     expect(shown?.statements.join(" ")).toContain("no baseline");
   });
 
+  it("counts the existing local files the pull will replace before it asks, and writes nothing to find out", async () => {
+    const rig = await vault();
+    const host = createMemoryHost();
+    // Three files in the vault: the daily note differs locally (replaced, a dated copy is kept), the attachment is equal, the third path is absent.
+    host.put("Daily/2026-09-30.md", "my own text, different from the node's\n", 5000);
+    host.put("attachment.bin", new Uint8Array([1, 2, 3, 4, 5]), 5000);
+    host.put("Unrelated/local-only.md", "not in the manifest\n", 5000);
+    const b = newPuller(host);
+    let shown: FirstPullDetails | undefined;
+    const stop = stopOf(
+      await runPull(rig, b, {
+        options: { acceptFirstPull: false },
+        deps: {
+          confirmFirstPull: async (details) => {
+            shown = details;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(stop.reason).toBe("first-pull-declined");
+    expect(shown?.replacedLocalFiles).toBe(1);
+    expectNothingWritten(b);
+    expect(host.mutations).toEqual([]);
+    expect(host.files.get("Daily/2026-09-30.md")?.data).toEqual(new TextEncoder().encode("my own text, different from the node's\n"));
+  });
+
+  it("reports zero replaced files for an empty directory", async () => {
+    const rig = await vault();
+    const b = newPuller();
+    let shown: FirstPullDetails | undefined;
+    await runPull(rig, b, {
+      options: { acceptFirstPull: false },
+      deps: {
+        confirmFirstPull: async (details) => {
+          shown = details;
+          return false;
+        },
+      },
+    });
+    expect(shown?.replacedLocalFiles).toBe(0);
+  });
+
   it("a non-interactive pull without --accept-first-pull refuses before writing anything", async () => {
     const rig = await vault();
     const b = newPuller();
@@ -202,6 +245,143 @@ describe("the first-pull confirmation", () => {
     });
     expect(shown?.target).toBe("root-cid");
     expect(shown?.statements.join(" ")).toContain("does not verify the returned bytes");
+  });
+});
+
+describe("a device that holds a floor pulling into a directory with no state for the vault (review round 3, S-M1)", () => {
+  const DIFFERING = "my own text, different from the node's\n";
+
+  /** A device that has pulled the vault once (floor written), then a second directory that holds a differing file and no state. */
+  async function floorThenStatelessDirectory(populate: boolean): Promise<{ rig: Rig; second: ReturnType<typeof newPuller>; host: ReturnType<typeof createMemoryHost> }> {
+    const rig = await vault();
+    const first = newPuller();
+    verifiedOf(await runPull(rig, first));
+    const host = createMemoryHost();
+    if (populate) host.put("Daily/2026-09-30.md", DIFFERING, 5000);
+    return { rig, second: newPuller(host, first.store), host };
+  }
+
+  it("asks, counts the files it will replace and names the destination, and a decline writes nothing", async () => {
+    const { rig, second, host } = await floorThenStatelessDirectory(true);
+    let shown: FirstPullDetails | undefined;
+    const stop = stopOf(
+      await runPull(rig, second, {
+        options: { acceptFirstPull: false, destination: "/tmp/other-dir" },
+        deps: {
+          confirmFirstPull: async (details) => {
+            shown = details;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(stop.reason).toBe("first-pull-declined");
+    expect(shown?.replacedLocalFiles).toBe(1);
+    expect(shown?.destination).toBe("/tmp/other-dir");
+    expect(shown?.statements.join(" ")).toContain("no state for this vault");
+    expect(host.mutations).toEqual([]);
+    expect(second.staged).toEqual([]);
+  });
+
+  it("a non-interactive run without --accept-replace stops before writing, naming --accept-replace and not claiming the vault is unknown (round 4, A-L2)", async () => {
+    const { rig, second, host } = await floorThenStatelessDirectory(true);
+    const stop = stopOf(await runPull(rig, second, { options: { acceptFirstPull: false, acceptReplace: false } }));
+    expect(stop.reason).toBe("first-pull-not-confirmed");
+    expect(stop.message).toContain("--accept-replace");
+    expect(stop.message).not.toContain("--accept-first-pull");
+    expect(host.mutations).toEqual([]);
+  });
+
+  it("--accept-first-pull alone does not answer this question: it stops without a terminal and asks with one (round 4, A-L2)", async () => {
+    const stopped = await floorThenStatelessDirectory(true);
+    const stop = stopOf(await runPull(stopped.rig, stopped.second, { options: { acceptFirstPull: true } }));
+    expect(stop.reason).toBe("first-pull-not-confirmed");
+    expect(stop.message).toContain("--accept-replace");
+    expect(stopped.host.mutations).toEqual([]);
+
+    const asking = await floorThenStatelessDirectory(true);
+    let asked = 0;
+    const stopAfterNo = stopOf(
+      await runPull(asking.rig, asking.second, {
+        options: { acceptFirstPull: true },
+        deps: {
+          confirmFirstPull: async () => (asked++, false),
+        },
+      }),
+    );
+    expect(asked).toBe(1);
+    expect(stopAfterNo.reason).toBe("first-pull-declined");
+    expect(asking.host.mutations).toEqual([]);
+  });
+
+  it("--accept-replace goes on without asking", async () => {
+    const { rig, second } = await floorThenStatelessDirectory(true);
+    let asked = false;
+    const verified = verifiedOf(
+      await runPull(rig, second, {
+        options: { acceptReplace: true },
+        deps: {
+          confirmFirstPull: async () => {
+            asked = true;
+            return true;
+          },
+        },
+      }),
+    );
+    expect(asked).toBe(false);
+    expect(verified.verdict.kind).not.toBe("first-pull");
+  });
+
+  it("--accept-first-pull still answers the true first pull, and --accept-replace does not", async () => {
+    const answered = await vault();
+    const first = verifiedOf(await runPull(answered, newPuller(), { options: { acceptFirstPull: true } }));
+    expect(first.verdict.kind).toBe("first-pull");
+
+    const refused = await vault();
+    const b = newPuller();
+    const stop = stopOf(await runPull(refused, b, { options: { acceptFirstPull: false, acceptReplace: true } }));
+    expect(stop.reason).toBe("first-pull-not-confirmed");
+    expect(stop.message).toContain("--accept-first-pull");
+    expectNothingWritten(b);
+  });
+
+  it("does not ask when the directory has no differing file (an empty destination is unchanged)", async () => {
+    const { rig, second } = await floorThenStatelessDirectory(false);
+    let asked = false;
+    const verified = verifiedOf(
+      await runPull(rig, second, {
+        options: { acceptFirstPull: false },
+        deps: {
+          confirmFirstPull: async () => {
+            asked = true;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(asked).toBe(false);
+    expect(verified.firstPullConfirmed).toBe(false);
+  });
+
+  it("does not ask when the directory already has its state", async () => {
+    const rig = await vault();
+    const store = createMemoryDeviceStore();
+    const b = newPuller(rig.host, store);
+    verifiedOf(await runPull(rig, b)); // floor written; the publisher's own directory holds its state
+    rig.host.put("Daily/2026-09-30.md", DIFFERING, 6000);
+    let asked = false;
+    verifiedOf(
+      await runPull(rig, newPuller(rig.host, store), {
+        options: { acceptFirstPull: false },
+        deps: {
+          confirmFirstPull: async () => {
+            asked = true;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(asked).toBe(false);
   });
 });
 
@@ -525,20 +705,15 @@ describe("the directory's local state", () => {
     expect(b.host.mutations).toEqual([]);
   });
 
-  it("the destination guard runs first: a populated directory without the marker is refused before any request", async () => {
+  it("a populated directory without the marker is no longer refused: the pull goes on to the node (the guard is removed)", async () => {
     const rig = await vault();
     const host = createMemoryHost();
     host.put("private.md", "my real notes");
     const b = newPuller(host);
-    const error = await runPull(rig, b).then(
-      () => undefined,
-      (caught: unknown) => caught,
-    );
-    expect(error).toBeInstanceOf(PullGuardError);
-    expect((error as Error).message).toContain("stays disabled in this build");
-    expect(rig.node.calls).toEqual([]);
-    expect(b.locks.file.creates).toBe(0);
-    expect(host.mutations).toEqual([]);
+    const verified = verifiedOf(await runPull(rig, b));
+    expect(verified.needsMarker).toBe(false);
+    expect(rig.node.calls.length).toBeGreaterThan(0);
+    expect(b.locks.file.creates).toBeGreaterThan(0);
   });
 
   it("a key that is not owned and no --name is a target error, not a request for a name", async () => {
@@ -664,7 +839,10 @@ describe("hostile text and the path policy", () => {
     const b = newPuller();
     const stop = stopOf(await runPull(rig, b));
     expect(stop.reason).toBe("target-unresolved");
-    expect(stop.message).toContain("\\u009b\\u202e");
+    // R5-L6 (a): the node's answer is no longer echoed at all (escaped or not); the message is the fixed text of `resolveRootCid`.
+    expect(stop.message).toContain("did not resolve to a published root");
+    expect(stop.message).not.toContain("not-a-root");
+    expect(stop.message).not.toContain("\\u009b");
     expect(stop.message).not.toContain(csi);
     expect(stop.message).not.toContain(rlo);
   });

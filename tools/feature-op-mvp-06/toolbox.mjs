@@ -3,7 +3,7 @@ import { build } from "esbuild";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { CLI, REPO } from "./constants.mjs";
+import { ALLOWED_HOSTS, CLI, REPO } from "./constants.mjs";
 import { sha256 } from "./policy.mjs";
 
 // ======================================================================================================================
@@ -26,8 +26,10 @@ function toolboxSource() {
     `import { envLayer, resolveSyncConfig } from ${at("src", "core", "config", "index.ts")};`,
     `import { parseCliArgs } from ${at("cli", "args.ts")};`,
     `import { loadSyncConfig, readTextIfPresent } from ${at("cli", "load-config.ts")};`,
+    // The product has no default node: this operator tool names the shared node itself, under the proxy's host check, and the environment may override it (the caller then refuses a host that is not allowed).
+    `const SHARED_NODE = ${JSON.stringify({ rpc: { url: `https://${ALLOWED_HOSTS[0]}` }, gateway: { url: `https://${ALLOWED_HOSTS[0]}` } })};`,
     "export function targetFromEnv(env) {",
-    "  const config = resolveSyncConfig([envLayer(env)], new Date());",
+    "  const config = resolveSyncConfig([SHARED_NODE, envLayer(env)], new Date());",
     "  return { rpc: config.rpc.baseUrl, gateway: config.gateway.baseUrl };",
     "}",
     "export function makeClient(env, rpcUrl, gatewayUrl, mfsRoot) {",

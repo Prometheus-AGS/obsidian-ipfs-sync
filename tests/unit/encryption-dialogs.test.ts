@@ -402,6 +402,42 @@ describe("abandon dialog", () => {
     const cancelled = openAbandon();
     await button(cancelled.content, ABANDON_COPY.cancel).dispatch("click");
     expect(cancelled.finished).toHaveBeenCalledWith({ abandoned: false });
+    expect(cancelled.finished.mock.calls[0]?.[0]).not.toHaveProperty("failure");
+  });
+
+  it("reports the real result, not a cancel, when it is closed while the abandon runs (review round 3, P-L2)", async () => {
+    let release: (result: { ok: true; backupNote: string }) => void = () => undefined;
+    const pending = new Promise<{ ok: true; backupNote: string }>((resolve) => {
+      release = resolve;
+    });
+    const { dialog, content: root, finished } = openAbandon(() => pending);
+    const field = byId(root, "ipfs-sync-abandon-confirm");
+    if (field === undefined) throw new Error("no confirmation field");
+    await type(field, "abandon");
+    await button(root, ABANDON_COPY.confirm).dispatch("click");
+    dialog.close();
+    expect(finished).not.toHaveBeenCalled();
+    release({ ok: true, backupNote: "Backup kept in .ipfs-sync/backup" });
+    await flush();
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(finished).toHaveBeenCalledWith({ abandoned: true, backupNote: "Backup kept in .ipfs-sync/backup" });
+  });
+
+  it("reports the failure, not a cancel, when it is closed while the abandon runs and the abandon then fails", async () => {
+    let release: (result: { ok: false; reason: string }) => void = () => undefined;
+    const pending = new Promise<{ ok: false; reason: string }>((resolve) => {
+      release = resolve;
+    });
+    const { dialog, content: root, finished } = openAbandon(() => pending);
+    const field = byId(root, "ipfs-sync-abandon-confirm");
+    if (field === undefined) throw new Error("no confirmation field");
+    await type(field, "abandon");
+    await button(root, ABANDON_COPY.confirm).dispatch("click");
+    dialog.close();
+    release({ ok: false, reason: "could not write the backup" });
+    await flush();
+    expect(finished).toHaveBeenCalledTimes(1);
+    expect(finished).toHaveBeenCalledWith({ abandoned: false, failure: "could not write the backup" });
   });
 
   it("shows a failure as text and stays open", async () => {

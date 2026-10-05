@@ -12,7 +12,7 @@ import { canonicalizePassphraseText, parseKeySlots, type CanonicalPassphrase } f
 import { ACCEPT_RESIDUAL_STATEMENT } from "../../src/sync/key-management-text";
 import { acquirePublishLock } from "../../src/sync/publish-lock";
 import { rootFileNames } from "../../src/sync/root-files";
-import { stateEnv } from "../helpers/cli-state-env";
+import { NODE_ENV, stateEnv } from "../helpers/cli-state-env";
 import { MFS_ROOT, NOW, createCliPullRig, historyNames, type CliPullRig, type CliResult } from "../helpers/cli-pull-rig";
 import { referencePassphraseSource } from "../helpers/cli-vault";
 import { OTHER_PASSPHRASE } from "../vectors/slot-helpers";
@@ -50,7 +50,7 @@ async function keysOn(vault: string, env: Record<string, string>, args: readonly
   const err: string[] = [];
   const ask = options.confirm === undefined ? {} : { confirm: async (question: string) => (options.questions?.push(question), options.confirm?.(question) ?? false) };
   const io: CliIo = { out: (text) => void out.push(text), err: (text) => void err.push(text), ...ask };
-  const deps: CliDeps = { env, now: () => NOW, readText: readTextIfPresent, passphrase: options.passphrase ?? referencePassphraseSource };
+  const deps: CliDeps = { env: { ...NODE_ENV, ...env }, now: () => NOW, readText: readTextIfPresent, passphrase: options.passphrase ?? referencePassphraseSource };
   const code = await runCli(["keys", args[0] as string, vault, ...args.slice(1)], deps, io);
   return { code, out: out.join("\n"), err: err.join("\n") };
 }

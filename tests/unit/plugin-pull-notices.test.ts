@@ -129,12 +129,11 @@ describe("stopped pull notice", () => {
 });
 
 describe("pull copy that replaced the placeholders", () => {
-  it("no longer says that encrypted pull arrives later, and keeps the fixture-only wording", () => {
+  it("no longer says that encrypted pull arrives later, and no longer carries the fixture-only wording", () => {
     expect(PLAINTEXT_UNSUPPORTED_NOTICE).not.toMatch(/next change|later release|arrives|--allow|switched off|downgrade/);
     expect(PLAINTEXT_UNSUPPORTED_NOTICE).toContain("plaintext publications are no longer supported");
     expect(FIXTURE_ONLY_PULL_NOTICE).not.toMatch(/next change|later release|arrives/);
-    expect(FIXTURE_ONLY_PULL_NOTICE).toContain("stays disabled in this build");
-    expect(FIXTURE_ONLY_PULL_NOTICE).toContain("Only fixture vaults");
+    expect(FIXTURE_ONLY_PULL_NOTICE).not.toMatch(/stays disabled|Only fixture vaults|fixture/);
   });
 
   it("makes the pull-name message mention /ipfs/<cid>", () => {

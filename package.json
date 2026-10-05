@@ -1,6 +1,6 @@
 {
   "name": "obsidian-ipfs-sync",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Sync your Obsidian vault over IPFS via your own kubo node.",
   "main": "main.js",
   "bin": {

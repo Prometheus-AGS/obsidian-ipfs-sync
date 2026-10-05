@@ -8,6 +8,9 @@ import {
   addTextField,
   AUTH_STATUS_ID,
   ErrorSlots,
+  GATEWAY_AUTH_NOTICE_ID,
+  GATEWAY_AUTH_STATUS_ID,
+  GATEWAY_SECRETS_NOTE_ID,
   liveRegion,
   type FieldContext,
 } from "./settings-tab-controls";
@@ -15,6 +18,9 @@ import {
   AUTH_INCOMPLETE,
   AUTH_SCHEME_LABELS,
   FIXTURE_NOTICE_TITLE,
+  GATEWAY_AUTH_INCOMPLETE,
+  GATEWAY_AUTH_SAME_LABEL,
+  SECRETS_REDIRECT_NOTE,
   SECRETS_WARNING,
   SECRETS_WARNING_TITLE,
   SECTIONS,
@@ -25,15 +31,31 @@ import { ExclusionsSection } from "./settings-tab-exclusions";
 import { KeysSection } from "./settings-tab-keys";
 import { StaleLockSection, type StaleLockSource } from "./settings-tab-lock";
 import { PullSections } from "./settings-tab-pull";
-import { errorKeyOf, type EditableFieldId, type SettingsViewModel, type SettingsViewState } from "./settings-view-model";
+import { errorKeyOf, GATEWAY_AUTH_SAME, type EditableFieldId, type SettingsViewModel, type SettingsViewState } from "./settings-view-model";
 
+const NODE_STATUS_ID = "ipfs-sync-node-status";
+const NODE_WARNING_ID = "ipfs-sync-node-warning";
+const NODE_LABEL = "Node";
+const WARNING_PREFIX = "Warning";
 const SECRETS_NOTE_ID = "ipfs-sync-secrets-warning";
 const FIXTURE_NOTE_ID = "ipfs-sync-fixture-notice";
+const REDIRECT_NOTE_ID = "ipfs-sync-redirect-note";
 
-/** Edits that change what the node is asked about the publication key. */
-const KEY_STATE_FIELDS: ReadonlySet<EditableFieldId> = new Set(["rpcUrl", "rpcPort", "publicationKey", "authScheme", "authUser", "authPassword", "authToken", "authHeaderName", "authHeaderValue"]);
+const RPC_CREDENTIAL_NOTICE_ID = "ipfs-sync-rpc-credential-notice";
+const GATEWAY_CREDENTIAL_NOTICE_ID = "ipfs-sync-gateway-credential-notice";
+
+/**
+ * Edits that change what the node is asked about the publication key. Only the key name: it is asked of the node and credential
+ * already saved. An address or credential edit never sends a request by itself; the key section says its answer is out of date
+ * and "Check again" asks the node.
+ */
+const KEY_REFRESH_FIELDS: ReadonlySet<EditableFieldId> = new Set(["publicationKey"]);
+const KEY_STALE_FIELDS: ReadonlySet<EditableFieldId> = new Set(["rpcUrl", "rpcPort", "authScheme", "authUser", "authPassword", "authToken", "authHeaderName", "authHeaderValue"]);
 
 const SCHEME_OPTIONS: Readonly<Record<string, string>> = Object.fromEntries(AUTH_SCHEMES.map((scheme) => [scheme, AUTH_SCHEME_LABELS[scheme]]));
+
+/** The gateway picker: the default first, then the same kinds as the node block. */
+const GATEWAY_SCHEME_OPTIONS: Readonly<Record<string, string>> = { [GATEWAY_AUTH_SAME]: GATEWAY_AUTH_SAME_LABEL, ...SCHEME_OPTIONS };
 
 /**
  * The plugin's plain settings tab: a fixture-only notice, then Endpoints, Publication, Encryption (when a status source is given), Publish lock (when a lock source is given), Authentication,
@@ -49,7 +71,16 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
   private readonly staleLock: StaleLockSection | undefined;
   private authFieldsEl: HTMLElement | undefined;
   private authStatusEl: HTMLElement | undefined;
+  private redirectEl: HTMLElement | undefined;
+  private nodeStatusEl: HTMLElement | undefined;
+  private nodeWarningEl: HTMLElement | undefined;
   private schemeSelect: HTMLSelectElement | undefined;
+  private gatewayFieldsEl: HTMLElement | undefined;
+  private gatewayNoticeEl: HTMLElement | undefined;
+  private gatewayStatusEl: HTMLElement | undefined;
+  private rpcCredentialEl: HTMLElement | undefined;
+  private gatewayCredentialEl: HTMLElement | undefined;
+  private gatewaySelect: HTMLSelectElement | undefined;
   private readonly ctx: FieldContext;
 
   constructor(
@@ -95,11 +126,44 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
   hide(): void {
     this.encryption?.dispose();
     this.vm.reset();
+    // Password inputs must not keep a typed secret in DOM that is no longer shown.
+    this.containerEl.empty();
   }
 
   private renderEndpoints(root: HTMLElement): void {
     const section = addSection(root, "ipfs-sync-section-endpoints", SECTIONS.endpoints);
-    for (const field of ["rpcUrl", "rpcPort", "gatewayUrl", "gatewayPort"] as const) addTextField(section, field, this.ctx);
+    this.nodeStatusEl = liveRegion(section, NODE_STATUS_ID);
+    this.nodeWarningEl = liveRegion(section, NODE_WARNING_ID);
+    for (const field of ["rpcUrl", "rpcPort"] as const) addTextField(section, field, this.ctx);
+    this.rpcCredentialEl = liveRegion(section, RPC_CREDENTIAL_NOTICE_ID);
+    for (const field of ["gatewayUrl", "gatewayPort"] as const) addTextField(section, field, this.ctx);
+    this.gatewayCredentialEl = liveRegion(section, GATEWAY_CREDENTIAL_NOTICE_ID);
+    this.renderGatewayAuth(section);
+  }
+
+  /**
+   * The gateway's own credential, directly under the gateway URL and port: the plain-language origin line, the picker
+   * (default "Same as node"), then only the fields of the picked kind, with the plain-text warning beside the secret ones.
+   */
+  private renderGatewayAuth(section: HTMLElement): void {
+    this.gatewayNoticeEl = liveRegion(section, GATEWAY_AUTH_NOTICE_ID);
+    this.gatewaySelect = addSelectField(section, "gatewayAuthScheme", GATEWAY_SCHEME_OPTIONS, this.ctx);
+    this.gatewayFieldsEl = section.createDiv();
+    this.slots.create("gatewayAuth", section);
+    this.gatewayStatusEl = liveRegion(section, GATEWAY_AUTH_STATUS_ID);
+    this.renderGatewayAuthFields();
+  }
+
+  private renderGatewayAuthFields(): void {
+    const host = this.gatewayFieldsEl;
+    if (host === undefined) return;
+    this.slots.untrack("gatewayAuth");
+    host.empty();
+    const fields = this.vm.visibleGatewayAuthFields();
+    // Every explicit kind but None has a secret: the warning sits beside the fields while they are shown.
+    if (fields.length > 0) addNote(host, GATEWAY_SECRETS_NOTE_ID, SECRETS_WARNING_TITLE, SECRETS_WARNING);
+    for (const field of fields) addTextField(host, field, this.ctx);
+    if (this.gatewaySelect !== undefined) this.slots.track("gatewayAuth", this.gatewaySelect);
   }
 
   private renderPublication(root: HTMLElement): void {
@@ -115,7 +179,18 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     this.authFieldsEl = section.createDiv();
     this.slots.create("auth", section);
     this.authStatusEl = liveRegion(section, AUTH_STATUS_ID);
+    this.redirectEl = section.createDiv();
     this.renderAuthFields();
+  }
+
+  /** The one redirect sentence: shown while the node or the gateway has a credential kind chosen, absent otherwise. */
+  private showRedirectNote(state: SettingsViewState): void {
+    const host = this.redirectEl;
+    if (host === undefined) return;
+    host.empty();
+    const gatewayChosen = state.values.gatewayAuthScheme !== GATEWAY_AUTH_SAME && state.values.gatewayAuthScheme !== "none";
+    if (state.values.authScheme === "none" && !gatewayChosen) return;
+    host.createEl("p", { text: SECRETS_REDIRECT_NOTE, cls: "setting-item-description ipfs-sync-redirect-note", attr: { id: REDIRECT_NOTE_ID } });
   }
 
   private renderAuthFields(): void {
@@ -131,8 +206,13 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     try {
       const result = await this.vm.edit(field, text);
       if (field === "authScheme") this.renderAuthFields();
+      if (field === "gatewayAuthScheme") this.renderGatewayAuthFields();
+      // An address edit that moved to another origin put the pickers back and blanked the unsaved credential fields: redraw them.
+      if (this.schemeSelect !== undefined && this.schemeSelect.value !== result.state.values.authScheme) this.showClearedNode(result.state);
+      if (this.gatewaySelect !== undefined && this.gatewaySelect.value !== result.state.values.gatewayAuthScheme) this.showClearedGateway(result.state);
       this.applyState(result.state);
-      if (result.saved && KEY_STATE_FIELDS.has(field)) void this.keys.refresh();
+      if (result.saved && KEY_REFRESH_FIELDS.has(field)) void this.keys.refresh();
+      else if (result.saved && KEY_STALE_FIELDS.has(field)) this.keys.markStale();
     } catch (error) {
       // The store rejected the write (for example the disk is full): the setting was not saved.
       const reason = error instanceof Error ? error.message : "unknown error";
@@ -140,9 +220,29 @@ export class IpfsSyncSettingTab extends PluginSettingTab {
     }
   }
 
+  /** The saved node credential was dropped with the old address: show the empty picker and fields. */
+  private showClearedNode(state: SettingsViewState): void {
+    if (this.schemeSelect !== undefined) this.schemeSelect.value = state.values.authScheme;
+    this.renderAuthFields();
+  }
+
+  private showClearedGateway(state: SettingsViewState): void {
+    if (this.gatewaySelect !== undefined) this.gatewaySelect.value = state.values.gatewayAuthScheme;
+    this.renderGatewayAuthFields();
+  }
+
   private applyState(state: SettingsViewState): void {
+    this.rpcCredentialEl?.setText(state.rpcCredentialNotice);
+    this.gatewayCredentialEl?.setText(state.gatewayCredentialNotice);
     this.slots.showAll(state.errors);
+    this.showRedirectNote(state);
     this.pull.update(state);
+    this.nodeStatusEl?.setText(`${NODE_LABEL}: ${state.node.summary}${state.node.explanation === "" ? "" : `. ${state.node.explanation}`}`);
+    this.nodeWarningEl?.setText(state.node.retiredWarning === undefined ? "" : `${WARNING_PREFIX}: ${state.node.retiredWarning}`);
+    this.gatewayNoticeEl?.setText(state.gatewayAuthNotice);
+    const gatewayLines = state.gatewayWarnings.map((warning) => `${WARNING_PREFIX}: ${warning}`);
+    if (state.gatewayAuthPending) gatewayLines.push(GATEWAY_AUTH_INCOMPLETE);
+    this.gatewayStatusEl?.setText(gatewayLines.join(" "));
     const status = this.authStatusEl;
     if (status === undefined) return;
     const lines = state.warnings.map((warning) => `Warning: ${warning}`);

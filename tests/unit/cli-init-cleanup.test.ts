@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CliIo } from "../../cli/io";
 import { readTextIfPresent } from "../../cli/load-config";
 import { runCli, type CliDeps } from "../../cli/run";
+import { NODE_ENV } from "../helpers/cli-state-env";
 import { writeFixtureVault } from "../../fixtures/generate-fixture-vault";
 import { createFakeNode, type FakeNode } from "../helpers/fake-kubo";
 import { fakeNodeFetch } from "../helpers/fake-kubo-http";
@@ -74,7 +75,7 @@ describe("ipfs-sync init --passphrase-file: what happens to the file when a late
     const out: string[] = [];
     const err: string[] = [];
     const io: CliIo = { out: (t) => void out.push(t), err: (t) => void err.push(t) };
-    const deps: CliDeps = { env: {}, now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent };
+    const deps: CliDeps = { env: { ...NODE_ENV }, now: () => new Date("2026-09-30T12:00:00Z"), readText: readTextIfPresent };
     const code = await runCli(["init", vault, "--mfs-root", MFS_ROOT, "--passphrase-file", passFile()], deps, io);
     return { code, err: err.join("\n"), out: out.join("\n") };
   };

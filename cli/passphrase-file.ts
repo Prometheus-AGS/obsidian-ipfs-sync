@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
 import { lstat, open, realpath, rm } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PASSPHRASE_INPUT_MAX_BYTES, wipe, type Bytes } from "../src/crypto";
 import { PassphraseInputError } from "./passphrase-errors";
 
@@ -143,6 +143,34 @@ async function checkTarget(path: string, host: FileHost): Promise<string> {
     throw targetRefused(path, `its directory "${directory}" (${formatMode(resolved.mode)}) can be changed by group or others and has no sticky bit; chmod go-w it or choose another folder`);
   }
   return real;
+}
+
+/** The real path of `path`, or of its nearest existing ancestor with the missing tail appended: where a file that does not exist yet would land. */
+async function landing(path: string): Promise<string> {
+  const missing: string[] = [];
+  let current = resolve(path);
+  for (;;) {
+    try {
+      return join(await realpath(current), ...missing);
+    } catch (error) {
+      const code = errorCode(error);
+      const parent = dirname(current);
+      if ((code !== "ENOENT" && code !== "ENOTDIR") || parent === current) return join(current, ...missing);
+      missing.unshift(basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Does the passphrase file (existing or about to be created) lie inside the vault folder? Compared on real paths, so a link into the vault
+ * counts. A passphrase file in the vault is published with it by the next publish, or sits beside the notes it protects (review round 3, C-L4).
+ */
+export async function passphraseFileInsideVault(vaultRoot: string, filePath: string): Promise<boolean> {
+  const root = await landing(vaultRoot);
+  const file = await landing(filePath);
+  const rel = relative(root, file);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /** Refuse a target that cannot be used, without creating anything. */

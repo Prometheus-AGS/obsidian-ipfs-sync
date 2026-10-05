@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY } from "../../src/core/config";
+import { ConfigError, DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, RETIRED_DEFAULT_HOSTS } from "../../src/core/config";
+import { retiredDefaultNotice } from "../../src/plugin/node-status";
 import { loadSettings } from "../../src/plugin/settings-migration";
 import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
 import { settingsToConfig, validateSettings } from "../../src/plugin/settings-to-config";
 
 const NOW = new Date("2026-09-30T12:00:00Z");
+const RETIRED_URL = `https://${RETIRED_DEFAULT_HOSTS[0] ?? ""}`;
 
 const OLD_DEFAULT_EXCLUDES = [
   ".trash/",
@@ -84,6 +86,71 @@ describe("settings migration", () => {
     expect(settings.publishIntervalMinutes).toBe(15);
   });
 
+  it("does not carry the retired built-in node into the new settings, and says why once", () => {
+    for (const rpcUrl of [RETIRED_URL, `${RETIRED_URL}/`, RETIRED_URL.toUpperCase()]) {
+      const result = loadSettings(oldData({ rpcUrl }));
+      expect(result.outcome).toBe("migrated");
+      expect(result.settings.rpc).toEqual({ url: "" });
+      expect(result.settings.gateway).toEqual({ url: "" });
+      expect(JSON.stringify(result.settings).toLowerCase()).not.toContain(RETIRED_URL.slice("https://".length));
+      expect(result.persist).toBe(true);
+      expect(result.notices).toHaveLength(1);
+      expect(result.notices[0]).toContain("0.2.0");
+      expect(result.notices[0]).toContain("removed");
+      expect(result.notices[0]).toContain("set your own");
+      expect(result.notices[0]).not.toContain(RETIRED_URL.slice("https://".length));
+      // The rest of the old settings still migrates.
+      expect(result.settings.publishIntervalMinutes).toBe(15);
+      expect(result.settings.publicationKey).toBe(DEFAULT_PUBLICATION_KEY);
+      // The persisted form loads as the current version: nothing to say again.
+      const again = loadSettings(JSON.parse(JSON.stringify(result.settings)));
+      expect(again.outcome).toBe("current");
+      expect(again.notices).toEqual([]);
+      expect(retiredDefaultNotice(again.settings)).toBeUndefined();
+    }
+  });
+
+  it("drops the legacy auth token tied to the retired node and says credentials must be entered again", () => {
+    for (const rpcUrl of [RETIRED_URL, `${RETIRED_URL}.`]) {
+      const result = loadSettings(oldData({ rpcUrl, authToken: "legacy-secret" }));
+      expect(result.settings.auth).toEqual({ scheme: "none" });
+      expect(JSON.stringify(result.settings)).not.toContain("legacy-secret");
+      expect(result.notices).toHaveLength(1);
+      expect(result.notices[0]).toContain("enter them again");
+    }
+  });
+
+  it("drops the legacy auth token when the legacy url held a user name or password, and says credentials must be entered again", () => {
+    const result = loadSettings(oldData({ rpcUrl: "https://user:pw@node.example.org", authToken: "legacy-secret" }));
+    expect(result.settings.rpc).toEqual({ url: "" });
+    expect(result.settings.gateway).toEqual({ url: "" });
+    expect(result.settings.auth).toEqual({ scheme: "none" });
+    expect(JSON.stringify(result)).not.toContain("legacy-secret");
+    expect(result.notices.join(" ")).toContain("enter them again");
+  });
+
+  it("still carries the legacy auth token over when the URL is not the retired node", () => {
+    const result = loadSettings(oldData({ rpcUrl: "https://node.example.org", authToken: "legacy-secret" }));
+    expect(result.settings.auth).toEqual({ scheme: "bearer", token: "legacy-secret" });
+  });
+
+  it("drops the legacy auth token when the legacy URL is absent or empty, so it never goes to whichever node is set next (review round 3, P-L6)", () => {
+    const { rpcUrl: _omitted, ...withoutUrl } = oldData({ authToken: "legacy-secret" });
+    for (const stored of [withoutUrl, oldData({ rpcUrl: "", authToken: "legacy-secret" }), oldData({ rpcUrl: "  /", authToken: "legacy-secret" })]) {
+      const result = loadSettings(stored);
+      expect(result.settings.rpc).toEqual({ url: "" });
+      expect(result.settings.auth).toEqual({ scheme: "none" });
+      expect(JSON.stringify(result.settings)).not.toContain("legacy-secret");
+    }
+  });
+
+  it("adds the retired-node notice after the key notice when both apply", () => {
+    const result = loadSettings(oldData({ rpcUrl: RETIRED_URL, keyName: "consult-capture" }));
+    expect(result.notices).toHaveLength(2);
+    expect(result.notices[0]).toContain("consult-capture");
+    expect(result.notices[1]).toContain("removed");
+  });
+
   it("makes only lines that are not default exclusions user exclusions", () => {
     const { settings } = loadSettings(oldData({ excludedPaths: [...OLD_DEFAULT_EXCLUDES, "private/", "  ", "private/"].join("\n") }));
     expect(settings.userExclusions).toEqual(["private/"]);
@@ -120,6 +187,48 @@ describe("settings migration", () => {
     expect(result.persist).toBe(false);
   });
 
+  it("treats a version-less object with no legacy key as unreadable and leaves it untouched", () => {
+    const { version: _version, ...currentFormWithoutVersion } = {
+      ...defaultSettings(),
+      ownedKeys: ["k51mine"],
+      gatewayAuth: { scheme: "bearer", token: "gw-secret" },
+      deviceStore: { "anti-rollback": "floor-7" },
+      kv: { a: "b" },
+    };
+    for (const stored of [currentFormWithoutVersion, { ...currentFormWithoutVersion, authToken: "stray" }, { somethingElse: 1 }, { ownedKeys: ["k51mine"], publishIntervalMinutes: 5 }]) {
+      const result = loadSettings(JSON.parse(JSON.stringify(stored)));
+      expect(result.outcome).toBe("unreadable");
+      expect(result.persist).toBe(false);
+      expect(result.settings).toEqual(defaultSettings());
+    }
+  });
+
+  it("still migrates a real legacy file, even one with a single legacy key, and an empty object", () => {
+    for (const key of ["rpcUrl", "keyName", "authToken", "excludedPaths", "publishIntervalMinutes"]) {
+      const result = loadSettings({ [key]: key === "publishIntervalMinutes" ? 5 : "x" });
+      expect(result.outcome).toBe("migrated");
+      expect(result.persist).toBe(true);
+    }
+    expect(loadSettings(oldData()).outcome).toBe("migrated");
+    expect(loadSettings({})).toMatchObject({ outcome: "migrated", persist: true });
+  });
+
+  it("does not carry a legacy URL with embedded credentials into the settings, and says to set the address again without echoing it", () => {
+    const result = loadSettings(oldData({ rpcUrl: "https://alice:hunter2@node.example.org/", authToken: "" }));
+    expect(result.outcome).toBe("migrated");
+    expect(result.settings.rpc).toEqual({ url: "" });
+    expect(result.settings.gateway).toEqual({ url: "" });
+    expect(JSON.stringify(result.settings)).not.toContain("hunter2");
+    expect(result.notices).toHaveLength(1);
+    expect(result.notices[0]).toContain("credentials");
+    expect(result.notices[0]).toContain("again");
+    expect(JSON.stringify(result.notices)).not.toMatch(/hunter2|alice|node\.example/);
+    // A password with a path or fragment character is caught too.
+    const odd = loadSettings(oldData({ rpcUrl: "https://alice:pa#ss@node.example.org" }));
+    expect(odd.settings.rpc).toEqual({ url: "" });
+    expect(JSON.stringify(odd)).not.toContain("pa#ss");
+  });
+
   it("uses defaults for a missing file", () => {
     const result = loadSettings(null);
     expect(result).toMatchObject({ outcome: "fresh", persist: false, notices: [] });
@@ -138,6 +247,13 @@ describe("settings migration", () => {
 });
 
 describe("settings to config and validation", () => {
+  it("does not throw for a JWT whose finite exp is beyond the date range", () => {
+    const settings = withSettings({ rpc: { url: "https://rpc.example.org" }, gateway: { url: "https://rpc.example.org" }, auth: { scheme: "bearer", token: jwt(1e300) } });
+    expect(() => validateSettings(settings, NOW)).not.toThrow();
+    expect(() => settingsToConfig(settings, NOW)).not.toThrow();
+    expect(validateSettings(settings, NOW).warnings).toEqual(["auth bearer token (JWT) expiry could not be read"]);
+  });
+
   it("builds the shared config, including separate endpoints and the owned keys", () => {
     const settings = withSettings({
       rpc: { url: "https://rpc.example.org", port: 5001 },
@@ -149,8 +265,19 @@ describe("settings to config and validation", () => {
     expect(config.rpc.baseUrl).toBe("https://rpc.example.org:5001");
     expect(config.gateway.baseUrl).toBe("https://gw.example.org:8080");
     expect(config.rpc.auth).toEqual({ kind: "bearer", token: "tok" });
-    expect(config.gateway.auth).toEqual({ kind: "bearer", token: "tok" });
+    // The gateway is another origin (host and port), so the RPC credential is not sent to it.
+    expect(config.gateway.auth).toEqual({ kind: "none" });
     expect(config.ownedKeys).toEqual(["k51mine"]);
+  });
+
+  it("sends the RPC credential to the gateway only when both URLs share one origin", () => {
+    const auth = { scheme: "bearer", token: "tok" } as const;
+    const shared = settingsToConfig(withSettings({ rpc: { url: "https://node.example.org" }, gateway: { url: "https://node.example.org/gateway" }, auth }), NOW);
+    expect(shared.gateway.auth).toEqual({ kind: "bearer", token: "tok" });
+    const otherHost = settingsToConfig(withSettings({ rpc: { url: "https://rpc.example.org" }, gateway: { url: "https://gw.example.org" }, auth }), NOW);
+    expect(otherHost.gateway.auth).toEqual({ kind: "none" });
+    const otherPort = settingsToConfig(withSettings({ rpc: { url: "https://node.example.org", port: 5001 }, gateway: { url: "https://node.example.org", port: 8080 }, auth }), NOW);
+    expect(otherPort.gateway.auth).toEqual({ kind: "none" });
   });
 
   it("accepts the defaults", () => {

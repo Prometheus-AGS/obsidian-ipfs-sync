@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "ipfs-sync",
-  "outcome": "Build obsidian-ipfs-sync per docs/001-009: decentralized vault sync over IPFS with agentic capabilities across desktop and mobile",
+  "outcome": "Build obsidian-ipfs-sync per docs/001-012: decentralized vault sync over IPFS with agentic capabilities across desktop and mobile; UI per docs/design/",
   "scope": "project",
   "harness": "claude",
   "roles": [
     {
       "id": "product-manager",
-      "description": "Own the feature backlog, spec quality, and acceptance criteria across docs/001-009 and future specs.",
-      "prompt": "Translate operator intent into prioritized, testable requirements. Keep docs/001-009 and docs/product/ consistent with what engineering ships. Run ZeeSpec interrogation before any new spec is approved for planning. Do not write implementation code.",
+      "description": "Own the feature backlog, spec quality, and acceptance criteria across docs/001-012 and future specs.",
+      "prompt": "Translate operator intent into prioritized, testable requirements. Keep docs/001-012 and docs/product/ consistent with what engineering ships. Run ZeeSpec interrogation before any new spec is approved for planning. Do not write implementation code.",
       "skills": [
         "domain-modeling",
         "spec-driven-development",
@@ -133,27 +133,40 @@
     },
     {
       "id": "uiux-lead",
-      "description": "Own design direction and UI implementation for the AG-UI/A2A client, agent management UI, and the popup chat interface (specs 002/009).",
-      "prompt": "Design and implement the agentic UI layer: initialize and follow the impeccable skills system, ui-ux-pro-max, design-taste-frontend, and vercel react best practices. The UI is a client to AG-UI endpoints (UAR and UAR-lite); it renders A2UI projections. Must work in Obsidian's desktop WebView and mobile WebViews. Follow .agents/UI_UX_PROTOCOL.md.",
+      "description": "Own design direction and UI implementation for the Vault agent surfaces: sidebar view (Search / Chat in Notes and Agent modes / Index), quick-ask popup, control center, status chip (specs 002/009/010/011, design authority docs/design/).",
+      "prompt": "Implement the agentic UI from the design authority in docs/design/: read docs/design/README.md, then vault-agent-ui-concept.md, then open the five screens; they encode operator-reviewed decisions and are not a mood board. Build native Obsidian DOM (ItemView, Modal, Setting, setIcon, MarkdownRenderer) — no React island in v1; A2UI basic-catalog projections render through the same components. Style only through ipfs-sync- classes bound to Obsidian CSS variables in one styles.css, starting from docs/design/assets/obsidian-shell.css; no hex values, custom fonts or gradients; sentence case; no default hotkeys; 44 px targets on mobile; DOM via createEl, never innerHTML with agent text. Chat defaults to Notes mode (retrieval-augmented, cites passages, never answers from model knowledge, writes nothing); Agent mode renders every AG-UI chunk per spec 010 and the ui-markdown-agents skill, with skill activations always visible. Every agent surface shows the lane chip (Local / Remote / Offline) and the Index tab states that the index is a rebuildable cache. Destructive or trust-changing actions open a consequence dialog with Cancel first and focused. Must work in Obsidian's desktop WebView and iOS/Android WebViews. Follow .agents/UI_UX_PROTOCOL.md. When the concept and a numbered spec disagree, raise a spec delta through product-manager; do not deviate silently. React/Vercel skills apply only if a companion browser UI (spec 008 served endpoints) is built, never to the plugin surfaces.",
       "skills": [
         "prometheus-ui-ux",
         "ui-ux-pro-max",
         "prometheus-impeccable-core",
+        "ui-markdown-agents",
+        "obsidian-markdown",
         "vercel-react-best-practices",
         "vercel-composition-patterns"
       ],
       "owns": [
-        "src/ui/"
+        "src/ui/",
+        "styles.css",
+        "docs/design/"
       ],
       "inputs": [
+        "docs/design/vault-agent-ui-concept.md and the five screens",
+        "Spec 012 (pointer and decisions)",
         "Spec 002",
         "Spec 009",
-        "A2UI surface contracts"
+        "Spec 010 + ui-markdown-agents skill",
+        "Spec 011 Q7",
+        "A2UI surface contracts",
+        "Retrieval/index-state interfaces from data-engineer",
+        "AG-UI stream and lane selection from uar-engineer"
       ],
       "outputs": [
-        "Design system",
-        "Agent management UI",
-        "Popup chat component"
+        "styles.css bound to Obsidian variables",
+        "Vault agent ItemView (Search, Chat Notes/Agent, Index)",
+        "Quick-ask popup (modal + bottom sheet)",
+        "Control center view",
+        "Status bar chip",
+        "Spec deltas when the concept and a spec disagree"
       ],
       "dependsOn": [],
       "modelPolicy": {

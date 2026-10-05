@@ -1,4 +1,4 @@
-import { DEFAULT_GATEWAY_URL, DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, DEFAULT_RPC_URL, type AuthScheme } from "../core/config";
+import { DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, type AuthScheme } from "../core/config";
 import { PULL_CONFIRM_ABOVE_DEFAULT } from "../sync/pull-budget";
 import { DEFAULT_MAX_READ_MB } from "./read-cap";
 
@@ -27,7 +27,7 @@ export interface EndpointSettings {
   readonly port?: number;
 }
 
-/** One scheme with its own fields; the scheme applies to both endpoints. Secrets are stored in plain text. */
+/** One scheme with its own fields. The node block applies to the RPC endpoint (and to the gateway as `gatewayAuth` defines). Secrets are stored in plain text. */
 export type AuthSettings =
   | { readonly scheme: "none" }
   | { readonly scheme: "basic"; readonly user: string; readonly password: string }
@@ -76,6 +76,13 @@ export interface PluginSettings {
   readonly publicationKey: string;
   readonly mfsRoot: string;
   readonly auth: AuthSettings;
+  /**
+   * The gateway's own credential. Absent means "Same as node": the shared configuration builder decides (the gateway
+   * inherits `auth` only when its origin equals the RPC origin, otherwise none). Present means explicit, and
+   * `{ scheme: "none" }` is an explicit "no credential". Sent to the gateway only. Plain text, in the same file as `auth`.
+   * Stored data without it loads as absent; the node credential is never copied into it.
+   */
+  readonly gatewayAuth?: AuthSettings;
   /** Additions to the default exclusions (the defaults themselves are not stored). */
   readonly userExclusions: readonly string[];
   /** IDs of IPNS keys this plugin created or the operator adopted. Never filled by migration. */
@@ -90,6 +97,8 @@ export interface PluginSettings {
   readonly maxReadMb: number;
   /** A pull that fetches more than this many megabytes asks first (64 to 8192, default 512). Older stored data loads with the default. */
   readonly pullConfirmAboveMb: number;
+  /** Set once the one-time "this node is the maintainer's own and is open to anyone" notice was shown. Absent means not shown yet. */
+  readonly retiredDefaultNoticeShown?: boolean;
   readonly lastPull?: PullSummary;
   readonly lastPublish?: PublishSummary;
   /** Values of the key-value capability, base64. Kept in the same file as the settings. */
@@ -101,11 +110,15 @@ export interface PluginSettings {
   readonly deviceStore: Readonly<Record<string, string>>;
 }
 
+/** The longest auto-publish interval: a timer holds at most 2147483647 ms (about 35791 minutes) and fires in a tight loop above that. */
+export const MAX_PUBLISH_INTERVAL_MINUTES = 35_000;
+
 export function defaultSettings(): PluginSettings {
   return {
     version: SETTINGS_VERSION,
-    rpc: { url: DEFAULT_RPC_URL },
-    gateway: { url: DEFAULT_GATEWAY_URL },
+    // No node is a default: an empty URL means "not configured", and every action refuses until the operator sets one.
+    rpc: { url: "" },
+    gateway: { url: "" },
     publicationKey: DEFAULT_PUBLICATION_KEY,
     mfsRoot: DEFAULT_MFS_ROOT,
     auth: { scheme: "none" },

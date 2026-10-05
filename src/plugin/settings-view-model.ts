@@ -2,24 +2,54 @@ import type { AuthScheme } from "../core/config";
 import type { NodeKey } from "../kubo";
 import { DEFAULT_EXCLUSIONS, effectiveExclusions, excludesHash } from "../sync/exclusions";
 import { createKeyAdoption, type KeyAdoption } from "./key-adoption";
+import { describeNode, type NodeStatus } from "./node-status";
 import { previewPullTarget, type PullTargetPreview } from "./pull-target";
 import { describePublish, describePull, describePullTarget, type ActivityView } from "./settings-activity";
 import {
+  clearCredentialOnOriginChange,
   errorKeysOf,
   groupOf,
   parseGroup,
   valuesFrom,
+  withBlankedFields,
   visibleAuthFields,
+  visibleGatewayAuthFields,
+  GATEWAY_AUTH_CHOICES,
+  GATEWAY_AUTH_FIELD_IDS,
   type EditableFieldId,
   type FieldId,
   type FieldValues,
+  type GatewayAuthChoice,
+  type GatewayAuthFieldId,
 } from "./settings-fields";
+import { GATEWAY_AUTH_NOTICE, GATEWAY_CREDENTIAL_CLEARED, RPC_CREDENTIAL_CLEARED } from "./settings-tab-copy";
 import { AUTH_SCHEMES, type PluginSettings } from "./settings-model";
 import type { SettingsStore } from "./settings-store";
-import { exclusionsWithConfigDir, validateSettings, type FieldError, type SettingsField } from "./settings-to-config";
+import {
+  exclusionsWithConfigDir,
+  gatewayAuthWarnings,
+  nodeCredentialWithheldFromGateway,
+  validateSettings,
+  type FieldError,
+  type SettingsField,
+} from "./settings-to-config";
 
 export { ADOPT_CONSEQUENCES, type AdoptState, type KeyStateView } from "./key-adoption";
-export { errorKeyOf, FIELD_IDS, PULL_FIELD_IDS, SECRET_FIELDS, type EditableFieldId, type FieldId, type PullFieldId } from "./settings-fields";
+export {
+  errorKeyOf,
+  FIELD_IDS,
+  GATEWAY_AUTH_CHOICES,
+  GATEWAY_AUTH_FIELD_IDS,
+  GATEWAY_AUTH_SAME,
+  GATEWAY_SECRET_FIELDS,
+  PULL_FIELD_IDS,
+  SECRET_FIELDS,
+  type EditableFieldId,
+  type FieldId,
+  type GatewayAuthChoice,
+  type GatewayAuthFieldId,
+  type PullFieldId,
+} from "./settings-fields";
 export type { ActivityView } from "./settings-activity";
 
 /**
@@ -39,6 +69,20 @@ export interface SettingsViewState {
   readonly warnings: readonly string[];
   /** True while a scheme switch or auth edit is incomplete and has not been saved. */
   readonly authPending: boolean;
+  /** The same for the gateway block: a kind was picked and its fields are not all filled in yet. */
+  readonly gatewayAuthPending: boolean;
+  /** Findings about the gateway's own credential that do not block saving, such as an expired JWT. */
+  readonly gatewayWarnings: readonly string[];
+  /**
+   * The plain-language line that says the node credential is not sent to the gateway, or an empty string. Shown only when the
+   * gateway origin differs from the RPC origin, a node credential is set and the block is "Same as node" (from what is stored).
+   */
+  readonly gatewayAuthNotice: string;
+  /** Said after an edit moved the RPC (or the gateway) address to another origin and the credential saved for the old one was cleared. Empty otherwise; holds no secret. */
+  readonly rpcCredentialNotice: string;
+  readonly gatewayCredentialNotice: string;
+  /** Whether a node is set ("Not configured" with an explanation when not) and the retired-default warning, from what is stored. */
+  readonly node: NodeStatus;
   /** The "name that will be pulled" line, from what is stored: the entered name, the owned key's ID, or a note that none is available. */
   readonly pullTarget: string;
   /** The same preview as data: the tab shows which of the two target kinds is in effect (an `explicit-root` gets the advanced-input note, copy in task 5.2). */
@@ -84,6 +128,8 @@ export interface SettingsViewModel {
   state(): SettingsViewState;
   /** The auth controls to show for the scheme currently in the draft. */
   visibleAuthFields(): readonly FieldId[];
+  /** The gateway controls to show for the kind currently picked in the gateway block (none for "Same as node"). */
+  visibleGatewayAuthFields(): readonly GatewayAuthFieldId[];
   /** Change one field. A valid change is saved; an invalid one leaves the saved value alone and reports the error. */
   edit(field: EditableFieldId, text: string): Promise<EditResult>;
   /** Change the pull ceiling (64 to 8192 megabytes): `edit("pullConfirmAboveMb", text)`. A valid value is saved, an invalid one reports the error under `pullConfirmAboveMb`. */
@@ -116,11 +162,39 @@ function isAuthScheme(text: string): text is AuthScheme {
   return AUTH_SCHEMES.some((scheme) => scheme === text);
 }
 
+function isGatewayChoice(text: string): text is GatewayAuthChoice {
+  return GATEWAY_AUTH_CHOICES.some((choice) => choice === text);
+}
+
+/**
+ * The draft fields of the kind a picker is leaving, so a typed secret does not survive a detour through another kind and get
+ * saved again without being re-entered. Nothing for an unchanged pick or a field that is not a picker.
+ */
+function fieldsLeft(field: EditableFieldId, previous: string, next: string): readonly EditableFieldId[] {
+  if (previous === next) return [];
+  if (field === "authScheme") return isAuthScheme(previous) ? visibleAuthFields(previous) : [];
+  if (field === "gatewayAuthScheme") return isGatewayChoice(previous) ? visibleGatewayAuthFields(previous) : [];
+  return [];
+}
+
+/** The node block's draft fields: the picker and every field of every kind. */
+const NODE_AUTH_DRAFT: readonly EditableFieldId[] = ["authScheme", "authUser", "authPassword", "authToken", "authHeaderName", "authHeaderValue"];
+
+/** The listed fields of `from`, as a partial set of values. */
+function pickFields(from: FieldValues, fields: readonly EditableFieldId[]): Partial<Record<EditableFieldId, string>> {
+  const picked: Partial<Record<EditableFieldId, string>> = {};
+  for (const field of fields) picked[field] = from[field];
+  return picked;
+}
+
 export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsViewModel {
   const now = deps.now ?? ((): Date => new Date());
   let values: FieldValues = valuesFrom(deps.store.get());
   let errors: Errors = {};
   let authPending = false;
+  let gatewayAuthPending = false;
+  let rpcCleared = false;
+  let gatewayCleared = false;
 
   /** Errors and warnings of what is stored now. Errors are shown only for fields the user edited or that are stored invalid. */
   const stored = () => validateSettings(deps.store.get(), now());
@@ -131,6 +205,12 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       errors,
       warnings: stored().warnings,
       authPending,
+      gatewayAuthPending,
+      gatewayWarnings: gatewayAuthWarnings(settings, now()),
+      gatewayAuthNotice: nodeCredentialWithheldFromGateway(settings, now()) ? GATEWAY_AUTH_NOTICE : "",
+      rpcCredentialNotice: rpcCleared ? RPC_CREDENTIAL_CLEARED : "",
+      gatewayCredentialNotice: gatewayCleared ? GATEWAY_CREDENTIAL_CLEARED : "",
+      node: describeNode(settings),
       pullTarget: describePullTarget(previewPullTarget(settings)),
       pullTargetPreview: previewPullTarget(settings),
       pullCeilingMb: settings.pullConfirmAboveMb,
@@ -142,12 +222,18 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
 
   async function edit(field: EditableFieldId, text: string): Promise<EditResult> {
     if (field === "authScheme" && !isAuthScheme(text)) return { saved: false, state: snapshot() };
-    values = { ...values, [field]: text };
+    if (field === "gatewayAuthScheme" && !isGatewayChoice(text)) return { saved: false, state: snapshot() };
+    // The "credential was cleared" line belongs to the edit that cleared it; any later edit removes it.
+    rpcCleared = false;
+    gatewayCleared = false;
+    const previous = field === "authScheme" ? values.authScheme : field === "gatewayAuthScheme" ? values.gatewayAuthScheme : text;
+    values = { ...withBlankedFields(values, fieldsLeft(field, previous, text)), [field]: text };
     const group = groupOf(field);
     const keys = errorKeysOf(group);
     const parsed = parseGroup(group, values);
     if (parsed.kind === "incomplete") {
-      authPending = true;
+      if (group === "gatewayAuth") gatewayAuthPending = true;
+      else authPending = true;
       errors = replaceErrors(errors, keys, []);
       return { saved: false, state: snapshot() };
     }
@@ -162,9 +248,36 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
       return { saved: false, state: snapshot() };
     }
     // Apply the group to the latest stored settings, so a concurrent change elsewhere is kept.
-    const saved = await deps.store.update(parsed.apply);
+    // A credential saved for one origin is dropped when the address moves to another, in the same write.
+    let cleared = false;
+    let originChanged = false;
+    const saved = await deps.store.update((current) => {
+      const next = clearCredentialOnOriginChange(current, parsed.apply(current), group);
+      cleared = next.cleared;
+      originChanged = next.originChanged;
+      return next.settings;
+    });
     errors = replaceErrors(errors, keys, []);
-    if (group === "auth") authPending = false;
+    if (group === "auth") {
+      authPending = false;
+      rpcCleared = false;
+    }
+    if (group === "gatewayAuth") {
+      gatewayAuthPending = false;
+      gatewayCleared = false;
+    }
+    // Any move to another origin, with or without a saved credential, drops what was typed for the old address, so a half-typed
+    // secret cannot be completed later and saved for the new host. The group's picker goes back to what is stored.
+    if (originChanged && group === "rpc") {
+      values = { ...values, ...pickFields(valuesFrom(saved), NODE_AUTH_DRAFT) };
+      authPending = false;
+      rpcCleared = cleared;
+    }
+    if (originChanged && group === "gateway") {
+      values = { ...values, ...pickFields(valuesFrom(saved), GATEWAY_AUTH_FIELD_IDS) };
+      gatewayAuthPending = false;
+      gatewayCleared = cleared;
+    }
     deps.onSaved?.(saved);
     return { saved: true, state: snapshot() };
   }
@@ -177,12 +290,16 @@ export function createSettingsViewModel(deps: SettingsViewModelDeps): SettingsVi
   return {
     state: snapshot,
     visibleAuthFields: () => (isAuthScheme(values.authScheme) ? visibleAuthFields(values.authScheme) : []),
+    visibleGatewayAuthFields: () => (isGatewayChoice(values.gatewayAuthScheme) ? visibleGatewayAuthFields(values.gatewayAuthScheme) : []),
     edit,
     editPullCeiling: (text) => edit("pullConfirmAboveMb", text),
     reset: () => {
       values = valuesFrom(deps.store.get());
       errors = {};
       authPending = false;
+      gatewayAuthPending = false;
+      rpcCleared = false;
+      gatewayCleared = false;
       return snapshot();
     },
 

@@ -2,21 +2,22 @@ import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
 import { setPluginSeams } from "../../src/plugin/plugin-seams";
-import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
+import type { PluginSettings } from "../../src/plugin/settings-model";
+import { testNodeSettings } from "../helpers/test-node-settings";
 import { createFakeGateway, type FakeGateway } from "../helpers/fake-gateway";
 import { plantPlaintextRoot } from "../helpers/plugin-pull-rig";
 import { IPNS_NAME } from "../helpers/pull-fixtures";
 import { serveGateway } from "../helpers/request-url-node";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { referencePassphrase } from "../vectors/slot-helpers";
-import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin, type RequestUrlResponse } from "../support/obsidian-stub";
+import { App as StubApp, Modal, Notice, Platform, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin, type RequestUrlResponse } from "../support/obsidian-stub";
 
 const MANIFEST = { id: "ipfs-sync", version: "0.2.0" } as unknown as PluginManifest;
 const MFS = "/obsidian-vault-sync/mvp05-entry";
 const KEYS = [{ name: "obsidian-vault-sync", id: IPNS_NAME }];
 
 function settings(patch: Partial<PluginSettings> = {}): PluginSettings {
-  return { ...defaultSettings(), mfsRoot: MFS, ownedKeys: [IPNS_NAME], ...patch };
+  return { ...testNodeSettings(), mfsRoot: MFS, ownedKeys: [IPNS_NAME], ...patch };
 }
 
 interface Loaded {
@@ -59,9 +60,11 @@ describe("plugin entry: pull", () => {
     fetchSpy.mockReset();
     vi.stubGlobal("fetch", fetchSpy);
     vi.useFakeTimers({ toFake: ["setTimeout"] });
+    Platform.isDesktopApp = false; // these tests run the mobile transport (requestUrl) against the stub; desktop would use Node's http
   });
 
   afterEach(() => {
+    Platform.isDesktopApp = true;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });
@@ -110,7 +113,7 @@ describe("plugin entry: pull", () => {
     expect((stub.data as { lastPull?: unknown }).lastPull).toBeUndefined();
   });
 
-  it("refuses a real vault with a notice, sends nothing to the node and changes no file", async () => {
+  it("does not refuse a vault with notes for lacking a marker (the guard is removed): it reaches the node, changes no note and writes no marker", async () => {
     const adapter = new MemoryAdapter();
     adapter.put("notes/real.md", "private", 5000);
     const { plugin } = await loadPlugin(settings(), adapter);
@@ -118,9 +121,9 @@ describe("plugin entry: pull", () => {
     requestUrlCalls.length = 0;
 
     const outcome = await plugin.pullVault();
-    expect(outcome).toMatchObject({ kind: "refused", reason: "fixture-only" });
-    expect(requestUrlCalls).toEqual([]);
-    expect(Notice.shown.map((n) => n.message).join("\n")).toContain("stays disabled in this build");
+    expect(outcome).not.toMatchObject({ reason: "fixture-only" });
+    expect(requestUrlCalls.length).toBeGreaterThan(0);
+    expect(Notice.shown.map((n) => n.message).join("\n")).not.toContain("stays disabled in this build");
     expect(adapter.text("notes/real.md")).toBe("private");
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
   });
@@ -193,14 +196,14 @@ describe("plugin entry: pull", () => {
     expect(loaded.stub.statusBarItems[0]?.text).toBe("");
   });
 
-  it("refuses on load, once, when catch-up is on in a real vault", async () => {
+  it("catch-up on load is not refused for lacking a marker in a vault with notes (the guard is removed): the pull reaches the node", async () => {
     const adapter = new MemoryAdapter();
     adapter.put("notes/real.md", "private", 5000);
     const loaded = await loadPlugin(settings({ catchUpOnLoad: true }), adapter);
     loaded.app.workspace.markLayoutReady();
-    await vi.waitFor(() => expect(Notice.shown).toHaveLength(1));
-    expect(Notice.shown[0]?.message).toContain("stays disabled in this build");
-    expect(requestUrlCalls).toEqual([]);
+    await vi.waitFor(() => expect(requestUrlCalls.length).toBeGreaterThan(0));
+    expect(Notice.shown.map((n) => n.message).join("\n")).not.toContain("stays disabled in this build");
+    expect(adapter.text("notes/real.md")).toBe("private");
   });
 
   it("W-12: exposes the passphrase source as no property, and has no plaintext-v1 switch at all", async () => {

@@ -1,4 +1,5 @@
 import { Modal, type App } from "obsidian";
+import { escapeForDisplay } from "../sync/path-policy";
 import { addParagraph } from "./encryption-dialog-controls";
 import { errorLine, liveRegion, markProblem } from "./settings-tab-controls";
 import { STALE_LOCK_COPY as COPY } from "./stale-lock-copy";
@@ -6,7 +7,14 @@ import { STALE_LOCK_COPY as COPY } from "./stale-lock-copy";
 const ID = { consequences: "ipfs-sync-stale-lock-consequences", error: "ipfs-sync-stale-lock-error" } as const;
 
 export type ClearLockResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
-export type ClearLockOutcome = { readonly cleared: boolean };
+/**
+ * `failure` is set only when the dialog was closed after Clear lock and the action then failed: fixed, safe text (never an error
+ * message). A plain Cancel has no `failure`.
+ */
+export type ClearLockOutcome = { readonly cleared: boolean; readonly failure?: string };
+
+/** Shown instead of the text of an error the action threw: the console has the detail. */
+const UNEXPECTED_FAILURE = "an unexpected error occurred; see the developer console for details";
 
 export interface ClearLockDialogRequest {
   /** What the lock file looks like now: process, host and age. */
@@ -22,6 +30,7 @@ export interface ClearLockDialogRequest {
 export class ClearStaleLockDialog extends Modal {
   private settled = false;
   private busy = false;
+  private closing = false;
   private cancelButton: HTMLButtonElement | undefined;
   private confirmButton: HTMLButtonElement | undefined;
   private failureEl: HTMLElement | undefined;
@@ -39,7 +48,8 @@ export class ClearStaleLockDialog extends Modal {
     const { contentEl } = this;
     contentEl.empty();
     addParagraph(contentEl, COPY.intro);
-    addParagraph(contentEl, `${COPY.stale} ${this.request.description}.`);
+    // The description is built from the lock file (`describeLock` cuts and escapes the host); escaping again is idempotent and keeps this dialog safe whoever builds it.
+    addParagraph(contentEl, `${COPY.stale} ${escapeForDisplay(this.request.description)}.`);
     const list = contentEl.createEl("ul");
     list.id = ID.consequences;
     for (const line of COPY.consequences) list.createEl("li", { text: line });
@@ -53,9 +63,11 @@ export class ClearStaleLockDialog extends Modal {
     this.cancelButton.focus();
   }
 
+  /** Closing while the lock is being cleared does not stop it: the real result is reported when it ends, not a cancel. */
   onClose(): void {
     this.contentEl.empty();
-    this.finish({ cleared: false });
+    this.closing = true;
+    if (!this.busy) this.finish({ cleared: false });
   }
 
   private async confirm(): Promise<void> {
@@ -66,17 +78,18 @@ export class ClearStaleLockDialog extends Modal {
     try {
       result = await this.request.clear();
     } catch (error) {
-      result = { ok: false, reason: error instanceof Error ? error.message : "unknown error" };
+      result = { ok: false, reason: UNEXPECTED_FAILURE };
     }
     if (result.ok) {
       this.finish({ cleared: true });
-      this.close();
+      if (!this.closing) this.close();
       return;
     }
     this.failureEl?.setText(errorLine(`${COPY.failed}: ${result.reason}`));
     if (this.failureEl !== undefined) markProblem(this.failureEl, true);
     this.busy = false;
-    this.cancelButton?.focus();
+    if (this.closing) this.finish({ cleared: false, failure: result.reason });
+    else this.cancelButton?.focus();
   }
 
   private finish(outcome: ClearLockOutcome): void {
