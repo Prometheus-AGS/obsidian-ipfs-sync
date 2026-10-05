@@ -147,16 +147,29 @@ What the plugin does today:
   above the cap is counted as failed, named in the result, and the other files continue.
 - Settings tab: RPC and gateway endpoints (URL plus optional port each; both start empty and the tab shows
   "Not configured" until both URLs are set; publish, pull, status, the key actions, the vault opener and the
-  auto-publish timer refuse with "Set your IPFS node in settings" and send no request; Abandon still works). Two
-  migration paths touch the maintainer's retired built-in host, which is open to anyone. Data in the previous plugin's
-  format (no version marker) whose `rpcUrl` names that host is cleared: both URLs start empty and a notice says why.
-  Current-format 0.2.0 data that names that host is kept as you saved it, with a one-time notice and a settings warning.
-  On the legacy path a stored `authToken` still carries over as bearer auth, even when the URL is cleared. The tab also
-  holds the publication key name,
-  MFS root, authentication scheme (none, basic, bearer, custom header), the exclusion list, the
+  auto-publish timer refuse with "Set your IPFS node in settings" and send no request; Abandon still works). The
+  maintainer's retired built-in host is open to anyone, so saved settings that name it are cleared at load, whatever
+  format they are in (the previous plugin's, the version before this one, or this one), including the form with a
+  trailing dot. Both URLs become empty ("Not configured"), the credential tied to them is dropped (a legacy `authToken`,
+  the node credential and the gateway credential), a one-time notice says to set your own node and enter its
+  credentials again, and the cleared data is written back. **If you really used that node, you must now enter it and
+  its credentials yourself.** If you type that host into the URL fields during a session, the tab warns; the value is
+  cleared at the next load. The tab also holds the publication key name,
+  MFS root, authentication scheme (none, basic, bearer, custom header), **Gateway authentication** (below), the exclusion list, the
   owned IPNS keys, and the pull name, catch-up and read cap settings above, an Encryption section (state: not set up,
   locked or unlocked; Lock, Set up and Unlock buttons), plus the last pull and last publish summaries
   (counts, CIDs and timestamps only, no file names or secrets).
+- **Gateway authentication** (under the gateway port): Same as node (the default), None, Basic, Bearer or Custom header.
+  Same as node uses the rule of the shared configuration builder (`src/core/config/build-config.ts`): the node
+  credential goes to the gateway only when scheme, host and port equal the RPC address, and otherwise the gateway gets
+  none. Any other choice is used as set and wins, and None sends nothing even when the addresses match. The gateway
+  credential goes to the gateway only, never to the RPC endpoint. When the node credential is held back from a gateway
+  on a different address, the tab says so. A gateway that answers 401 or 403 without a credential now reports where
+  to set one. **The gateway secret is stored in plain text in `data.json`, beside the node credential**, and is not
+  published. The settings version stays 3; data saved without a gateway block loads as Same as node, and the node
+  credential is never copied into it. The origin rule compares origins, not paths, so one credential is shared by
+  every path of one host. Nothing was rendered in Obsidian or on a phone, no mock of this control exists in
+  `docs/design/` (the Open Design MCP did not connect), and `styles.css` does not exist.
 - Node requests go through Obsidian's `requestUrl`, not `fetch`, because the node's CORS
   rules block the WebView (quirk 4 below).
 - The whole `.obsidian/` folder is never published and never pulled (before `mvp-07a` only `.obsidian/plugins/` was):
@@ -186,7 +199,7 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   `state.<h>.json` files and pull again as a first pull.
 - **First pull.** It shows the sequence, date and device, which whoever holds the vault key chose, and needs a yes (or
   `--accept-first-pull`). When existing local files differ from the vault, the confirmation also states how many
-  will be replaced and that a dated copy of each is kept; it is not shown when the count is zero. The count is a
+  will be replaced and that a dated copy of each is kept; it is not shown when the count is zero. It reads "at least N", because the count is a
   preview made before the stage, and the stage plans again. Declining writes no file, marker, state, floor or key-slot copy (the CLI's lock may leave an empty
   `.ipfs-sync/` folder). A root CID given with
   `--root-cid` is only as trustworthy as the gateway that serves it: the client does not check the returned bytes against
@@ -252,11 +265,13 @@ code path reads a plaintext manifest.
   inside real Obsidian is unconfirmed; if it does not, the plugin falls back to buffering without saying so. On mobile
   and for every other request, Obsidian's `requestUrl` buffers each whole response body in memory. The streaming path
   has no timeout.
-- **Redirects.** A 301, 302, 303, 307 or 308 answer is refused on the shared request path with a fixed message; the
+- **Redirects.** A 301, 302, 303, 307 or 308 answer is refused on the shared request path with a fixed message that
+  tells you to check the URL's scheme (http or https) and path; the
   `Location` the node named is not shown and not followed. The Node stream transport never follows one, so that
   refusal holds. Obsidian's `requestUrl` follows redirects itself and offers no option to stop it and no way to read the
   final URL. On mobile, and on desktop for every request that is not a ranged read, a followed redirect is neither
-  prevented nor detected. Whether `requestUrl` forwards the credential to the redirect target was not checked. Point the plugin
+  prevented nor detected. Whether `requestUrl` forwards the credential to the redirect target was not checked, and what
+  `requestUrl` does on a redirect is untested: it is to be probed on the phone and desktop runs. Point the plugin
   only at an endpoint you control and trust not to redirect.
 - Obsidian's `requestUrl` transport buffers each whole response body in memory. The one-segment memory bound and the
   size caps that protect the CLI give no protection for what `requestUrl` has already buffered, and Range requests
