@@ -1,7 +1,10 @@
 import { ConfigError, assertMfsMutationPath, validateMfsRoot } from "../core/config";
 import { DeviceStoreError } from "../sync/device-store";
-import { ABANDON_CONFIRMATION, VaultKeysError, abandonVault, describeAbandonFloor, type AbandonFloor } from "../sync/vault-keys";
+import { acquirePublishLock, type LockContext, type LockFile } from "../sync/publish-lock";
+import { PublishRefusedError } from "../sync/publish-refusals";
+import { ABANDON_CONFIRMATION, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, partialMoveLine, type AbandonFloor } from "../sync/vault-keys";
 import type { AbandonDialogRequest, AbandonOutcome } from "./abandon-vault-dialog";
+import { createAdapterLockFile, createPluginLockContext } from "./adapter-lock-file";
 import { createPluginDeviceStore } from "./device-store-plugin";
 import { createObsidianHostBridge } from "./obsidian-host-bridge";
 import type { VaultAdapter } from "./obsidian-fs";
@@ -14,8 +17,9 @@ import { busyNotice, type SyncLock } from "./sync-lock";
 /**
  * The plugin side of "Abandon this vault": it opens the confirmation dialog (`abandon-vault-dialog.ts`) and, once the
  * word is typed, moves this device's key-slot copy, sync state and journal for the configured MFS root into
- * `.ipfs-sync/abandoned-*` with `abandonVault`. The node is never contacted (no client exists here). The sync lock is
- * held while files move, so a publish or pull cannot be writing them; the key session is locked afterwards and asked
+ * `.ipfs-sync/abandoned-*` with `abandonVault`. The node is never contacted (no client exists here). The sync lock and the
+ * `publish.lock` file (the one the command line tool and a second window honor) are held while files move, so a publish or
+ * pull cannot be writing them; a move that stops part-way is reported by count, and the key session is locked then too. The key session is locked afterwards and asked
  * to look again, so the Encryption section shows "Not set up" and the next setup can create a vault in a new root.
  */
 
@@ -28,6 +32,9 @@ export interface AbandonFlowDeps {
   /** `app.vault.adapter`. */
   readonly adapter: VaultAdapter;
   readonly lock: SyncLock;
+  /** The cross-process `publish.lock` file and its process facts. Production leaves them out (the adapter's lock file and a plugin context). */
+  readonly lockFile?: LockFile;
+  readonly lockContext?: LockContext;
   readonly session: Pick<SessionKeys, "lock" | "refresh">;
   readonly now: () => Date;
   /** Opens the confirmation dialog. Production passes a factory over `AbandonVaultDialog`. */
@@ -75,27 +82,42 @@ export function createAbandonFlow(deps: AbandonFlowDeps): AbandonFlow {
   let open: OpenDialog | undefined;
 
   /** The action behind the dialog's button. Never throws: a failure is returned as text for the dialog. */
+  /** The vault state changed: lock the key session and look again. Returns the sentence to append when the look failed. */
+  async function settleSession(): Promise<string> {
+    deps.session.lock();
+    return deps.session.refresh().then(
+      () => "",
+      () => " The vault status could not be re-read; reload the plugin.",
+    );
+  }
+
+  /** The move itself, under the cross-process publish lock (released in `finally`). A held lock file is `lock-held`. */
+  async function moveUnderLock(mfsRoot: string): Promise<Awaited<ReturnType<typeof abandonVault>>> {
+    const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
+    const fileLock = await acquirePublishLock(
+      deps.lockFile ?? createAdapterLockFile(deps.adapter),
+      deps.lockContext ?? createPluginLockContext(() => deps.now().getTime()),
+    );
+    try {
+      return await abandonVault({ fs, mfsRoot, confirmation: ABANDON_CONFIRMATION, nowMs: deps.now().getTime(), deviceStore: createPluginDeviceStore(deps.store) });
+    } finally {
+      await fileLock.release();
+    }
+  }
+
   async function abandon(): Promise<Awaited<ReturnType<AbandonDialogRequest["abandon"]>>> {
     const release = deps.lock.tryAcquire("abandon");
     if (release === undefined) return { ok: false, reason: busyNotice(deps.lock.holder()) };
     try {
       const mfsRoot = assertMfsMutationPath(validateMfsRoot(settingsToLocalConfig(deps.store.get()).mfsRoot));
-      const { fs } = createObsidianHostBridge({ adapter: deps.adapter, now: () => deps.now().getTime() });
-      const { backupDir, moved, floor } = await abandonVault({
-        fs,
-        mfsRoot,
-        confirmation: ABANDON_CONFIRMATION,
-        nowMs: deps.now().getTime(),
-        deviceStore: createPluginDeviceStore(deps.store),
-      });
+      const { backupDir, moved, floor } = await moveUnderLock(mfsRoot);
       if (moved.length === 0) return { ok: false, reason: NOTHING_TO_ABANDON };
-      deps.session.lock();
-      const reread = await deps.session.refresh().then(
-        () => "",
-        () => " The vault status could not be re-read; reload the plugin.",
-      );
+      const reread = await settleSession();
       return { ok: true, backupNote: backupNote(backupDir, moved.length, floor) + reread };
     } catch (error) {
+      if (error instanceof PublishRefusedError && error.code === "lock-held") return { ok: false, reason: busyNotice(undefined) };
+      // Some files moved and some did not: the vault state changed, so the session is locked and looked at again here too.
+      if (error instanceof AbandonPartialMoveError) return { ok: false, reason: partialMoveLine(error.moved, error.total) + (await settleSession()) };
       return { ok: false, reason: failureLine(error) };
     } finally {
       release();

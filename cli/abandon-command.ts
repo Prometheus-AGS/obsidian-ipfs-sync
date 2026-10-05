@@ -3,7 +3,7 @@ import { assertMfsMutationPath, validateMfsRoot, type EnvMap, type SyncConfig } 
 import { acquirePublishLock } from "../src/sync/publish-lock";
 import { PublishRefusedError } from "../src/sync/publish-refusals";
 import { DeviceStoreError, type DeviceStore } from "../src/sync/device-store";
-import { ABANDON_CONFIRMATION, STATE_DIR, VaultKeysError, abandonVault, describeAbandonFloor, rootDigest } from "../src/sync/vault-keys";
+import { ABANDON_CONFIRMATION, STATE_DIR, AbandonPartialMoveError, VaultKeysError, abandonVault, describeAbandonFloor, rootDigest } from "../src/sync/vault-keys";
 import { createLazyDeviceStore } from "./device-store-node";
 import { UsageError } from "./args";
 import { EXIT_CHECK_FAILED, EXIT_OK, type CliIo } from "./io";
@@ -30,12 +30,12 @@ export const ABANDON_WORD = "abandon";
 const LOCAL_KINDS = ["keyslots", "state", "journal", "maintenance"] as const;
 
 /** Failures `abandon` reports as a plain message with exit code 1. */
-const REPORTED_FAILURES = [VaultKeysError, PublishRefusedError, HostPathError, DeviceStoreError] as const;
+const REPORTED_FAILURES = [VaultKeysError, PublishRefusedError, HostPathError, DeviceStoreError, AbandonPartialMoveError] as const;
 
 const CONSEQUENCES: readonly string[] = [
   "This device keeps a backup of its local key-slot copy, sync state, journal and key-management journal for this MFS root (moved, not deleted).",
   "Nothing on the node is changed or deleted. This command sends no request to it.",
-  "A pending key-slot rewrap or history prune is dropped from this device. Its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared tree. To withdraw it, run `ipfs-sync keys discard` before you abandon.",
+  "A pending key-slot rewrap or history prune is dropped from this device. Its write to the node is not withdrawn: a rewritten key-slot file may stay in the shared tree. `ipfs-sync keys discard` withdraws that key-slot file only for a rewrap that has not yet published; for a prune, or a rewrap that has published, it forgets the record and takes nothing back (removed history files stay removed; a published key-slot file stays). Run it before you abandon if you want that withdrawal: abandon drops the record that would let it.",
   "You can then create a new vault, with `ipfs-sync init`, in an empty MFS root (use a new --mfs-root).",
 ];
 
@@ -53,16 +53,20 @@ async function presentFiles(fs: ReturnType<typeof createNodeHostBridge>["fs"], d
   return present;
 }
 
+/** No way to confirm (no terminal and no `--yes-abandon`) is a usage error, whether or not there is anything to move. */
+function assertCanConfirm(ctx: AbandonContext): void {
+  if (ctx.yesAbandon || ctx.io.prompt !== undefined) return;
+  throw new UsageError("abandon needs a terminal to type the word \"abandon\", or --yes-abandon to confirm without one; nothing was moved");
+}
+
 /**
  * Show the consequences, then obtain the confirmation. Returns false when the user typed something else (nothing is
  * moved). Throws `UsageError` when there is no way to confirm: no terminal and no `--yes-abandon`.
  */
 async function confirmAbandon(ctx: AbandonContext): Promise<boolean> {
+  assertCanConfirm(ctx);
   if (ctx.yesAbandon) return true;
-  if (ctx.io.prompt === undefined) {
-    throw new UsageError("abandon needs a terminal to type the word \"abandon\", or --yes-abandon to confirm without one; nothing was moved");
-  }
-  const typed = await ctx.io.prompt(`Type "${ABANDON_WORD}" to confirm: `);
+  const typed = await ctx.io.prompt?.(`Type "${ABANDON_WORD}" to confirm: `);
   return typed !== undefined && typedAbandonWord(typed);
 }
 
@@ -83,6 +87,7 @@ export async function runAbandon(ctx: AbandonContext): Promise<number> {
     ctx.io.out(`  vault     ${vault}`);
     ctx.io.out(`  mfs root  ${mfsRoot}`);
     if (found.length === 0) {
+      assertCanConfirm(ctx);
       ctx.io.err("ipfs-sync: abandon: this device holds no key-slot copy, state, journal or key-management journal for this MFS root (check --mfs-root); nothing was moved");
       return EXIT_CHECK_FAILED;
     }

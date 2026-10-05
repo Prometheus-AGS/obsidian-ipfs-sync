@@ -183,7 +183,7 @@ describe("the stale-lock flow", () => {
     const h = flowOver(adapter);
     const done = h.flow.open();
     await flush();
-    expect(h.request()?.description).toMatch(/process 0 on obsidian-1a2b3c4d, last heartbeat \d+ s ago/);
+    expect(h.request()?.description).toMatch(/process 0 on "obsidian-1a2b3c4d", last heartbeat \d+ s ago/);
     expect(adapter.files.has(LOCK)).toBe(true);
     h.finish()?.({ cleared: false });
     expect(await done).toEqual({ notice: "" });

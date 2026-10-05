@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   LOCK_HEARTBEAT_MS,
+  LOCK_HOST_MAX,
+  LOCK_MAX_BYTES,
   LOCK_STALE_MS,
   acquirePublishLock,
   breakPublishLock,
@@ -73,7 +75,7 @@ describe("publish lock", () => {
     second.ctx.alive.add(4242); // the first publish is a live process on this host
     const error = await acquirePublishLock(r.file, { ...second.ctx, newToken: () => "second-token" }).catch((e: unknown) => e);
     expect(error).toMatchObject({ code: "lock-held" });
-    expect((error as Error).message).toContain("process 4242 on host-a");
+    expect((error as Error).message).toContain('process 4242 on "host-a"');
     expect((error as Error).message).toContain("--break-lock");
     expect((error as Error).message).not.toContain("token-1");
   });
@@ -287,7 +289,7 @@ describe("--break-lock", () => {
     expect(r.file.bytes).toBeDefined();
     expect(await breakPublishLock(r.file, r.ctx.now, async (d) => (asked.push(d), true))).toBe("removed");
     expect(r.file.bytes).toBeUndefined();
-    expect(asked).toEqual(["process 999 on host-a, last heartbeat 90 s ago", "process 999 on host-a, last heartbeat 90 s ago"]);
+    expect(asked).toEqual(['process 999 on "host-a", last heartbeat 90 s ago', 'process 999 on "host-a", last heartbeat 90 s ago']);
   });
 
   it("reports when there is no lock and can break a lock that cannot be read", async () => {
@@ -318,25 +320,67 @@ describe("lock records", () => {
   });
 
   it("describes a lock without its token", () => {
-    expect(describeLock(other({ pid: 7, host: "box" }), 1_800_000_000_000 + 5_000)).toBe("process 7 on box, last heartbeat 5 s ago");
+    expect(describeLock(other({ pid: 7, host: "box" }), 1_800_000_000_000 + 5_000)).toBe('process 7 on "box", last heartbeat 5 s ago');
+  });
+
+  // R6-L5: the record's size and host length are bounded before anything walks the text.
+  it("keeps at most LOCK_HOST_MAX characters of a host (the token still reads), and reads nothing from a file over the size cap", () => {
+    const text = (host: string, pad = 0): Uint8Array => new TextEncoder().encode(JSON.stringify({ host, pid: 1, time: 1, token: "t" }) + " ".repeat(pad));
+    expect(decodeLock(text("h".repeat(LOCK_HOST_MAX)))?.host).toBe("h".repeat(LOCK_HOST_MAX));
+    const long = decodeLock(text("h".repeat(LOCK_HOST_MAX + 1)));
+    expect(long).toEqual({ host: "h".repeat(LOCK_HOST_MAX), pid: 1, time: 1, token: "t" });
+    expect(decodeLock(text("h".repeat(5_000)))?.host).toHaveLength(LOCK_HOST_MAX);
+    // A valid record padded past the size cap is not read at all (it would parse without the cap).
+    const padded = text("h", LOCK_MAX_BYTES);
+    expect(padded.length).toBeGreaterThan(LOCK_MAX_BYTES);
+    expect(decodeLock(padded)).toBeUndefined();
+    expect(decodeLock(text("h", 100))).toMatchObject({ token: "t" });
   });
 
   // R5-L6 (b): the host is free text from the lock file (any process or machine that shares the folder can write it).
-  describe("the host is truncated to 64 characters and escaped with the shared table", () => {
+  describe("the host is truncated to 64 characters, escaped with the shared table and quoted", () => {
     const NOW_MS = 1_800_000_000_000;
     const describeHost = (host: string): string => describeLock(other({ pid: 7, host }), NOW_MS + 5_000);
 
     it("keeps a host of exactly 64 characters whole", () => {
       const host = "h".repeat(64);
-      expect(describeHost(host)).toBe(`process 7 on ${host}, last heartbeat 5 s ago`);
+      expect(describeHost(host)).toBe(`process 7 on "${host}", last heartbeat 5 s ago`);
     });
 
     it.each([65, 200, 5000])("cuts a host of %i characters to 64 and marks the cut", (length) => {
       const text = describeHost("h".repeat(length));
-      expect(text).toContain(`on ${"h".repeat(64)}`);
+      expect(text).toContain(`on "${"h".repeat(64)}`);
       expect(text).not.toContain("h".repeat(65));
       expect(text.length).toBeLessThan(120);
-      expect(text).toMatch(/, last heartbeat 5 s ago$/);
+      expect(text).toMatch(/", last heartbeat 5 s ago$/);
+    });
+
+    // R6-L5: a host cannot forge the sentence that follows it.
+    it.each([
+      ["a forged heartbeat clause", "h, last heartbeat 3 s ago", 'process 7 on "h, last heartbeat 3 s ago", last heartbeat 5 s ago'],
+      ["a quote that tries to close the host", 'a", last heartbeat 0 s ago, process 1 on "b', 'process 7 on "a\\", last heartbeat 0 s ago, process 1 on \\"b", last heartbeat 5 s ago'],
+      ["a trailing backslash that tries to escape the closing quote", "a\\", 'process 7 on "a\\\\", last heartbeat 5 s ago'],
+    ])("%s stays inside the quotes", (_label, host, expected) => {
+      expect(describeHost(host)).toBe(expected);
+    });
+
+    it("tells a real escape character from the text of one (a literal backslash is doubled, an escape is not)", () => {
+      expect(describeHost("\u001b")).toBe('process 7 on "\\u001b", last heartbeat 5 s ago');
+      expect(describeHost("\\u001b")).toBe('process 7 on "\\\\u001b", last heartbeat 5 s ago');
+    });
+
+    it("cuts a host of millions of characters before it splits it into characters: nothing longer than 128 units is walked", () => {
+      const spy = vi.spyOn(Array, "from");
+      try {
+        const text = describeHost("😀".repeat(2_000_000));
+        expect(text).toBe(`process 7 on "${"😀".repeat(64)}...", last heartbeat 5 s ago`);
+        for (const call of spy.mock.calls) {
+          const subject = call[0] as { readonly length?: number };
+          expect(subject.length ?? 0).toBeLessThanOrEqual(128);
+        }
+      } finally {
+        spy.mockRestore();
+      }
     });
 
     it.each([
@@ -348,7 +392,7 @@ describe("lock records", () => {
       ["a zero-width space", "a​b", "a\\u200bb"],
     ])("escapes %s in the host", (_label, host, escaped) => {
       const text = describeHost(host);
-      expect(text).toBe(`process 7 on ${escaped}, last heartbeat 5 s ago`);
+      expect(text).toBe(`process 7 on "${escaped}", last heartbeat 5 s ago`);
       for (const raw of ["\u001b", "\n", "\r", "‮", "\u009b", "​"]) expect(text).not.toContain(raw);
     });
 
@@ -361,7 +405,7 @@ describe("lock records", () => {
 
     it("counts a character above the basic plane as one", () => {
       const host = "😀".repeat(64);
-      expect(describeHost(host)).toBe(`process 7 on ${host}, last heartbeat 5 s ago`);
+      expect(describeHost(host)).toBe(`process 7 on "${host}", last heartbeat 5 s ago`);
       expect(describeHost("😀".repeat(65))).not.toContain("😀".repeat(65));
     });
   });

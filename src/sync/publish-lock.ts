@@ -70,15 +70,21 @@ export function encodeLock(record: LockRecord): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`${JSON.stringify({ host: record.host, pid: record.pid, time: record.time, token: record.token })}\n`);
 }
 
-/** The record in a lock file, or undefined when the bytes are not a lock record. */
+/** The most a lock file may hold: a real record is a few hundred bytes. A larger file is not read as a lock record. */
+export const LOCK_MAX_BYTES = 65_536;
+/** The most of a host the record keeps (a DNS name is at most 255 characters); the rest is dropped, and the token still reads. */
+export const LOCK_HOST_MAX = 255;
+
+/** The record in a lock file, or undefined when the bytes are not a lock record (including a file over the size cap). */
 export function decodeLock(bytes: Uint8Array): LockRecord | undefined {
+  if (bytes.length > LOCK_MAX_BYTES) return undefined;
   try {
     const raw: unknown = JSON.parse(new TextDecoder().decode(bytes));
     if (typeof raw !== "object" || raw === null) return undefined;
     const { token, pid, host, time } = raw as Record<string, unknown>;
     if (typeof token !== "string" || token === "" || typeof host !== "string" || host === "") return undefined;
     if (typeof pid !== "number" || !Number.isInteger(pid) || pid < 0 || typeof time !== "number" || !Number.isFinite(time)) return undefined;
-    return { token, pid, host, time };
+    return { token, pid, host: host.slice(0, LOCK_HOST_MAX), time };
   } catch {
     return undefined;
   }
@@ -87,11 +93,17 @@ export function decodeLock(bytes: Uint8Array): LockRecord | undefined {
 /** The longest host name `describeLock` shows, in characters (code points). The host is free text any writer of the lock file chose. */
 export const LOCK_HOST_DISPLAY_MAX = 64;
 
-/** The host cut to `LOCK_HOST_DISPLAY_MAX` characters (marked when cut), then escaped with the shared display table. */
+/**
+ * The host cut to `LOCK_HOST_DISPLAY_MAX` characters (marked when cut), then its backslashes and double quotes escaped, then the rest escaped with
+ * the shared display table, and the whole in double quotes: the host cannot end its own quotes, so it cannot write the words that follow it. The
+ * cut happens on a bounded prefix first (a character is at most two UTF-16 units), so a huge host is never split into characters whole.
+ */
 function displayHost(host: string): string {
-  const characters = Array.from(host);
-  const cut = characters.length > LOCK_HOST_DISPLAY_MAX;
-  return `${escapeForDisplay(cut ? characters.slice(0, LOCK_HOST_DISPLAY_MAX).join("") : host)}${cut ? "..." : ""}`;
+  const prefix = host.slice(0, LOCK_HOST_DISPLAY_MAX * 2);
+  const characters = Array.from(prefix);
+  const cut = characters.length > LOCK_HOST_DISPLAY_MAX || prefix.length < host.length;
+  const kept = characters.slice(0, LOCK_HOST_DISPLAY_MAX).join("");
+  return `"${escapeForDisplay(kept.replace(/[\\"]/g, "\\$&"))}${cut ? "..." : ""}"`;
 }
 
 /** Fixed-format facts for a message: process id, host name (cut and escaped) and age. The token is never shown. */

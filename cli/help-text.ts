@@ -63,8 +63,11 @@ Commands:
                           slots, or its state cannot be repaired). It never contacts the node and deletes nothing;
                           afterwards create a new vault with init in an empty MFS root (a new --mfs-root). A pending
                           key-slot rewrap or history prune is dropped from this device, but its write to the node is
-                          not withdrawn: a rewritten key-slot file may stay in the shared tree, and keys discard is the
-                          command that withdraws it (run it before you abandon). On a terminal it shows what will move
+                          not withdrawn: a rewritten key-slot file may stay in the shared tree. keys discard withdraws
+                          that key-slot file only for a rewrap that has not yet published; for a prune, or a rewrap that
+                          has published, it forgets the record and takes nothing back (removed history files stay
+                          removed; a published key-slot file stays). Run keys discard before you abandon if you want that
+                          withdrawal: abandon drops the record that would let it. On a terminal it shows what will move
                           and asks you to type the word "abandon"; without a terminal it does nothing unless
                           --yes-abandon is given.
   keys change-passphrase <vault>
@@ -229,9 +232,9 @@ passphrase bytes it holds after key derivation, on a best-effort basis (strings 
 Precedence: flags > environment > config file > defaults.
 
 Exit codes: 0 ok, 1 a check, publish or pull failed, 2 usage, unsafe configuration or a refused pull destination
-(no request is sent). A command that needs a yes (keys change-passphrase, keys increase-cost, keys discard, prune-history and
+(no request is sent). A command that needs a yes (keys change-passphrase, keys increase-cost, keys discard, prune-history, pull --resolve-fork and
 abandon) and has neither a terminal (standard input, standard output and standard error must all be one) nor its confirming flag exits 2 before
-any request; a confirmation that is asked and declined exits 1. For pull, 1 also means: a file failed verification or was not fetched, a path was skipped as unsafe
+any request (pull --resolve-fork has no confirming flag, so without a terminal it always exits 2); a confirmation that is asked and declined exits 1. For pull, 1 also means: a file failed verification or was not fetched, a path was skipped as unsafe
 (a name another platform can write, or a path no honest publisher produces), or the pull stopped at a check (wrong
 passphrase, rollback, fork, a held lock, a first pull that was not confirmed); 0 also covers paths skipped as expected
 (a configuration folder or an excluded path from an older build's manifest). For keys, 1 also means: the device is not up

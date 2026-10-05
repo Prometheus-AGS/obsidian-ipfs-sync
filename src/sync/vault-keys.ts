@@ -423,17 +423,47 @@ export interface AbandonInput {
   readonly deviceStore?: DeviceStore;
 }
 
-/** The sequence floor for the abandoned vault, as found in the device store before anything moved. */
+/**
+ * The sequence floor for the abandoned vault, as found in the device store before anything moved. `not-looked-up`: the files name no vault id,
+ * so no floor was asked for. `unavailable`: the device store could not be opened or read (any error); the move went on.
+ */
 export type AbandonFloor =
   | { readonly status: "kept"; readonly vaultId: string; readonly sequence: number }
   | { readonly status: "none" }
-  | { readonly status: "unreadable"; readonly message: string };
+  | { readonly status: "not-looked-up" }
+  | { readonly status: "unavailable" }
+  | { readonly status: "unreadable" };
 
-/** The line the CLI prints and the plugin notice repeats: one wording for both. */
+/** The line the CLI prints and the plugin notice repeats: one wording for both. Fixed text: no error message is read. */
 export function describeAbandonFloor(floor: AbandonFloor): string {
   if (floor.status === "kept") return `sequence floor kept: ${floor.sequence}`;
   if (floor.status === "none") return "sequence floor kept: none (this device has no floor for the vault)";
-  return "sequence floor kept: unreadable (the floor file is damaged; abandon did not change it)";
+  if (floor.status === "not-looked-up") return "sequence floor kept: not looked up (the vault id is no longer on this device)";
+  if (floor.status === "unavailable") return "sequence floor kept: not read (the floor could not be read from the device store; abandon did not change it)";
+  return "sequence floor kept: unreadable (the floor file is damaged and could not be read; abandon did not change it)";
+}
+
+/** The fixed statement for a move that stopped part-way: counts only, never an operating-system message. */
+export function partialMoveLine(moved: number, total: number): string {
+  return `${moved} of ${total} files were moved. Run abandon again to move the rest.`;
+}
+
+/**
+ * A rename failed after at least one file had moved: this device's files for the root are split between the live folder and the backup. It carries
+ * the counts and the kind names that moved (`keyslots`, `state`, `journal`, `maintenance`), and no cause or message from the failure.
+ */
+export class AbandonPartialMoveError extends Error {
+  readonly moved: number;
+  readonly total: number;
+  readonly kinds: readonly string[];
+
+  constructor(kinds: readonly string[], total: number) {
+    super(partialMoveLine(kinds.length, total));
+    this.name = "AbandonPartialMoveError";
+    this.moved = kinds.length;
+    this.total = total;
+    this.kinds = kinds;
+  }
 }
 
 const HEX32 = /^[0-9a-f]{32}$/;
@@ -460,13 +490,14 @@ async function localVaultId(fs: AbandonInput["fs"], digest: string, present: rea
 async function floorKept(input: AbandonInput, digest: string, present: readonly string[]): Promise<AbandonFloor> {
   if (input.deviceStore === undefined) return { status: "none" };
   const vaultId = await localVaultId(input.fs, digest, present);
-  if (vaultId === undefined) return { status: "none" };
+  if (vaultId === undefined) return { status: "not-looked-up" };
   try {
     const entry = await readFloor(input.deviceStore, vaultId);
     return entry === undefined ? { status: "none" } : { status: "kept", vaultId, sequence: entry.sequence };
   } catch (error) {
-    if (error instanceof SequenceFloorError) return { status: "unreadable", message: error.message };
-    throw error;
+    if (error instanceof SequenceFloorError) return { status: "unreadable" };
+    // Any other failure of the store (no home directory, a permission error, a damaged entry) must not stop the escape hatch: its message is not read.
+    return { status: "unavailable" };
   }
 }
 
@@ -492,7 +523,13 @@ export async function abandonVault(
   const moved: string[] = [];
   for (const kind of present) {
     const from = `${STATE_DIR}/${kind}.${digest}.json`;
-    await input.fs.rename(from, `${backupDir}/${kind}.json`);
+    try {
+      await input.fs.rename(from, `${backupDir}/${kind}.json`);
+    } catch (error) {
+      // After the first file the vault state has changed: say so with counts only. A failure before any move surfaces as it always did.
+      if (moved.length === 0) throw error;
+      throw new AbandonPartialMoveError(present.slice(0, moved.length), present.length);
+    }
     moved.push(from);
   }
   return { backupDir, moved, floor };

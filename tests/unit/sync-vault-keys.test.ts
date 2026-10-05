@@ -11,12 +11,15 @@ import { asGenerated } from "../../src/crypto/testing/generated-passphrase";
 import { createKeySlotsInternal } from "../../src/crypto/key-slots";
 import { secureRandom } from "../../src/crypto/random";
 import { sha256Hex } from "../../src/sync/hash";
-import { SEQUENCE_FLOOR_FILE, raiseFloor } from "../../src/sync/sequence-floor";
+import { DeviceStoreError } from "../../src/sync/device-store";
+import { SEQUENCE_FLOOR_FILE, SequenceFloorError, raiseFloor } from "../../src/sync/sequence-floor";
 import {
   ABANDON_CONFIRMATION,
+  AbandonPartialMoveError,
   VaultKeysError,
   abandonVault,
   describeAbandonFloor,
+  partialMoveLine,
   keySlotsCopyPath,
   openVault,
   rootDigest,
@@ -370,7 +373,21 @@ describe("abandon: the sequence floor it keeps", () => {
     expect((await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store })).floor).toEqual({ status: "none" });
     const digest = await rootDigest("/obsidian-vault-sync/junk");
     host.put(`.ipfs-sync/keyslots.${digest}.json`, "{}");
-    expect((await abandonVault({ fs: host.fs, mfsRoot: "/obsidian-vault-sync/junk", confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store })).floor).toEqual({ status: "none" });
+    // R6-L1: files that name no vault are not "no floor": the floor was not looked up at all.
+    expect((await abandonVault({ fs: host.fs, mfsRoot: "/obsidian-vault-sync/junk", confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store })).floor).toEqual({ status: "not-looked-up" });
+  });
+
+  it("R6-L1: when the vault id cannot be determined, it says 'not looked up', not 'none (this device has no floor)'", async () => {
+    const store = createMemoryDeviceStore();
+    const digest = await rootDigest(ROOT);
+    host.put(`.ipfs-sync/state.${digest}.json`, "not json");
+    host.put(`.ipfs-sync/journal.${digest}.json`, "{}");
+    const { floor } = await abandonVault({ fs: host.fs, mfsRoot: ROOT, confirmation: ABANDON_CONFIRMATION, nowMs: 1, deviceStore: store });
+    expect(floor).toEqual({ status: "not-looked-up" });
+    expect(describeAbandonFloor(floor)).toBe("sequence floor kept: not looked up (the vault id is no longer on this device)");
+    expect(describeAbandonFloor(floor)).not.toContain("none");
+    // The other statuses keep their wording.
+    expect(describeAbandonFloor({ status: "none" })).toBe("sequence floor kept: none (this device has no floor for the vault)");
   });
 
   it("reports a damaged floor file as unreadable, still moves the files and does not touch the floor", async () => {
@@ -392,5 +409,147 @@ describe("abandon: the sequence floor it keeps", () => {
     expect(result).toMatchObject({ moved: [], floor: { status: "none" } });
     expect(store.get).not.toHaveBeenCalled();
     expect(store.set).not.toHaveBeenCalled();
+  });
+});
+
+const VAULT_ID = "e".repeat(32);
+const FOUR = ["keyslots", "state", "journal", "maintenance"] as const;
+
+async function seedFour(): Promise<string> {
+  const digest = await rootDigest(ROOT);
+  host.put(`.ipfs-sync/keyslots.${digest}.json`, "not key slots");
+  host.put(`.ipfs-sync/state.${digest}.json`, JSON.stringify({ vaultId: VAULT_ID }));
+  host.put(`.ipfs-sync/journal.${digest}.json`, "journal-body");
+  host.put(`.ipfs-sync/maintenance.${digest}.json`, "maintenance-body");
+  return digest;
+}
+
+const INPUT = (extra: Partial<Parameters<typeof abandonVault>[0]> = {}): Parameters<typeof abandonVault>[0] => ({
+  fs: host.fs,
+  mfsRoot: ROOT,
+  confirmation: ABANDON_CONFIRMATION,
+  nowMs: 9,
+  ...extra,
+});
+
+describe("R6-M3: a failing device store never blocks the move", () => {
+  const SECRET = "/Users/someone/secret-store-path";
+  it.each([
+    ["a DeviceStoreError", new DeviceStoreError(`cannot locate ${SECRET}`)],
+    ["a generic Error", new Error(`EACCES ${SECRET}`)],
+    ["a SequenceFloorError raised by the store itself", new SequenceFloorError(`floor ${SECRET}`)],
+    ["a thrown string", SECRET],
+  ])("%s: all four files still move and the report says the floor could not be read, without the message", async (_label, failure) => {
+    const digest = await seedFour();
+    const store = {
+      get: vi.fn(async () => {
+        throw failure;
+      }),
+      set: vi.fn(async () => undefined),
+    };
+    const result = await abandonVault(INPUT({ deviceStore: store }));
+    expect(store.get).toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalled();
+    expect(result.moved).toHaveLength(4);
+    for (const kind of FOUR) {
+      expect(host.files.has(`.ipfs-sync/${kind}.${digest}.json`)).toBe(false);
+      expect(host.files.has(`${result.backupDir}/${kind}.json`)).toBe(true);
+    }
+    const text = describeAbandonFloor(result.floor);
+    expect(text).toContain("could not be read");
+    expect(JSON.stringify(result.floor)).not.toContain("secret");
+    expect(text).not.toContain("secret");
+  });
+});
+
+describe("R6-M4: a rename that fails after the first one is a partial move", () => {
+  const OS_TEXT = "EIO: i/o error, rename '/Users/someone/secret/state.json'";
+
+  it.each([
+    [2, ["keyslots"], "1 of 4"],
+    [3, ["keyslots", "state"], "2 of 4"],
+    [4, ["keyslots", "state", "journal"], "3 of 4"],
+  ])("failing rename number %i throws a typed error with only counts and the kinds moved", async (failing, kinds, counts) => {
+    const digest = await seedFour();
+    let renames = 0;
+    const fs = {
+      stat: host.fs.stat,
+      read: host.fs.read,
+      rename: async (from: string, to: string) => {
+        renames += 1;
+        if (renames === failing) throw new Error(OS_TEXT);
+        await host.fs.rename(from, to);
+      },
+    };
+    const error = await abandonVault(INPUT({ fs })).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    expect(error).toBeInstanceOf(AbandonPartialMoveError);
+    const partial = error as AbandonPartialMoveError;
+    expect(partial.moved).toBe(kinds.length);
+    expect(partial.total).toBe(4);
+    expect(partial.kinds).toEqual(kinds);
+    expect(partial.message).toBe(`${counts} files were moved. Run abandon again to move the rest.`);
+    expect(partial.message).toBe(partialMoveLine(kinds.length, 4));
+    expect(partial.message).not.toContain("EIO");
+    expect(partial.message).not.toContain("secret");
+    expect(JSON.stringify(partial)).not.toContain("secret");
+    expect(partial.cause).toBeUndefined();
+    // The files already moved are in the backup; the rest are still in place.
+    for (const kind of FOUR) {
+      const moved = (kinds as readonly string[]).includes(kind);
+      expect(host.files.has(`.ipfs-sync/${kind}.${digest}.json`), kind).toBe(!moved);
+      expect(host.files.has(`.ipfs-sync/abandoned-${digest}-9/${kind}.json`), kind).toBe(moved);
+    }
+  });
+
+  it("a failure of the FIRST rename is not a partial move: nothing moved, the original error surfaces", async () => {
+    await seedFour();
+    const fs = {
+      stat: host.fs.stat,
+      read: host.fs.read,
+      rename: async () => {
+        throw new Error(OS_TEXT);
+      },
+    };
+    const error = await abandonVault(INPUT({ fs })).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    expect(error).not.toBeInstanceOf(AbandonPartialMoveError);
+    expect((error as Error).message).toBe(OS_TEXT);
+  });
+
+  it("running abandon again finishes the rest, and counts only what that run moved", async () => {
+    const digest = await seedFour();
+    let renames = 0;
+    const failing = {
+      stat: host.fs.stat,
+      read: host.fs.read,
+      rename: async (from: string, to: string) => {
+        renames += 1;
+        if (renames === 3) throw new Error(OS_TEXT);
+        await host.fs.rename(from, to);
+      },
+    };
+    await expect(abandonVault(INPUT({ fs: failing }))).rejects.toBeInstanceOf(AbandonPartialMoveError);
+    const second = await abandonVault(INPUT());
+    expect(second.moved).toEqual([`.ipfs-sync/journal.${digest}.json`, `.ipfs-sync/maintenance.${digest}.json`]);
+    for (const kind of FOUR) expect(host.files.has(`.ipfs-sync/${kind}.${digest}.json`)).toBe(false);
+    for (const kind of FOUR) expect(host.files.has(`.ipfs-sync/abandoned-${digest}-9/${kind}.json`)).toBe(true);
+  });
+
+  it("a one-file move that fails is not a partial move", async () => {
+    const digest = await rootDigest(ROOT);
+    host.put(`.ipfs-sync/journal.${digest}.json`, "j");
+    const fs = {
+      stat: host.fs.stat,
+      read: host.fs.read,
+      rename: async () => {
+        throw new Error(OS_TEXT);
+      },
+    };
+    await expect(abandonVault(INPUT({ fs }))).rejects.toThrow(OS_TEXT);
   });
 });

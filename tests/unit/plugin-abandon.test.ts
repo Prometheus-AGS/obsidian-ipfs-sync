@@ -5,13 +5,15 @@ import { ConfigError } from "../../src/core/config";
 import { DeviceStoreError } from "../../src/sync/device-store";
 import { ABANDON_FAILURES, createAbandonFlow, NOTHING_TO_ABANDON, type AbandonFlowDeps } from "../../src/plugin/abandon-flow";
 import { AbandonVaultDialog } from "../../src/plugin/abandon-vault-dialog";
-import { ABANDON_COPY } from "../../src/plugin/encryption-copy";
+import { ABANDON_COPY, ENCRYPTION_COPY } from "../../src/plugin/encryption-copy";
 import { defaultSettings } from "../../src/plugin/settings-model";
 import type { SettingsStore } from "../../src/plugin/settings-store";
 import { bytesToBase64 } from "../../src/plugin/base64";
-import { createSyncLock } from "../../src/plugin/sync-lock";
-import { SEQUENCE_FLOOR_FILE, SEQUENCE_FLOOR_VERSION, encodeFloor } from "../../src/sync/sequence-floor";
+import { busyNotice, createSyncLock } from "../../src/plugin/sync-lock";
+import { encodeLock } from "../../src/sync/publish-lock";
+import { SEQUENCE_FLOOR_FILE, SEQUENCE_FLOOR_VERSION, SequenceFloorError, encodeFloor } from "../../src/sync/sequence-floor";
 import { VaultKeysError, rootDigest } from "../../src/sync/vault-keys";
+import { expectDiscardCaveat } from "../helpers/abandon-discard-text";
 import { byId, type FakeEl } from "../support/fake-dom";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, type Plugin as StubPlugin } from "../support/obsidian-stub";
@@ -302,15 +304,183 @@ describe("abandon flow", () => {
     });
   });
 
-  it("R5-M1: the dialog's consequences say a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard withdraws it", () => {
+  it("R5-M1/R6-M2: the dialog's consequences say a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard withdraws only an unpublished rewrap", () => {
     const text = ABANDON_COPY.consequences.join(" ").replace(/\s+/g, " ");
-    expect(text).toMatch(/pending key-slot rewrap or history prune/);
-    expect(text).toMatch(/dropped/);
-    expect(text).toMatch(/not withdrawn/);
-    expect(text).toMatch(/may stay in the shared tree/);
     expect(text).toContain("ipfs-sync keys discard");
+    expectDiscardCaveat(text);
+    expect(text).toContain("the plugin has no discard action");
     // The existing statements stay.
     expect(text).toContain("Nothing on the node is changed or deleted");
+  });
+
+  it("R6-L2: the consequence text and the settings row name all four files", () => {
+    for (const [label, text] of [
+      ["consequences", ABANDON_COPY.consequences.join(" ")],
+      ["abandonDesc", ENCRYPTION_COPY.abandonDesc],
+    ] as const) {
+      for (const name of ["key-slot copy", "sync state", "publish journal", "key-management journal"]) expect(text, `${label}: ${name}`).toContain(name);
+    }
+  });
+
+  describe("R6-M1: the cross-process publish lock is held around the move", () => {
+    const LOCK_PATH = ".ipfs-sync/publish.lock";
+    const heldLock = (): Uint8Array => encodeLock({ token: "other-token", pid: 4242, host: "other-host", time: NOW.getTime() });
+
+    it("a lock file held by another process gives the busy result and moves nothing", async () => {
+      const d = deps();
+      const digest = await seedState(d.adapter);
+      d.adapter.put(LOCK_PATH, new TextDecoder().decode(heldLock()));
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toEqual({ ok: false, reason: busyNotice(undefined) });
+      for (const kind of KINDS) expect(d.adapter.files.has(`.ipfs-sync/${kind}.${digest}.json`)).toBe(true);
+      expect([...d.adapter.files.keys()].some((p) => p.includes("abandoned-"))).toBe(false);
+      expect(d.lock).not.toHaveBeenCalled();
+      expect(d.all.lock.holder()).toBeUndefined();
+      // The other process's lock is untouched.
+      expect(d.adapter.text(LOCK_PATH)).toContain("other-token");
+    });
+
+    it("the lock file is gone after a successful move", async () => {
+      const d = deps();
+      await seedState(d.adapter);
+      void createAbandonFlow(d.all).open();
+      expect(await d.request()?.abandon()).toMatchObject({ ok: true });
+      expect(d.adapter.files.has(LOCK_PATH)).toBe(false);
+    });
+
+    it("the lock file is gone after the move throws", async () => {
+      const d = deps();
+      await seedState(d.adapter);
+      const rename = d.adapter.rename.bind(d.adapter);
+      d.adapter.rename = async (from: string, to: string) => {
+        if (to.includes("abandoned-")) throw new Error("EIO /secret");
+        return rename(from, to);
+      };
+      void createAbandonFlow(d.all).open();
+      expect(await d.request()?.abandon()).toEqual({ ok: false, reason: ABANDON_FAILURES.unexpected });
+      expect(d.adapter.files.has(LOCK_PATH)).toBe(false);
+      expect(d.all.lock.holder()).toBeUndefined();
+    });
+
+    it("is held while the files move", async () => {
+      const d = deps();
+      await seedState(d.adapter);
+      let heldAtRename: boolean | undefined;
+      const rename = d.adapter.rename.bind(d.adapter);
+      d.adapter.rename = async (from: string, to: string) => {
+        if (to.includes("abandoned-")) heldAtRename ??= d.adapter.files.has(LOCK_PATH);
+        return rename(from, to);
+      };
+      void createAbandonFlow(d.all).open();
+      await d.request()?.abandon();
+      expect(heldAtRename).toBe(true);
+    });
+  });
+
+  describe("R6-M3: a failing device store never blocks the move", () => {
+    const SECRET = "/Users/someone/secret-store";
+    it.each([
+      ["a DeviceStoreError", () => new DeviceStoreError(SECRET)],
+      ["a generic Error", () => new Error(SECRET)],
+      ["a SequenceFloorError", () => new SequenceFloorError(SECRET)],
+    ])("%s: all files move, the notice says the floor could not be read, and no message is echoed", async (_label, make) => {
+      const settings = {
+        ...defaultSettings(),
+        get deviceStore(): Record<string, string> {
+          throw make();
+        },
+      };
+      const store = { get: () => settings } as unknown as SettingsStore;
+      const d = deps({ store });
+      const digest = await rootDigest(defaultSettings().mfsRoot);
+      d.adapter.put(`.ipfs-sync/state.${digest}.json`, JSON.stringify({ vaultId: "e".repeat(32) }));
+      d.adapter.put(`.ipfs-sync/journal.${digest}.json`, "journal-body");
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toMatchObject({ ok: true });
+      const note = (result as { backupNote: string }).backupNote;
+      expect(note).toContain("2 files moved");
+      expect(note).toContain("could not be read");
+      expect(note).not.toContain("secret");
+      expect(d.adapter.files.has(`.ipfs-sync/state.${digest}.json`)).toBe(false);
+      expect(d.lock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("R6-M4: a rename that fails after the first is a partial move", () => {
+    const PARTIAL = (moved: number, total: number): string => `${moved} of ${total} files were moved. Run abandon again to move the rest.`;
+
+    /** Fail the `n`th rename into the backup folder (the lock file's own renames are not counted). */
+    function failBackupRename(adapter: MemoryAdapter, n: number): void {
+      let count = 0;
+      const rename = adapter.rename.bind(adapter);
+      adapter.rename = async (from: string, to: string) => {
+        if (to.includes("abandoned-") && ++count === n) throw new Error("EIO: i/o error, rename '/Users/someone/secret/state.json'");
+        return rename(from, to);
+      };
+    }
+
+    async function seedFour(adapter: MemoryAdapter): Promise<string> {
+      const digest = await rootDigest(defaultSettings().mfsRoot);
+      for (const kind of ["keyslots", "state", "journal", "maintenance"]) adapter.put(`.ipfs-sync/${kind}.${digest}.json`, `${kind}-body`);
+      return digest;
+    }
+
+    it.each([
+      [2, 1],
+      [3, 2],
+      [4, 3],
+    ])("failing rename number %i returns the fixed line with %i of 4, locks the session and looks again", async (failing, moved) => {
+      const d = deps();
+      const digest = await seedFour(d.adapter);
+      failBackupRename(d.adapter, failing);
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toEqual({ ok: false, reason: PARTIAL(moved, 4) });
+      expect(JSON.stringify(result)).not.toContain("secret");
+      expect(JSON.stringify(result)).not.toContain("EIO");
+      expect(d.lock).toHaveBeenCalledTimes(1);
+      expect(d.refresh).toHaveBeenCalledTimes(1);
+      const remaining = ["keyslots", "state", "journal", "maintenance"].filter((kind) => d.adapter.files.has(`.ipfs-sync/${kind}.${digest}.json`));
+      expect(remaining).toHaveLength(4 - moved);
+      expect(d.adapter.files.has(".ipfs-sync/publish.lock")).toBe(false);
+      expect(d.all.lock.holder()).toBeUndefined();
+    });
+
+    it("says so, after the fixed line, when the status could not be re-read", async () => {
+      const d = deps({ session: { lock: vi.fn(), refresh: vi.fn(async () => Promise.reject(new Error("secret"))) } });
+      await seedFour(d.adapter);
+      failBackupRename(d.adapter, 2);
+      void createAbandonFlow(d.all).open();
+      const result = (await d.request()?.abandon()) as { ok: false; reason: string };
+      expect(result.reason.startsWith(PARTIAL(1, 4))).toBe(true);
+      expect(result.reason).toContain("could not be re-read");
+      expect(result.reason).not.toContain("secret");
+    });
+
+    it("a failure of the first rename is today's line: the session is not locked, nothing changed", async () => {
+      const d = deps();
+      await seedFour(d.adapter);
+      failBackupRename(d.adapter, 1);
+      void createAbandonFlow(d.all).open();
+      const result = await d.request()?.abandon();
+      expect(result).toEqual({ ok: false, reason: ABANDON_FAILURES.unexpected });
+      expect(d.lock).not.toHaveBeenCalled();
+      expect(d.refresh).not.toHaveBeenCalled();
+    });
+
+    it("running abandon again moves the rest", async () => {
+      const d = deps();
+      const digest = await seedFour(d.adapter);
+      failBackupRename(d.adapter, 3);
+      void createAbandonFlow(d.all).open();
+      expect(await d.request()?.abandon()).toEqual({ ok: false, reason: PARTIAL(2, 4) });
+      const second = await d.request()?.abandon();
+      expect(second).toMatchObject({ ok: true });
+      expect((second as { backupNote: string }).backupNote).toContain("2 files moved");
+      for (const kind of ["keyslots", "state", "journal", "maintenance"]) expect(d.adapter.files.has(`.ipfs-sync/${kind}.${digest}.json`)).toBe(false);
+    });
   });
 
   it("closes an open dialog when disposed", () => {

@@ -2,6 +2,7 @@
 // say (flag names, exit codes, the thing that is ignored), over whitespace changes, not by a fixed line.
 import { describe, expect, it } from "vitest";
 import { HELP_TEXT } from "../../cli/help-text";
+import { expectDiscardCaveat } from "../helpers/abandon-discard-text";
 
 const flat = HELP_TEXT.replace(/\s+/g, " ");
 
@@ -59,7 +60,9 @@ describe("the default config file and the exit codes (A-L11)", () => {
 
   it("the exit-code section says a missing terminal with no flag exits 2 for keys, prune-history and abandon, and a declined confirmation exits 1", () => {
     const exit = flat.slice(flat.indexOf("Exit codes:"));
-    expect(exit).toMatch(/keys change-passphrase, keys increase-cost, keys discard, prune-history and abandon/);
+    expect(exit).toMatch(/keys change-passphrase, keys increase-cost, keys discard, prune-history, pull --resolve-fork and abandon/);
+    // R6-L6: --resolve-fork has no confirming flag, so a terminal is the only way; the sentence says so.
+    expect(exit).toMatch(/pull --resolve-fork has no confirming flag[^.]*exits 2/);
     expect(exit).toMatch(/neither a terminal[^.]*nor its confirming flag exits 2 before any request/);
     expect(exit).toMatch(/standard input, standard output and standard error must all be one/);
     expect(exit).toMatch(/asked and declined exits 1/);
@@ -94,12 +97,7 @@ describe("abandon: what it moves and what it leaves (R5-M1)", () => {
     for (const name of ["keyslots.<h>.json", "state.<h>.json", "journal.<h>.json", "maintenance.<h>.json"]) expect(text).toContain(name);
   });
 
-  it("says a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard is the command that withdraws it", () => {
-    const text = abandon();
-    expect(text).toMatch(/pending (key-slot )?rewrap or (history )?prune/);
-    expect(text).toMatch(/dropped/);
-    expect(text).toMatch(/not withdrawn/);
-    expect(text).toMatch(/may stay in the shared tree/);
-    expect(text).toMatch(/keys discard[^.]*withdraws/);
+  it("says a pending rewrap or prune is dropped, its node write is not withdrawn, and keys discard withdraws only an unpublished rewrap, so run it first (R6-M2)", () => {
+    expectDiscardCaveat(abandon());
   });
 });

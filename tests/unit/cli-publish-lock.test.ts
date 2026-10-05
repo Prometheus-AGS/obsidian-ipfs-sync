@@ -93,7 +93,7 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     await lock.release();
     expect(result.code).toBe(1);
     expect(result.err).toContain("another publish is running in this vault");
-    expect(result.err).toContain(`process ${process.pid} on ${hostname()}`);
+    expect(result.err).toContain(`process ${process.pid} on "${hostname()}"`);
     expect(result.err).toContain("--break-lock");
     expect(requests).toEqual([]);
   });
@@ -129,7 +129,7 @@ describe("ipfs-sync publish: the cross-process lock", () => {
     const lock = await holder();
     const declined = await publish(false, ["--break-lock"]);
     expect(declined.code).toBe(1);
-    expect(declined.questions[0]).toContain(`process ${process.pid} on ${hostname()}`);
+    expect(declined.questions[0]).toContain(`process ${process.pid} on "${hostname()}"`);
     expect(await lockExists()).toBe(true);
     expect(requests).toEqual([]);
 
