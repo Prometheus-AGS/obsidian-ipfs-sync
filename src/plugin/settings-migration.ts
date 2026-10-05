@@ -1,4 +1,4 @@
-import { DEFAULT_PUBLICATION_KEY, isValidKeyName, RESERVED_KEY_NAMES } from "../core/config";
+import { DEFAULT_PUBLICATION_KEY, isRetiredDefaultHost, isValidKeyName, RESERVED_KEY_NAMES } from "../core/config";
 import { DEFAULT_EXCLUSIONS } from "../sync/exclusions";
 import { defaultSettings, PREVIOUS_SETTINGS_VERSION, SETTINGS_VERSION, type PluginSettings } from "./settings-model";
 import { parseStoredSettings } from "./settings-parse";
@@ -70,10 +70,15 @@ function intervalFrom(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 
+/** Shown once, in place of carrying the retired built-in node into the new settings (the notice never names the host). */
+const RETIRED_NODE_REMOVED_NOTICE =
+  "IPFS Sync: the built-in node of version 0.2.0 was removed, and your saved settings pointed at it, so the node URLs are now empty. Open the settings and set your own IPFS node.";
+
 function migrateLegacy(stored: Stored): LoadResult {
   const base = defaultSettings();
   const oldUrl = text(stored, "rpcUrl")?.trim().replace(/\/+$/, "");
-  const url = oldUrl === undefined || oldUrl === "" ? base.rpc.url : oldUrl;
+  const retired = oldUrl !== undefined && isRetiredDefaultHost(oldUrl);
+  const url = oldUrl === undefined || oldUrl === "" || retired ? base.rpc.url : oldUrl;
   const token = text(stored, "authToken")?.trim() ?? "";
   const { key, notice } = mapKeyName(text(stored, "keyName")?.trim());
   const settings: PluginSettings = {
@@ -86,7 +91,8 @@ function migrateLegacy(stored: Stored): LoadResult {
     userExclusions: userExclusionsFrom(text(stored, "excludedPaths")),
     publishIntervalMinutes: intervalFrom(stored["publishIntervalMinutes"]),
   };
-  return { settings, outcome: "migrated", notices: notice === undefined ? [] : [notice], persist: true };
+  const notices = [...(notice === undefined ? [] : [notice]), ...(retired ? [RETIRED_NODE_REMOVED_NOTICE] : [])];
+  return { settings, outcome: "migrated", notices, persist: true };
 }
 
 const UNREADABLE_NOTICE =

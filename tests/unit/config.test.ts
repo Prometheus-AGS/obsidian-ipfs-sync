@@ -18,6 +18,10 @@ const NOW = new Date("2026-09-29T12:00:00Z");
 /** No node is a default, so a test that resolves a whole config names one. */
 const NODE = { rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } };
 
+/** One reverse proxy that serves both the RPC API and the gateway: the same scheme, host and port. */
+const SAME_ORIGIN_NODE = { rpc: { url: "https://node.example" }, gateway: { url: "https://node.example/gateway" } };
+const GLOBAL_BEARER = { IPFS_SYNC_AUTH_SCHEME: "bearer", IPFS_SYNC_AUTH_TOKEN: "rpc-secret" };
+
 function jwt(claims: Record<string, unknown>): string {
   const enc = (value: unknown): string => Buffer.from(JSON.stringify(value)).toString("base64url");
   return `${enc({ alg: "HS256", typ: "JWT" })}.${enc(claims)}.sig`;
@@ -138,7 +142,7 @@ describe("JWT expiry warning", () => {
 describe("secret resolution and precedence", () => {
   it("reads auth secrets from IPFS_SYNC_AUTH_* env", () => {
     const layer = envLayer({ IPFS_SYNC_AUTH_SCHEME: "basic", IPFS_SYNC_AUTH_USER: "u", IPFS_SYNC_AUTH_PASSWORD: "p" });
-    const config = resolveSyncConfig([NODE, layer], NOW);
+    const config = resolveSyncConfig([SAME_ORIGIN_NODE, layer], NOW);
     expect(config.rpc.auth).toEqual({ kind: "basic", user: "u", password: "p" });
     expect(config.gateway.auth).toBe(config.rpc.auth);
   });
@@ -172,6 +176,40 @@ describe("secret resolution and precedence", () => {
     expect(config.gateway.auth).toEqual({ kind: "none" });
   });
 
+  it("gives the gateway the global auth only when it has the RPC endpoint's origin", () => {
+    const config = resolveSyncConfig([SAME_ORIGIN_NODE, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.gateway.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+    // The default port of the scheme is the same origin as the port written out.
+    const explicitPort = resolveSyncConfig([{ rpc: { url: "https://node.example" }, gateway: { url: "https://node.example:443" } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(explicitPort.gateway.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+  });
+
+  it("does not send the global auth to a gateway on another host", () => {
+    const config = resolveSyncConfig([{ rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.rpc.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+    expect(config.gateway.auth).toEqual({ kind: "none" });
+  });
+
+  it("does not send the global auth to a gateway on another port of the same host", () => {
+    const config = resolveSyncConfig([{ rpc: { url: "https://node.example", port: 5001 }, gateway: { url: "https://node.example", port: 8080 } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.gateway.baseUrl).toBe("https://node.example:8080");
+    expect(config.gateway.auth).toEqual({ kind: "none" });
+  });
+
+  it("does not send the global auth to a gateway on another scheme", () => {
+    const config = resolveSyncConfig([{ rpc: { url: "https://node.example" }, gateway: { url: "http://node.example" } }, envLayer(GLOBAL_BEARER)], NOW);
+    expect(config.gateway.auth).toEqual({ kind: "none" });
+  });
+
+  it("lets an explicit gateway auth win on a different origin and on the same origin", () => {
+    const own = { IPFS_SYNC_GATEWAY_AUTH_SCHEME: "basic", IPFS_SYNC_GATEWAY_AUTH_USER: "g", IPFS_SYNC_GATEWAY_AUTH_PASSWORD: "gp" };
+    const elsewhere = resolveSyncConfig([{ rpc: { url: "https://rpc.example" }, gateway: { url: "https://gw.example" } }, envLayer({ ...GLOBAL_BEARER, ...own })], NOW);
+    expect(elsewhere.rpc.auth).toEqual({ kind: "bearer", token: "rpc-secret" });
+    expect(elsewhere.gateway.auth).toEqual({ kind: "basic", user: "g", password: "gp" });
+    const sameOrigin = resolveSyncConfig([SAME_ORIGIN_NODE, envLayer({ ...GLOBAL_BEARER, ...own })], NOW);
+    expect(sameOrigin.gateway.auth).toEqual({ kind: "basic", user: "g", password: "gp" });
+  });
+
   it("composes separate RPC and gateway hosts and ports", () => {
     const config = resolveSyncConfig(
       [{ rpc: { url: "https://rpc.example.org", port: 5001 }, gateway: { url: "https://gw.example.org", port: "8080" } }],
@@ -188,8 +226,11 @@ describe("secret resolution and precedence", () => {
 
   it("collects a single warning when both endpoints share an expired JWT", () => {
     const token = jwt({ exp: 1_700_000_000 });
-    const config = resolveSyncConfig([NODE, { auth: { scheme: "bearer", token } }], NOW);
+    const config = resolveSyncConfig([SAME_ORIGIN_NODE, { auth: { scheme: "bearer", token } }], NOW);
     expect(config.warnings).toEqual(["auth bearer token (JWT) expired at 2023-11-14T22:13:20.000Z"]);
+    // Another origin no longer shares the credential, so only the RPC endpoint carries (and warns about) it.
+    const split = resolveSyncConfig([NODE, { auth: { scheme: "bearer", token } }], NOW);
+    expect(split.warnings).toEqual(["rpc bearer token (JWT) expired at 2023-11-14T22:13:20.000Z"]);
   });
 
   it("fails closed on unsafe root and key before returning a config", () => {

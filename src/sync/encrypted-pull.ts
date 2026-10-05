@@ -4,6 +4,7 @@ import { KuboHttpError, type KuboClient, type MfsEntry } from "../kubo";
 import { sweepStaleParts } from "./blob-fetch";
 import type { DeviceStore } from "./device-store";
 import { ManifestFormatError, decodeManifestFile, type EncryptedManifest } from "./encrypted-manifest";
+import { planEncryptedPull } from "./encrypted-pull-plan";
 import { parseHistoryName } from "./history-names";
 import { assertNoMaintenanceJournal } from "./maintenance-journal";
 import { isUnreadableManifest } from "./manifest-auth";
@@ -91,6 +92,8 @@ export interface FirstPullDetails {
   readonly pathsRefused: number;
   /** At most three of them, escaped, and a count; `undefined` when none. */
   readonly pathsSummary: string | undefined;
+  /** Existing local files that differ from the node's copy: the node's text takes the path and a dated copy of the local text is kept. */
+  readonly replacedLocalFiles: number;
   /** The fixed statements the host must show next to these values. */
   readonly statements: readonly string[];
 }
@@ -418,7 +421,7 @@ function floorPointFor(verdict: AllowedVerdict, record: EffectiveRecord | undefi
 
 // ---- first pull ----------------------------------------------------------------------------------------------------
 
-function firstPullDetails(kind: PullTargetKind, manifest: EncryptedManifest, policy: PathPolicyResult): FirstPullDetails {
+function firstPullDetails(kind: PullTargetKind, manifest: EncryptedManifest, policy: PathPolicyResult, replacedLocalFiles: number): FirstPullDetails {
   const statements = [FIRST_PULL_KEY_HOLDER_STATEMENT, FIRST_PULL_NO_BASELINE_STATEMENT, ...(kind === "name" ? [] : [FIRST_PULL_GATEWAY_STATEMENT])];
   return {
     target: kind,
@@ -428,11 +431,29 @@ function firstPullDetails(kind: PullTargetKind, manifest: EncryptedManifest, pol
     fileCount: Object.keys(manifest.files).length,
     pathsRefused: policy.refusals.length,
     pathsSummary: policy.refusals.length === 0 ? undefined : summarizeRefusals(policy.refusals),
+    replacedLocalFiles,
     statements,
   };
 }
 
-async function confirmFirstPull<R>(deps: EncryptedPullDeps<R>, options: EncryptedPullOptions, details: FirstPullDetails): Promise<void> {
+/**
+ * How many existing local files this first pull will replace. A first pull has no baseline, so the plan the stage will make is
+ * the same plan made here: every local file that differs from the node's copy at a manifest path is a conflict (the local text
+ * is kept in a dated copy and the node's text takes the path). Read-only: it stats and hashes, and writes nothing.
+ */
+async function countReplacedLocalFiles<R>(deps: EncryptedPullDeps<R>, options: EncryptedPullOptions, manifest: EncryptedManifest): Promise<number> {
+  const plan = await planEncryptedPull({
+    fs: deps.host.fs,
+    manifest,
+    base: undefined,
+    unmaterialized: [],
+    forceVerify: false,
+    policy: { configDir: options.configDir, extraExclusions: options.extraExclusions },
+  });
+  return plan.paths.filter((decision) => decision.kind === "conflict").length;
+}
+
+async function confirmFirstPull<R>(deps: EncryptedPullDeps<R>, options: EncryptedPullOptions, manifest: EncryptedManifest, policy: PathPolicyResult): Promise<void> {
   if (options.acceptFirstPull === true) return;
   if (deps.confirmFirstPull === undefined) {
     throw new PullStopError(
@@ -440,6 +461,7 @@ async function confirmFirstPull<R>(deps: EncryptedPullDeps<R>, options: Encrypte
       "this directory has no record of this vault and this run cannot ask: confirm the first pull at the prompt, or pass --accept-first-pull; nothing was written",
     );
   }
+  const details = firstPullDetails(options.target.kind, manifest, policy, await countReplacedLocalFiles(deps, options, manifest));
   let accepted = false;
   try {
     accepted = (await deps.confirmFirstPull(details)) === true;
@@ -513,7 +535,7 @@ async function authorize<R>(run: RunContext<R>, found: Authenticated): Promise<V
   const { deps, options } = run;
   const { manifest, unlock, verdict, record, identity } = found;
   const isFirst = verdict.kind === "first-pull";
-  if (isFirst) await confirmFirstPull(deps, options, firstPullDetails(options.target.kind, manifest, found.policy));
+  if (isFirst) await confirmFirstPull(deps, options, manifest, found.policy);
   run.lock.assertHeld();
   // The dialog above can stay open for minutes and no heartbeat ran in between: look at the file itself before the first write.
   if (!(await run.verifyHeld())) throw new PullStopError("lock-lost", shown(lockLost().message));

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { ConfigError, DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY } from "../../src/core/config";
+import { ConfigError, DEFAULT_MFS_ROOT, DEFAULT_PUBLICATION_KEY, RETIRED_DEFAULT_HOSTS } from "../../src/core/config";
+import { retiredDefaultNotice } from "../../src/plugin/node-status";
 import { loadSettings } from "../../src/plugin/settings-migration";
 import { defaultSettings, type PluginSettings } from "../../src/plugin/settings-model";
 import { settingsToConfig, validateSettings } from "../../src/plugin/settings-to-config";
 
 const NOW = new Date("2026-09-30T12:00:00Z");
+const RETIRED_URL = `https://${RETIRED_DEFAULT_HOSTS[0] ?? ""}`;
 
 const OLD_DEFAULT_EXCLUDES = [
   ".trash/",
@@ -84,6 +86,37 @@ describe("settings migration", () => {
     expect(settings.publishIntervalMinutes).toBe(15);
   });
 
+  it("does not carry the retired built-in node into the new settings, and says why once", () => {
+    for (const rpcUrl of [RETIRED_URL, `${RETIRED_URL}/`, RETIRED_URL.toUpperCase()]) {
+      const result = loadSettings(oldData({ rpcUrl }));
+      expect(result.outcome).toBe("migrated");
+      expect(result.settings.rpc).toEqual({ url: "" });
+      expect(result.settings.gateway).toEqual({ url: "" });
+      expect(JSON.stringify(result.settings).toLowerCase()).not.toContain(RETIRED_URL.slice("https://".length));
+      expect(result.persist).toBe(true);
+      expect(result.notices).toHaveLength(1);
+      expect(result.notices[0]).toContain("0.2.0");
+      expect(result.notices[0]).toContain("removed");
+      expect(result.notices[0]).toContain("set your own");
+      expect(result.notices[0]).not.toContain(RETIRED_URL.slice("https://".length));
+      // The rest of the old settings still migrates.
+      expect(result.settings.publishIntervalMinutes).toBe(15);
+      expect(result.settings.publicationKey).toBe(DEFAULT_PUBLICATION_KEY);
+      // The persisted form loads as the current version: nothing to say again.
+      const again = loadSettings(JSON.parse(JSON.stringify(result.settings)));
+      expect(again.outcome).toBe("current");
+      expect(again.notices).toEqual([]);
+      expect(retiredDefaultNotice(again.settings)).toBeUndefined();
+    }
+  });
+
+  it("adds the retired-node notice after the key notice when both apply", () => {
+    const result = loadSettings(oldData({ rpcUrl: RETIRED_URL, keyName: "consult-capture" }));
+    expect(result.notices).toHaveLength(2);
+    expect(result.notices[0]).toContain("consult-capture");
+    expect(result.notices[1]).toContain("removed");
+  });
+
   it("makes only lines that are not default exclusions user exclusions", () => {
     const { settings } = loadSettings(oldData({ excludedPaths: [...OLD_DEFAULT_EXCLUDES, "private/", "  ", "private/"].join("\n") }));
     expect(settings.userExclusions).toEqual(["private/"]);
@@ -149,8 +182,19 @@ describe("settings to config and validation", () => {
     expect(config.rpc.baseUrl).toBe("https://rpc.example.org:5001");
     expect(config.gateway.baseUrl).toBe("https://gw.example.org:8080");
     expect(config.rpc.auth).toEqual({ kind: "bearer", token: "tok" });
-    expect(config.gateway.auth).toEqual({ kind: "bearer", token: "tok" });
+    // The gateway is another origin (host and port), so the RPC credential is not sent to it.
+    expect(config.gateway.auth).toEqual({ kind: "none" });
     expect(config.ownedKeys).toEqual(["k51mine"]);
+  });
+
+  it("sends the RPC credential to the gateway only when both URLs share one origin", () => {
+    const auth = { scheme: "bearer", token: "tok" } as const;
+    const shared = settingsToConfig(withSettings({ rpc: { url: "https://node.example.org" }, gateway: { url: "https://node.example.org/gateway" }, auth }), NOW);
+    expect(shared.gateway.auth).toEqual({ kind: "bearer", token: "tok" });
+    const otherHost = settingsToConfig(withSettings({ rpc: { url: "https://rpc.example.org" }, gateway: { url: "https://gw.example.org" }, auth }), NOW);
+    expect(otherHost.gateway.auth).toEqual({ kind: "none" });
+    const otherPort = settingsToConfig(withSettings({ rpc: { url: "https://node.example.org", port: 5001 }, gateway: { url: "https://node.example.org", port: 8080 }, auth }), NOW);
+    expect(otherPort.gateway.auth).toEqual({ kind: "none" });
   });
 
   it("accepts the defaults", () => {

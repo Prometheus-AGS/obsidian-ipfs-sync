@@ -90,9 +90,23 @@ export function statusError(endpoint: ResolvedEndpoint, url: string, status: num
   return undefined;
 }
 
+/** The fixed text of a refused redirect. It never carries the `Location` the node named: that is the node's text, not ours. */
+export const REDIRECT_REFUSED_MESSAGE = "the endpoint answered with a redirect, which is never followed";
+
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308]);
+
+/** A browser `fetch` with `redirect: "manual"` reports a redirect as an opaque response of status 0. */
+function isRedirect(response: Response): boolean {
+  return REDIRECT_STATUSES.has(response.status) || response.type === "opaqueredirect";
+}
+
 /**
  * Issue one request against an endpoint through `transport` (default: the platform `fetch`, which
  * the WebView and Node 24 both provide). Failures become typed errors.
+ *
+ * A redirect is never followed: the request, its method and its credential go only to the configured endpoint. A transport
+ * that follows redirects itself ignores `redirect: "manual"` (Obsidian's `requestUrl` has no such option); one that does not
+ * (`fetch`, the Node stream transport) hands the 3xx answer back, which is refused here.
  */
 export async function requestEndpoint(
   endpoint: ResolvedEndpoint,
@@ -102,9 +116,13 @@ export async function requestEndpoint(
 ): Promise<Response> {
   let response: Response;
   try {
-    response = await transport(url, init);
+    response = await transport(url, { ...init, redirect: "manual" });
   } catch (cause) {
     throw new KuboNetworkError(endpoint.name, endpoint.baseUrl, cause, transport.transportName);
+  }
+  if (isRedirect(response)) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new KuboNetworkError(endpoint.name, endpoint.baseUrl, new Error(REDIRECT_REFUSED_MESSAGE), transport.transportName);
   }
   const read: ErrorDetail = response.ok ? { detail: "", nodeMessage: undefined } : await readDetail(response);
   const failure = statusError(endpoint, url, response.status, read.detail, read.nodeMessage);

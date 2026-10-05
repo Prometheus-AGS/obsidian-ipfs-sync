@@ -50,6 +50,7 @@ const DETAILS: FirstPullDetails = {
   fileCount: 120,
   pathsRefused: 0,
   pathsSummary: undefined,
+  replacedLocalFiles: 0,
   statements: [FIRST_PULL_KEY_HOLDER_STATEMENT, FIRST_PULL_NO_BASELINE_STATEMENT],
 };
 
@@ -85,6 +86,15 @@ describe("first-pull dialog", () => {
   it("lists skipped paths with the count when the pull reports some", () => {
     void confirmFirstPull(app(), { ...DETAILS, pathsRefused: 4, pathsSummary: '"CON.md" (reserved name) and 3 more' });
     expect(lastDialog().root.textContent()).toContain('4: "CON.md" (reserved name) and 3 more');
+  });
+
+  it("says how many existing local files will be replaced, only when there are some", () => {
+    void confirmFirstPull(app(), DETAILS);
+    expect(lastDialog().root.textContent()).not.toContain("will be replaced");
+    void confirmFirstPull(app(), { ...DETAILS, replacedLocalFiles: 3 });
+    const text = lastDialog().root.textContent();
+    expect(text).toContain("Local files that will be replaced");
+    expect(text).toContain("3 (a dated copy of each is kept)");
   });
 
   it("keeps Confirm disabled until the acknowledgement is ticked, and says in text what is missing", async () => {

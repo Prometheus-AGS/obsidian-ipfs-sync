@@ -152,6 +152,49 @@ describe("the first-pull confirmation", () => {
     expect(shown?.statements.join(" ")).toContain("no baseline");
   });
 
+  it("counts the existing local files the pull will replace before it asks, and writes nothing to find out", async () => {
+    const rig = await vault();
+    const host = createMemoryHost();
+    // Three files in the vault: the daily note differs locally (replaced, a dated copy is kept), the attachment is equal, the third path is absent.
+    host.put("Daily/2026-09-30.md", "my own text, different from the node's\n", 5000);
+    host.put("attachment.bin", new Uint8Array([1, 2, 3, 4, 5]), 5000);
+    host.put("Unrelated/local-only.md", "not in the manifest\n", 5000);
+    const b = newPuller(host);
+    let shown: FirstPullDetails | undefined;
+    const stop = stopOf(
+      await runPull(rig, b, {
+        options: { acceptFirstPull: false },
+        deps: {
+          confirmFirstPull: async (details) => {
+            shown = details;
+            return false;
+          },
+        },
+      }),
+    );
+    expect(stop.reason).toBe("first-pull-declined");
+    expect(shown?.replacedLocalFiles).toBe(1);
+    expectNothingWritten(b);
+    expect(host.mutations).toEqual([]);
+    expect(host.files.get("Daily/2026-09-30.md")?.data).toEqual(new TextEncoder().encode("my own text, different from the node's\n"));
+  });
+
+  it("reports zero replaced files for an empty directory", async () => {
+    const rig = await vault();
+    const b = newPuller();
+    let shown: FirstPullDetails | undefined;
+    await runPull(rig, b, {
+      options: { acceptFirstPull: false },
+      deps: {
+        confirmFirstPull: async (details) => {
+          shown = details;
+          return false;
+        },
+      },
+    });
+    expect(shown?.replacedLocalFiles).toBe(0);
+  });
+
   it("a non-interactive pull without --accept-first-pull refuses before writing anything", async () => {
     const rig = await vault();
     const b = newPuller();

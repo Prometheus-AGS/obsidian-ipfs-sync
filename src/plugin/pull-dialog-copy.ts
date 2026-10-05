@@ -24,6 +24,8 @@ export const FIRST_PULL_COPY = {
   deviceName: "Device",
   filesName: "Files",
   skippedName: "Paths that will be skipped",
+  replacedName: "Local files that will be replaced",
+  replacedNote: "(a dated copy of each is kept)",
   statementsHeading: "What this means",
   requirementsHeading: "To publish from this device later you also need to:",
   requirementsNote: "Pulling needs none of these. It only reads from the node.",

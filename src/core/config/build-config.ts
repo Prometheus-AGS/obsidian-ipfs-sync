@@ -34,17 +34,31 @@ const MISSING_URL: Readonly<Record<EndpointName, { readonly code: "no-rpc-url" |
   },
 };
 
+const NO_AUTH: AuthConfig = { kind: "none" };
+
+/**
+ * The global auth is the RPC credential. An endpoint without auth of its own inherits it only when it is the RPC endpoint or
+ * shares the RPC endpoint's origin (scheme, host and port, as in one reverse proxy serving both); otherwise it gets none, so the
+ * credential is never sent to a host the operator did not give it to. An explicit per-endpoint auth always wins.
+ */
+function inheritedAuth(globalAuth: AuthConfig, baseUrl: string, rpcBaseUrl: string | undefined): AuthConfig {
+  if (rpcBaseUrl === undefined) return globalAuth;
+  return new URL(baseUrl).origin === new URL(rpcBaseUrl).origin ? globalAuth : NO_AUTH;
+}
+
 function resolveEndpoint(
   name: EndpointName,
   input: RawEndpointInput | undefined,
   globalAuth: AuthConfig,
+  rpcBaseUrl?: string,
 ): ResolvedEndpoint {
   if ((input?.url ?? "").trim() === "") {
     const missing = MISSING_URL[name];
     throw new ConfigError(missing.code, missing.message);
   }
-  const auth = input?.auth === undefined ? globalAuth : buildAuth(input.auth, `${name} auth`);
-  return { name, baseUrl: composeEndpointUrl(name, input?.url ?? "", input?.port), auth };
+  const baseUrl = composeEndpointUrl(name, input?.url ?? "", input?.port);
+  const auth = input?.auth === undefined ? inheritedAuth(globalAuth, baseUrl, rpcBaseUrl) : buildAuth(input.auth, `${name} auth`);
+  return { name, baseUrl, auth };
 }
 
 function collectWarnings(rpc: ResolvedEndpoint, gateway: ResolvedEndpoint, now: Date): readonly string[] {
@@ -58,7 +72,7 @@ export function buildSyncConfig(layer: RawConfigLayer, now: Date): SyncConfig {
   const publicationKey = assertValidKeyName(layer.publicationKey ?? "");
   const globalAuth = buildAuth(layer.auth, "auth");
   const rpc = resolveEndpoint("rpc", layer.rpc, globalAuth);
-  const gateway = resolveEndpoint("gateway", layer.gateway, globalAuth);
+  const gateway = resolveEndpoint("gateway", layer.gateway, globalAuth, rpc.baseUrl);
   return {
     rpc,
     gateway,
