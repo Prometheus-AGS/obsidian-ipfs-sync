@@ -1,6 +1,6 @@
 import type { Bytes, HostBridge, HostKv, HostNet } from "../core/host-bridge";
 import { HostDeniedError, HostNotImplementedError } from "../sync/host-errors";
-import { fetchTransport, type Transport } from "../kubo";
+import type { Transport } from "../kubo";
 import { createObsidianFs, type VaultAdapter } from "./obsidian-fs";
 import { createFolderKv } from "./obsidian-kv";
 
@@ -15,19 +15,26 @@ export interface ObsidianHostOptions {
   readonly kv?: HostKv;
   /** Variables `envRead` reports, such as the device name the manifest carries. */
   readonly env?: Readonly<Record<string, string | undefined>>;
-  /** Defaults to the platform `fetch`; the plugin passes its `requestUrl` transport. */
+  /** The plugin's transport (`pluginTransport()`: Node on desktop, `requestUrl` on mobile). Absent: `net.fetch` refuses. There is no default. */
   readonly transport?: Transport;
   readonly now?: () => number;
   /** Largest file a read may load, in megabytes (default 64). Read from the settings when each operation starts. */
   readonly maxReadMb?: number;
 }
 
-/** `net.fetch` calls the transport directly: it does not go through `requestEndpoint`, so it does not enforce the redirect refusal. */
-function createNet(transport: Transport): HostNet {
+/** Fixed text for `net.fetch` on a bridge built without a transport (fs/kv only). Nothing is sent. */
+export const HOST_NET_UNAVAILABLE_MESSAGE = "network access is not available in this host";
+
+/**
+ * `net.fetch` calls the transport directly: it does not go through `requestEndpoint`, so it does not enforce the redirect refusal.
+ * With no transport it refuses: there is no default, because the WebView `fetch` follows redirects and bypasses the desktop transport.
+ */
+function createNet(transport: Transport | undefined): HostNet {
   return {
     fetch: async (request) => {
+      if (transport === undefined) throw new Error(HOST_NET_UNAVAILABLE_MESSAGE);
       const signal = request.timeoutMs === undefined ? undefined : AbortSignal.timeout(request.timeoutMs);
-      const body = request.body === undefined ? undefined : new Blob([request.body]);
+      const body = request.body;
       const response = await transport(request.url, { method: request.method ?? "GET", headers: request.headers, body, signal });
       const bytes: Bytes = new Uint8Array(await response.arrayBuffer());
       return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body: bytes };
@@ -41,7 +48,7 @@ function createNet(transport: Transport): HostNet {
  * Imports Obsidian types only through the structural `VaultAdapter`; nothing here needs Node.
  */
 export function createObsidianHostBridge(options: ObsidianHostOptions): HostBridge {
-  const { adapter, env = {}, transport = fetchTransport, now = Date.now } = options;
+  const { adapter, env = {}, transport, now = Date.now } = options;
   const fs = createObsidianFs(adapter, { maxReadMb: options.maxReadMb });
   return {
     fs,

@@ -79,7 +79,7 @@ async function describeOne(reader: RestoreReader, file: HistoryFile): Promise<Re
   }
 }
 
-/** The rows of the list. One file at a time: a file is at most 8 MiB and the plugin's transport holds a whole response. */
+/** The rows of the list. One file at a time: a file is at most 8 MiB, and on mobile the plugin's transport (`requestUrl`) holds a whole response; desktop streams it. */
 export async function describeHistory(reader: RestoreReader, files: readonly HistoryFile[]): Promise<readonly RestoreEntry[]> {
   const rows: RestoreEntry[] = [];
   for (const file of files) rows.push(await describeOne(reader, file));

@@ -1,3 +1,4 @@
+import { isConnectionFramingHeader } from "../core/config";
 import type { Transport } from "../kubo";
 
 /**
@@ -30,6 +31,7 @@ interface NodeIncoming {
   on(event: "data", listener: (chunk: Uint8Array) => void): unknown;
   on(event: "end", listener: () => void): unknown;
   on(event: "error", listener: (error: Error) => void): unknown;
+  on(event: "close", listener: () => void): unknown;
   pause(): unknown;
   resume(): unknown;
   destroy(error?: Error): unknown;
@@ -37,7 +39,7 @@ interface NodeIncoming {
 
 interface NodeOutgoing {
   on(event: "response", listener: (response: NodeIncoming) => void): unknown;
-  on(event: "error", listener: (error: Error & { readonly code?: string }) => void): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
   end(data?: Uint8Array): unknown;
   destroy(error?: Error): unknown;
 }
@@ -66,6 +68,19 @@ export interface NodeTransportOptions {
 export const TLS_FAILURE_MESSAGE =
   "the connection failed TLS verification; on desktop the plugin uses Node's certificate list; set NODE_EXTRA_CA_CERTS for a private CA";
 
+/** Fixed text for a TLS setup that failed without a certificate being at fault (an https URL on a plain-HTTP port, a handshake alert). No CA advice: it would not help. */
+export const TLS_CONNECT_FAILURE_MESSAGE = "the connection could not be established as TLS: check the address and scheme";
+
+/** Fixed text for a request that carries a connection-framing header (Host, Transfer-Encoding, Connection and the rest of the shared set). */
+export const NODE_HEADER_REFUSED_MESSAGE = "the node transport refuses connection-framing request headers";
+
+export class NodeTransportHeaderError extends TypeError {
+  constructor() {
+    super(NODE_HEADER_REFUSED_MESSAGE);
+    this.name = "NodeTransportHeaderError";
+  }
+}
+
 /**
  * Fixed text for a response the `Response` constructor cannot represent: a status outside 200-599 (Node's parser accepts any
  * three digits, and every 1xx throws in `new Response`) or headers `Headers` refuses. Nothing the node sent is echoed.
@@ -83,22 +98,52 @@ const MAX_RESPONSE_STATUS = 599;
 const NO_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
 const BODYLESS_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 
-const TLS_ERROR_CODES: ReadonlySet<string> = new Set([
-  "UNABLE_TO_GET_ISSUER_CERT",
-  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
-  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+/** Certificate and verification failures: the only codes the CA advice fits. Every `UNABLE_TO_*` verification code also counts. */
+const CERTIFICATE_ERROR_CODES: ReadonlySet<string> = new Set([
   "DEPTH_ZERO_SELF_SIGNED_CERT",
   "SELF_SIGNED_CERT_IN_CHAIN",
   "CERT_HAS_EXPIRED",
   "CERT_NOT_YET_VALID",
   "CERT_REVOKED",
   "CERT_UNTRUSTED",
+  "CERT_CHAIN_TOO_LONG",
+  "CERT_SIGNATURE_FAILURE",
+  "CERT_REJECTED",
+  "INVALID_PURPOSE",
+  "INVALID_CA",
+  "PATH_LENGTH_EXCEEDED",
   "HOSTNAME_MISMATCH",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
 ]);
 
-function isTlsFailure(error: Error & { readonly code?: string }): boolean {
-  const code = error.code;
-  return code !== undefined && (TLS_ERROR_CODES.has(code) || code.startsWith("ERR_TLS_") || code.startsWith("ERR_SSL_"));
+/** The error's `code` when it is a string. `DOMException.code` is the legacy number (20 for an abort) and must never be treated as one. */
+function stringCodeOf(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const code = (error as { readonly code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function isCertificateFailure(code: string): boolean {
+  return CERTIFICATE_ERROR_CODES.has(code) || code.startsWith("UNABLE_TO_");
+}
+
+/** `EPROTO` is what Node reports (probed on v26) for an https request answered by a plain-HTTP port: the OpenSSL reason is only in its message. */
+function isTlsSetupFailure(code: string): boolean {
+  return code === "EPROTO" || code.startsWith("ERR_TLS_") || code.startsWith("ERR_SSL_");
+}
+
+/** A request error as the caller sees it: a certificate failure and a failed TLS setup each get their own fixed text; anything else is passed on. */
+function classifyRequestError(error: Error): unknown {
+  const code = stringCodeOf(error);
+  if (code === undefined) return error;
+  if (isCertificateFailure(code)) return new Error(TLS_FAILURE_MESSAGE);
+  if (isTlsSetupFailure(code)) return new Error(TLS_CONNECT_FAILURE_MESSAGE);
+  return error;
+}
+
+/** The signal's own reason when it is an Error (a timeout signal carries a TimeoutError), else an AbortError. */
+function abortReasonOf(signal: AbortSignal | undefined): unknown {
+  return signal?.reason instanceof Error ? signal.reason : new DOMException("aborted", "AbortError");
 }
 
 function responseHeaders(raw: NodeIncoming["headers"]): Headers {
@@ -110,22 +155,45 @@ function responseHeaders(raw: NodeIncoming["headers"]): Headers {
   return headers;
 }
 
-/** One chunk of look-ahead: the socket is paused whenever the consumer is not reading, so the stream holds a chunk or two, never the body. */
-function bodyOf(incoming: NodeIncoming, request: NodeOutgoing): ReadableStream<Uint8Array> {
+/** What the body stream needs from the request that produced it: the abort signal, how to detach from it, and where to hand its failure hook. */
+interface BodyHooks {
+  readonly signal: AbortSignal | undefined;
+  readonly release: () => void;
+  readonly onFail: (fail: (reason: unknown) => void) => void;
+}
+
+/**
+ * One chunk of look-ahead: the socket is paused whenever the consumer is not reading, so the stream holds a chunk or two, never the body.
+ * The abort listener is detached when the body ends, errors, is cancelled or its socket closes.
+ */
+function bodyOf(incoming: NodeIncoming, request: NodeOutgoing, hooks: BodyHooks): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>(
     {
       start(controller) {
+        hooks.onFail((reason) => {
+          hooks.release();
+          controller.error(reason);
+          incoming.destroy();
+        });
         incoming.on("data", (chunk) => {
           controller.enqueue(new Uint8Array(chunk));
           if ((controller.desiredSize ?? 0) <= 0) incoming.pause();
         });
-        incoming.on("end", () => controller.close());
-        incoming.on("error", (error) => controller.error(error));
+        incoming.on("end", () => {
+          hooks.release();
+          controller.close();
+        });
+        incoming.on("error", (error) => {
+          hooks.release();
+          controller.error(hooks.signal?.aborted === true ? abortReasonOf(hooks.signal) : error);
+        });
+        incoming.on("close", hooks.release);
       },
       pull() {
         incoming.resume();
       },
       cancel() {
+        hooks.release();
         incoming.destroy();
         request.destroy();
       },
@@ -143,28 +211,61 @@ function toBytes(body: BodyInit | null | undefined): Uint8Array | undefined {
   throw new TypeError(BODY_TYPE_MESSAGE);
 }
 
+/** The request headers as Node will send them. Connection-framing names are refused, never dropped silently; Content-Length is the transport's own. */
+function requestHeaders(raw: HeadersInit | undefined): Headers {
+  const headers = new Headers(raw);
+  for (const name of headers.keys()) {
+    if (name !== "content-length" && isConnectionFramingHeader(name)) throw new NodeTransportHeaderError();
+  }
+  headers.delete("content-length");
+  return headers;
+}
+
 function nodeRequest(node: NodeModules, url: string, init: RequestInit): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const bytes = toBytes(init.body);
-  const headers = Object.fromEntries(new Headers(init.headers).entries());
+  const headers = Object.fromEntries(requestHeaders(init.headers).entries());
   if (bytes !== undefined) headers["content-length"] = String(bytes.length);
   else if (!BODYLESS_METHODS.has(method)) headers["content-length"] = "0";
   const module = url.startsWith("https:") ? node.https : node.http;
   return new Promise<Response>((resolve, reject) => {
-    if (init.signal?.aborted === true) {
-      reject(new DOMException("aborted", "AbortError"));
+    const signal = init.signal ?? undefined;
+    if (signal?.aborted === true) {
+      reject(abortReasonOf(signal));
       return;
     }
     const request = module.request(url, { method, headers });
-    const onAbort = (): void => {
-      request.destroy(new DOMException("aborted", "AbortError"));
+    let settled = false;
+    let failBody: ((reason: unknown) => void) | undefined;
+    const release = (): void => {
+      signal?.removeEventListener("abort", onAbort);
     };
-    init.signal?.addEventListener("abort", onAbort, { once: true });
+    const onAbort = (): void => {
+      const reason = abortReasonOf(signal);
+      request.destroy();
+      if (settled) {
+        failBody?.(reason);
+        return;
+      }
+      settled = true;
+      reject(reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     request.on("error", (error) => {
-      init.signal?.removeEventListener("abort", onAbort);
-      reject(isTlsFailure(error) ? new Error(TLS_FAILURE_MESSAGE) : error);
+      release();
+      if (settled) {
+        // After the response the body stream carries the failure; an abort is reported as the abort.
+        if (signal?.aborted === true) failBody?.(abortReasonOf(signal));
+        return;
+      }
+      settled = true;
+      reject(signal?.aborted === true ? abortReasonOf(signal) : classifyRequestError(error));
     });
     request.on("response", (incoming) => {
+      if (settled) {
+        incoming.destroy();
+        return;
+      }
       // This runs in an EventEmitter callback, not in the executor: a throw here would leave the promise pending, the socket open
       // and the caller (and its lock) waiting forever.
       try {
@@ -173,9 +274,14 @@ function nodeRequest(node: NodeModules, url: string, init: RequestInit): Promise
         const noBody = NO_BODY_STATUSES.has(status);
         const headers = responseHeaders(incoming.headers);
         if (noBody) incoming.destroy();
-        resolve(new Response(noBody ? null : bodyOf(incoming, request), { status, headers }));
+        const hooks: BodyHooks = { signal, release, onFail: (fail) => void (failBody = fail) };
+        const response = new Response(noBody ? null : bodyOf(incoming, request, hooks), { status, headers });
+        settled = true;
+        if (noBody) release();
+        resolve(response);
       } catch {
-        init.signal?.removeEventListener("abort", onAbort);
+        settled = true;
+        release();
         incoming.destroy();
         request.destroy();
         reject(new Error(NODE_RESPONSE_UNREADABLE_MESSAGE));

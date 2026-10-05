@@ -9,9 +9,12 @@ import type { ResolvedEndpoint } from "../../src/core/config";
 import { KuboNetworkError, KuboResponseTooLargeError, createKuboClient, rpcCall, type Transport } from "../../src/kubo";
 import { REDIRECT_REFUSED_MESSAGE } from "../../src/kubo/http";
 import { buildMultipart } from "../../src/kubo/multipart";
+import { getEventListeners } from "node:events";
 import {
   NODE_RESPONSE_UNREADABLE_MESSAGE,
   NODE_UNAVAILABLE_MESSAGE,
+  NodeTransportHeaderError,
+  TLS_CONNECT_FAILURE_MESSAGE,
   TLS_FAILURE_MESSAGE,
   createNodeTransport,
   type NodeModules,
@@ -387,6 +390,282 @@ describe("node transport: a response this plugin cannot read", () => {
 
   it("the fixed text is stable", () => {
     expect(NODE_RESPONSE_UNREADABLE_MESSAGE).toBe("the node answered with a response this plugin cannot read");
+  });
+});
+
+type Emit = (event: string, value?: unknown) => void;
+
+/** A Node module pair whose request does only what the test scripts: `onEnd` runs after `end()`, `emit` fires a registered listener. */
+function fakeNode(onEnd?: (emit: Emit) => void): { node: NodeModules; state: { requests: number; destroyed: unknown[] }; emit: Emit } {
+  const state = { requests: 0, destroyed: [] as unknown[] };
+  const handlers = new Map<string, (value: never) => void>();
+  const emit: Emit = (event, value) => handlers.get(event)?.(value as never);
+  const request = (): unknown => {
+    state.requests += 1;
+    const outgoing = {
+      on(event: string, listener: (value: never) => void) {
+        handlers.set(event, listener);
+        return outgoing;
+      },
+      end() {
+        if (onEnd !== undefined) queueMicrotask(() => onEnd(emit));
+      },
+      destroy(error?: unknown) {
+        state.destroyed.push(error ?? "none");
+      },
+    };
+    return outgoing;
+  };
+  return { node: { http: { request }, https: { request } } as unknown as NodeModules, state, emit };
+}
+
+/** Records every uncaught exception raised while `work` runs and for a moment after (test-side wait, not product code). */
+async function uncaughtDuring(work: () => Promise<void>): Promise<unknown[]> {
+  const seen: unknown[] = [];
+  const spy = (error: unknown): void => {
+    seen.push(error);
+  };
+  process.on("uncaughtException", spy);
+  try {
+    await work();
+    await new Promise<void>((resolve) => setTimeout(resolve, 30));
+  } finally {
+    process.off("uncaughtException", spy);
+  }
+  return seen;
+}
+
+async function until(condition: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 200 && !condition(); attempt += 1) await new Promise<void>((resolve) => setTimeout(resolve, 5));
+}
+
+const settle = (work: Promise<unknown>): Promise<unknown> =>
+  work.then(
+    () => "resolved" as const,
+    (error: unknown) => error,
+  );
+
+describe("node transport: abort", () => {
+  const servers: RawServer[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => server.close()));
+  });
+
+  it("before the response: rejects with AbortError promptly, closes the socket, raises nothing uncaught, leaves no listener", async () => {
+    const server = await rawServer("");
+    servers.push(server);
+    const controller = new AbortController();
+    let outcome: unknown;
+    const uncaught = await uncaughtDuring(async () => {
+      const pending = settle(nodeOnly()(`${server.baseUrl}/x`, { method: "POST", body: "x", signal: controller.signal }));
+      await until(() => server.sockets.length > 0);
+      controller.abort();
+      outcome = await within(1000, pending);
+    });
+    expect(outcome).not.toBe("hung");
+    expect((outcome as Error).name).toBe("AbortError");
+    expect((outcome as Error).message).not.toContain("TLS");
+    expect(await within(1000, Promise.all(server.closed))).not.toBe("hung");
+    expect(uncaught).toEqual([]);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
+  it("after the response but before the first body read: the body read rejects with AbortError, nothing uncaught, socket closed", async () => {
+    const server = await rawServer("HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\npartial");
+    servers.push(server);
+    const controller = new AbortController();
+    let read: unknown;
+    const uncaught = await uncaughtDuring(async () => {
+      const response = await within(1000, nodeOnly()(`${server.baseUrl}/x`, { method: "GET", signal: controller.signal }));
+      expect(response).not.toBe("hung");
+      controller.abort();
+      read = await within(1000, settle((response as Response).text()));
+    });
+    expect(read).not.toBe("hung");
+    expect((read as Error).name).toBe("AbortError");
+    expect(await within(1000, Promise.all(server.closed))).not.toBe("hung");
+    expect(uncaught).toEqual([]);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
+  it("after the body is complete: no effect, and the signal holds no listener", async () => {
+    const local = await listen((_request, response) => {
+      response.writeHead(200).end("ok");
+    });
+    try {
+      const controller = new AbortController();
+      const uncaught = await uncaughtDuring(async () => {
+        const response = await nodeOnly()(`${local.baseUrl}/x`, { method: "GET", signal: controller.signal });
+        expect(await response.text()).toBe("ok");
+        expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+        controller.abort();
+      });
+      expect(uncaught).toEqual([]);
+      expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+    } finally {
+      await local.close();
+    }
+  });
+
+  it("an already-aborted signal rejects at once with the signal's own reason and opens no request", async () => {
+    const { node, state } = fakeNode();
+    const transport = createNodeTransport({ fallback: refusedFallback, node });
+    const reason = new DOMException("took too long", "TimeoutError");
+    const outcome = await within(1000, settle(transport("http://127.0.0.1:1/x", { method: "GET", signal: AbortSignal.abort(reason) })));
+    expect(outcome).toBe(reason);
+    const plain = await within(1000, settle(transport("http://127.0.0.1:1/x", { method: "GET", signal: AbortSignal.abort() })));
+    expect((plain as Error).name).toBe("AbortError");
+    expect(state.requests).toBe(0);
+  });
+
+  it("a response that arrives after the abort is destroyed, never wrapped, and the promise is not settled twice", async () => {
+    const { node, state, emit } = fakeNode();
+    const transport = createNodeTransport({ fallback: refusedFallback, node });
+    const controller = new AbortController();
+    const pending = settle(transport("http://127.0.0.1:1/x", { method: "GET", signal: controller.signal }));
+    controller.abort();
+    expect(((await within(1000, pending)) as Error).name).toBe("AbortError");
+    const destroyed: string[] = [];
+    emit("response", {
+      statusCode: 200,
+      headers: {},
+      on() {},
+      pause() {},
+      resume() {},
+      destroy() {
+        destroyed.push("incoming");
+      },
+    });
+    expect(destroyed).toEqual(["incoming"]);
+    expect(state.destroyed.length).toBeGreaterThanOrEqual(1);
+    expect(getEventListeners(controller.signal, "abort")).toHaveLength(0);
+  });
+
+  it("a DOMException-like error with the legacy numeric code 20 is passed on as it is: no TypeError, no hang", async () => {
+    const abortLike = new DOMException("not ours", "AbortError");
+    expect(typeof (abortLike as { code: unknown }).code).toBe("number");
+    const { node } = fakeNode((emit) => emit("error", abortLike));
+    const transport = createNodeTransport({ fallback: refusedFallback, node });
+    let outcome: unknown;
+    const uncaught = await uncaughtDuring(async () => {
+      outcome = await within(1000, settle(transport("http://127.0.0.1:1/x", { method: "GET" })));
+    });
+    expect(outcome).toBe(abortLike);
+    expect(uncaught).toEqual([]);
+  });
+
+  it("an error after an abort is reported as the abort, never as a TLS failure", async () => {
+    const certLike = Object.assign(new Error("from node"), { code: "CERT_HAS_EXPIRED" });
+    const { node, emit } = fakeNode();
+    const transport = createNodeTransport({ fallback: refusedFallback, node });
+    const controller = new AbortController();
+    const pending = settle(transport("http://127.0.0.1:1/x", { method: "GET", signal: controller.signal }));
+    controller.abort();
+    emit("error", certLike);
+    const outcome = (await within(1000, pending)) as Error;
+    expect(outcome.name).toBe("AbortError");
+    expect(outcome.message).not.toBe(TLS_FAILURE_MESSAGE);
+  });
+});
+
+describe("node transport: TLS failure classes", () => {
+  const sendFailing = async (code: string): Promise<unknown> => {
+    const { node } = fakeNode((emit) => emit("error", Object.assign(new Error("text supplied by node"), { code })));
+    const transport = createNodeTransport({ fallback: refusedFallback, node });
+    return within(1000, settle(transport("https://tls.example.org/x", { method: "GET" })));
+  };
+
+  it.each([
+    "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    "DEPTH_ZERO_SELF_SIGNED_CERT",
+    "SELF_SIGNED_CERT_IN_CHAIN",
+    "CERT_HAS_EXPIRED",
+    "CERT_NOT_YET_VALID",
+    "CERT_CHAIN_TOO_LONG",
+    "CERT_SIGNATURE_FAILURE",
+    "INVALID_PURPOSE",
+    "INVALID_CA",
+    "PATH_LENGTH_EXCEEDED",
+    "CERT_REJECTED",
+    "ERR_TLS_CERT_ALTNAME_INVALID",
+  ])("%s is a certificate failure: the fixed verification message", async (code) => {
+    const outcome = (await sendFailing(code)) as Error;
+    expect(outcome.message).toBe(TLS_FAILURE_MESSAGE);
+  });
+
+  it.each(["ERR_SSL_WRONG_VERSION_NUMBER", "ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE", "ERR_TLS_HANDSHAKE_TIMEOUT", "EPROTO"])(
+    "%s is not a certificate failure: a different fixed message with no CA advice",
+    async (code) => {
+      const outcome = (await sendFailing(code)) as Error;
+      expect(outcome.message).toBe(TLS_CONNECT_FAILURE_MESSAGE);
+      expect(outcome.message).not.toContain("NODE_EXTRA_CA_CERTS");
+      expect(outcome.message).not.toContain("text supplied by node");
+    },
+  );
+
+  it("the two fixed texts are stable", () => {
+    expect(TLS_CONNECT_FAILURE_MESSAGE).toBe("the connection could not be established as TLS: check the address and scheme");
+  });
+
+  it("an error whose code is not a TLS code passes through unchanged", async () => {
+    const original = Object.assign(new Error("refused"), { code: "ECONNREFUSED" });
+    const { node } = fakeNode((emit) => emit("error", original));
+    const transport = createNodeTransport({ fallback: refusedFallback, node });
+    expect(await within(1000, settle(transport("http://127.0.0.1:1/x", { method: "GET" })))).toBe(original);
+  });
+
+  it("an https URL pointed at a plain-HTTP port gets the connection message, not the CA advice", async () => {
+    const local = await listen((_request, response) => {
+      response.writeHead(200).end("plain");
+    });
+    try {
+      const outcome = await within(2000, settle(nodeOnly()(local.baseUrl.replace("http:", "https:") + "/x", { method: "GET" })));
+      expect(outcome).not.toBe("hung");
+      expect((outcome as Error).message).toBe(TLS_CONNECT_FAILURE_MESSAGE);
+    } finally {
+      await local.close();
+    }
+  });
+});
+
+describe("node transport: connection-framing request headers", () => {
+  it.each(["Host", "host", "HOST", "Transfer-Encoding", "transfer-encoding", "Connection", "cOnNeCtIoN", "Upgrade", "Expect", "TE", "Keep-Alive", "Proxy-Connection", "Trailer"])(
+    "refuses a request carrying %s with a fixed typed error and sends nothing",
+    async (name) => {
+      const local = await listen((_request, response) => {
+        response.writeHead(200).end("x");
+      });
+      try {
+        const failure = await nodeOnly()(`${local.baseUrl}/x`, { method: "POST", body: "x", headers: { [name]: "evil.example" } }).catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(NodeTransportHeaderError);
+        expect(failure).toBeInstanceOf(TypeError);
+        expect((failure as Error).message).toBe("the node transport refuses connection-framing request headers");
+        expect((failure as Error).message).not.toContain("evil.example");
+        expect(local.seen).toHaveLength(0);
+      } finally {
+        await local.close();
+      }
+    },
+  );
+
+  it("Content-Type and Range still pass, and a caller's Content-Length is replaced by the real one", async () => {
+    const local = await listen((_request, response) => {
+      response.writeHead(200).end("x");
+    });
+    try {
+      await nodeOnly()(`${local.baseUrl}/x`, {
+        method: "POST",
+        body: "abc",
+        headers: { "Content-Type": "application/json", Range: "bytes=0-1", "Content-Length": "999" },
+      });
+      expect(local.seen[0]?.headers["content-type"]).toBe("application/json");
+      expect(local.seen[0]?.headers["range"]).toBe("bytes=0-1");
+      expect(local.seen[0]?.headers["content-length"]).toBe("3");
+      expect(local.seen[0]?.body.toString("utf8")).toBe("abc");
+    } finally {
+      await local.close();
+    }
   });
 });
 

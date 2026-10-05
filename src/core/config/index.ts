@@ -1,5 +1,6 @@
 export * from "./auth";
 export * from "./build-config";
+export * from "./connection-headers";
 export * from "./defaults";
 export * from "./endpoint";
 export * from "./errors";

@@ -101,10 +101,10 @@ export class KuboNetworkError extends KuboError {
   }
 }
 
-/** A browser `fetch` that fails with this message was usually blocked by CORS, not by the network. */
+/** "Failed to fetch" comes only from the WebView `fetch`, which is subject to CORS; it was usually blocked by CORS, not by the network. */
 function corsHint(cause: unknown): string {
   return cause instanceof TypeError && cause.message === "Failed to fetch"
-    ? " -- the browser blocked the request (CORS); desktop uses Node's http and is not subject to CORS, mobile uses requestUrl"
+    ? " -- this request used the browser fetch, which is subject to CORS; the node must allow the app origin"
     : "";
 }
 

@@ -1,6 +1,11 @@
+import * as nodeHttp from "node:http";
+import * as nodeHttps from "node:https";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, expect, it, vi } from "vitest";
 import type { Bytes } from "../../src/core/host-bridge";
-import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
+import { HOST_NET_UNAVAILABLE_MESSAGE, createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
+import { pluginTransport } from "../../src/plugin/request-url-transport";
 import { createFolderKv, createPluginDataKv } from "../../src/plugin/obsidian-kv";
 import { createSettingsStore, type PluginDataPort } from "../../src/plugin/settings-store";
 import { loadSettings } from "../../src/plugin/settings-migration";
@@ -207,5 +212,46 @@ describe("obsidian host bridge: other capabilities", () => {
     expect(text(response.body)).toBe("pong");
     expect(response.headers["x-a"]).toBe("1");
     expect(transport).toHaveBeenCalledTimes(1);
+  });
+
+  it("without a transport net.fetch refuses with the fixed message and sends nothing", async () => {
+    const realFetch = globalThis.fetch;
+    const globalCalls: string[] = [];
+    globalThis.fetch = (async (input: unknown) => {
+      globalCalls.push(String(input));
+      return new Response("leak");
+    }) as typeof fetch;
+    try {
+      const { host } = setup();
+      const failure = await host.net.fetch({ url: "http://127.0.0.1:1/x", method: "POST", body: bytes("ping") }).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe("network access is not available in this host");
+      expect(HOST_NET_UNAVAILABLE_MESSAGE).toBe("network access is not available in this host");
+      expect(globalCalls).toEqual([]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("with pluginTransport() net.fetch still works, through the Node transport", async () => {
+    const server = createServer((request, response) => {
+      response.writeHead(200, { "x-seen": request.method ?? "" }).end("pong");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const transport = pluginTransport({ require: (id: string) => (id === "http" ? nodeHttp : id === "https" ? nodeHttps : undefined) });
+      expect(transport.transportName).toBe("node");
+      const host = createObsidianHostBridge({ adapter: new MemoryAdapter(), transport });
+      const response = await host.net.fetch({ url: `http://127.0.0.1:${port}/x`, method: "POST", body: bytes("ping") });
+      expect(response.status).toBe(200);
+      expect(text(response.body)).toBe("pong");
+      expect(response.headers["x-seen"]).toBe("POST");
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      });
+    }
   });
 });

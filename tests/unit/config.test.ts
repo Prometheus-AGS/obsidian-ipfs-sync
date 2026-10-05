@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  CONNECTION_FRAMING_HEADERS,
   ConfigError,
   REDACTED,
+  isConnectionFramingHeader,
   authWarnings,
   buildAuth,
   composeEndpointUrl,
@@ -138,6 +140,36 @@ describe("buildAuth", () => {
       expect((error as Error).message).not.toContain(name);
     }
   });
+
+  it("shares one framing-header set with the transport: ten names, all lower case", () => {
+    expect([...CONNECTION_FRAMING_HEADERS].sort()).toEqual(
+      ["connection", "content-length", "expect", "host", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade"],
+    );
+    expect(isConnectionFramingHeader("Transfer-Encoding")).toBe(true);
+    expect(isConnectionFramingHeader("Content-Type")).toBe(false);
+    expect(isConnectionFramingHeader("Range")).toBe(false);
+  });
+
+  it.each(["Content-Type", "content-type", "CONTENT-TYPE", "Range", "range", "RANGE", "rAnGe"])(
+    "refuses %s as the custom credential header: it would merge with the real header",
+    (name) => {
+      try {
+        buildAuth({ scheme: "header", headerName: name, headerValue: "secret" }, "auth");
+        throw new Error("expected a failure");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ConfigError);
+        expect((error as Error).message).toBe("auth: that header name is set by the request itself and cannot carry a credential");
+        expect((error as Error).message).not.toContain(name);
+      }
+    },
+  );
+
+  it.each(["HOST", "Transfer-Encoding", "cOnNeCtIoN", "CONTENT-LENGTH", "Upgrade", "EXPECT", "Te", "KEEP-ALIVE", "Proxy-Connection", "TRAILER"])(
+    "refuses %s in any casing for the credential header",
+    (name) => {
+      expect(() => buildAuth({ scheme: "header", headerName: name, headerValue: "v" }, "auth")).toThrowError(/controlled by the HTTP connection/);
+    },
+  );
 
   it("still accepts an ordinary custom header name", () => {
     expect(buildAuth({ scheme: "header", headerName: "X-Host-Token", headerValue: "v" }, "auth")).toEqual({

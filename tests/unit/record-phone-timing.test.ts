@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -341,7 +341,7 @@ describe("source discipline and the real entry point", () => {
     );
     return script;
   };
-  const underPty = (toolPath: string, env: Record<string, string | undefined>): ReturnType<typeof spawnSync<string>> =>
+  const underPty = (toolPath: string, env: Record<string, string | undefined>): SpawnSyncReturns<string> =>
     spawnSync("expect", [ptyScript(), process.execPath, toolPath, "measured"], { env: { ...env, PATH: process.env.PATH ?? "" } as Record<string, string>, encoding: "utf8", timeout: SPAWN_BOUND_MS, killSignal: "SIGKILL" });
 
   it.skipIf(!hasExpect)("under a real pseudo-terminal it passes the terminal gate and stops at a stale dist (expect(1) smoke test, independent of the repository's dist/)", () => {
