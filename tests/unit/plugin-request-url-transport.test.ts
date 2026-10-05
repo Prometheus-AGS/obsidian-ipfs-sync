@@ -84,7 +84,7 @@ describe("requestUrl transport", () => {
     expect(failure).toBeInstanceOf(KuboNetworkError);
     const message = (failure as KuboNetworkError).message;
     expect(message).toContain("(via requestUrl)");
-    expect(message).toContain("the browser blocked the request (CORS); the plugin uses requestUrl to avoid this");
+    expect(message).toContain("the browser blocked the request (CORS); desktop uses Node's http and is not subject to CORS, mobile uses requestUrl");
     expect(message).not.toContain("tok-secret");
 
     setRequestUrlHandler(() => {

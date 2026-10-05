@@ -14,8 +14,10 @@ import type { Transport } from "../kubo";
  * `NODE_EXTRA_CA_CERTS` is set, and it ignores the system proxy. A TLS verification failure is reported with fixed text
  * (`TLS_FAILURE_MESSAGE`), never with the text Node supplied.
  *
- * Where Node's `require` is missing (mobile) `createNodeTransport` returns the fallback (`requestUrl`), which cannot refuse a
- * redirect there. A body type this transport cannot send is rejected with a typed error; it never falls back silently. No
+ * Where no Node modules are handed in (`node` undefined) `createNodeTransport` returns the fallback (`requestUrl`), which cannot
+ * refuse a redirect. That is right on mobile only; `pluginTransport` never passes the fallback on desktop, where missing Node
+ * modules yield `nodeUnavailableTransport` (every request refused). A response the `Response` constructor cannot represent
+ * (status outside 200-599, headers `Headers` refuses) is destroyed and rejected with a fixed message. A body type this transport cannot send is rejected with a typed error; it never falls back silently. No
  * timeout is added; an abort signal on the request destroys the socket. Request headers (credentials) go to the request's own
  * URL only, since no redirect is followed. This module imports no Node module: the modules are handed in
  * (`desktopNodeModules`), so the WebView bundle stays free of Node built-ins.
@@ -64,9 +66,21 @@ export interface NodeTransportOptions {
 export const TLS_FAILURE_MESSAGE =
   "the connection failed TLS verification; on desktop the plugin uses Node's certificate list; set NODE_EXTRA_CA_CERTS for a private CA";
 
+/**
+ * Fixed text for a response the `Response` constructor cannot represent: a status outside 200-599 (Node's parser accepts any
+ * three digits, and every 1xx throws in `new Response`) or headers `Headers` refuses. Nothing the node sent is echoed.
+ */
+export const NODE_RESPONSE_UNREADABLE_MESSAGE = "the node answered with a response this plugin cannot read";
+
+/** Fixed text for a desktop app whose Node modules cannot be loaded: the redirect-following fallback is not an option there. */
+export const NODE_UNAVAILABLE_MESSAGE =
+  "the desktop network layer is unavailable, so the plugin will not send requests through the redirect-following fallback; reload the plugin or report this";
+
 const BODY_TYPE_MESSAGE = "the node transport sends text or bytes only";
 
-const NO_BODY_STATUSES: ReadonlySet<number> = new Set([101, 103, 204, 205, 304]);
+const MIN_RESPONSE_STATUS = 200;
+const MAX_RESPONSE_STATUS = 599;
+const NO_BODY_STATUSES: ReadonlySet<number> = new Set([204, 205, 304]);
 const BODYLESS_METHODS: ReadonlySet<string> = new Set(["GET", "HEAD"]);
 
 const TLS_ERROR_CODES: ReadonlySet<string> = new Set([
@@ -151,14 +165,33 @@ function nodeRequest(node: NodeModules, url: string, init: RequestInit): Promise
       reject(isTlsFailure(error) ? new Error(TLS_FAILURE_MESSAGE) : error);
     });
     request.on("response", (incoming) => {
-      const status = incoming.statusCode ?? 0;
-      const noBody = NO_BODY_STATUSES.has(status);
-      if (noBody) incoming.destroy();
-      resolve(new Response(noBody ? null : bodyOf(incoming, request), { status, headers: responseHeaders(incoming.headers) }));
+      // This runs in an EventEmitter callback, not in the executor: a throw here would leave the promise pending, the socket open
+      // and the caller (and its lock) waiting forever.
+      try {
+        const status = incoming.statusCode ?? 0;
+        if (status < MIN_RESPONSE_STATUS || status > MAX_RESPONSE_STATUS) throw new RangeError("unsupported status");
+        const noBody = NO_BODY_STATUSES.has(status);
+        const headers = responseHeaders(incoming.headers);
+        if (noBody) incoming.destroy();
+        resolve(new Response(noBody ? null : bodyOf(incoming, request), { status, headers }));
+      } catch {
+        init.signal?.removeEventListener("abort", onAbort);
+        incoming.destroy();
+        request.destroy();
+        reject(new Error(NODE_RESPONSE_UNREADABLE_MESSAGE));
+      }
     });
     request.end(bytes);
   });
 }
+
+/** The transport for a desktop app whose Node modules are missing: it refuses every request with a fixed message and sends nothing. */
+export const nodeUnavailableTransport: Transport = Object.assign(
+  async (): Promise<Response> => {
+    throw new Error(NODE_UNAVAILABLE_MESSAGE);
+  },
+  { transportName: "node-unavailable" },
+);
 
 export function createNodeTransport(options: NodeTransportOptions): Transport {
   const { fallback, node } = options;

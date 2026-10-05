@@ -6,7 +6,7 @@ import { KuboHttpError } from "../../src/kubo";
 import { PLAINTEXT_UNSUPPORTED_MESSAGE } from "../../src/sync/pull-errors";
 import { ROOT1, SECRET, freshVault, plantPlaintextRoot, pullRig, storeWith } from "../helpers/plugin-pull-rig";
 import { IPNS_NAME } from "../helpers/pull-fixtures";
-import { requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse } from "../support/obsidian-stub";
+import { Platform, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse } from "../support/obsidian-stub";
 
 /**
  * The plugin pull runner's own rules: the destination guard, the target, the node traffic of a pull, the lock, the failure
@@ -106,7 +106,8 @@ describe("plugin pull runner: node traffic", () => {
     expect(adapter.files.has(".ipfs-sync-fixture")).toBe(false);
   });
 
-  it("uses the requestUrl transport by default and never the WebView fetch", async () => {
+  it("uses the requestUrl transport by default on mobile and never the WebView fetch", async () => {
+    Platform.isDesktopApp = false; // desktop's default is Node's http (tests/unit/node-transport.test.ts)
     resetRequestUrl();
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
@@ -125,6 +126,7 @@ describe("plugin pull runner: node traffic", () => {
       expect(url.searchParams.get("arg")).toBe(`/ipns/${IPNS_NAME}`);
       expect(fetchSpy).not.toHaveBeenCalled();
     } finally {
+      Platform.isDesktopApp = true;
       vi.unstubAllGlobals();
       resetRequestUrl();
     }

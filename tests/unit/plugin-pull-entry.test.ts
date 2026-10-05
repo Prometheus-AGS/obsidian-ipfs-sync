@@ -10,7 +10,7 @@ import { IPNS_NAME } from "../helpers/pull-fixtures";
 import { serveGateway } from "../helpers/request-url-node";
 import { MemoryAdapter } from "../support/memory-adapter";
 import { referencePassphrase } from "../vectors/slot-helpers";
-import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin, type RequestUrlResponse } from "../support/obsidian-stub";
+import { App as StubApp, Modal, Notice, Platform, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin, type RequestUrlResponse } from "../support/obsidian-stub";
 
 const MANIFEST = { id: "ipfs-sync", version: "0.2.0" } as unknown as PluginManifest;
 const MFS = "/obsidian-vault-sync/mvp05-entry";
@@ -60,9 +60,11 @@ describe("plugin entry: pull", () => {
     fetchSpy.mockReset();
     vi.stubGlobal("fetch", fetchSpy);
     vi.useFakeTimers({ toFake: ["setTimeout"] });
+    Platform.isDesktopApp = false; // these tests run the mobile transport (requestUrl) against the stub; desktop would use Node's http
   });
 
   afterEach(() => {
+    Platform.isDesktopApp = true;
     vi.useRealTimers();
     vi.unstubAllGlobals();
   });

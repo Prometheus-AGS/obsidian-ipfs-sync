@@ -9,7 +9,7 @@ import { REFERENCE_TEXT } from "../helpers/plugin-session";
 import { initVault } from "../helpers/vault-init";
 import { byId, type FakeEl } from "../support/fake-dom";
 import { MemoryAdapter } from "../support/memory-adapter";
-import { App as StubApp, Modal, Notice, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin } from "../support/obsidian-stub";
+import { App as StubApp, Modal, Notice, Platform, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse, type Plugin as StubPlugin } from "../support/obsidian-stub";
 
 /**
  * mvp-06 task 4.3 at the plugin entry: the real dialogs (over the stub `Modal`), the real key session, the real
@@ -87,9 +87,11 @@ beforeEach(() => {
   Modal.reset();
   resetRequestUrl();
   vi.stubGlobal("fetch", vi.fn());
+  Platform.isDesktopApp = false; // these tests run the mobile transport (requestUrl) against the stub; desktop would use Node's http
 });
 
 afterEach(() => {
+  Platform.isDesktopApp = true;
   vi.unstubAllGlobals();
   resetRequestUrl();
 });

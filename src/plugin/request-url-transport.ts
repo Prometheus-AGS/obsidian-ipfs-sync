@@ -1,6 +1,6 @@
 import { Platform, requestUrl } from "obsidian";
 import type { Transport } from "../kubo";
-import { createNodeTransport, desktopNodeModules } from "./node-transport";
+import { createNodeTransport, desktopNodeModules, nodeUnavailableTransport } from "./node-transport";
 
 /**
  * The mobile transport: Obsidian's `requestUrl` instead of `fetch`. The node answers a request from the
@@ -52,8 +52,11 @@ export const requestUrlTransport: Transport = Object.assign(send, { transportNam
 /**
  * The one transport choice for every plugin call site. On desktop (Node's `require` exists) every request goes through Node's
  * `http`/`https` (src/plugin/node-transport.ts): a redirect is returned, not followed, and refused by `requestEndpoint`, and
- * response bodies stream. Only where `require` is unavailable (mobile) does this return `requestUrl`.
+ * response bodies stream. `requestUrl` is used only when this is not a desktop app (mobile). A desktop app whose Node modules
+ * cannot be loaded gets a transport that refuses every request: falling back to `requestUrl` there would follow redirects.
  */
 export function pluginTransport(host: unknown = globalThis): Transport {
-  return createNodeTransport({ fallback: requestUrlTransport, node: desktopNodeModules(Platform.isDesktopApp, host) });
+  const node = desktopNodeModules(Platform.isDesktopApp, host);
+  if (node === undefined && Platform.isDesktopApp) return nodeUnavailableTransport;
+  return createNodeTransport({ fallback: requestUrlTransport, node });
 }

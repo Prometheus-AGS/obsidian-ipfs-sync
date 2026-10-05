@@ -2,14 +2,20 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import * as nodeHttp from "node:http";
 import * as nodeHttps from "node:https";
 import { readdirSync, readFileSync } from "node:fs";
-import type { AddressInfo } from "node:net";
+import { createServer as createRawServer, type AddressInfo, type Socket } from "node:net";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ResolvedEndpoint } from "../../src/core/config";
 import { KuboNetworkError, KuboResponseTooLargeError, createKuboClient, rpcCall, type Transport } from "../../src/kubo";
 import { REDIRECT_REFUSED_MESSAGE } from "../../src/kubo/http";
 import { buildMultipart } from "../../src/kubo/multipart";
-import { TLS_FAILURE_MESSAGE, createNodeTransport, type NodeModules } from "../../src/plugin/node-transport";
+import {
+  NODE_RESPONSE_UNREADABLE_MESSAGE,
+  NODE_UNAVAILABLE_MESSAGE,
+  TLS_FAILURE_MESSAGE,
+  createNodeTransport,
+  type NodeModules,
+} from "../../src/plugin/node-transport";
 import { pluginTransport } from "../../src/plugin/request-url-transport";
 import { Platform, requestUrlCalls, resetRequestUrl, setRequestUrlHandler, stubResponse } from "../support/obsidian-stub";
 
@@ -244,6 +250,146 @@ describe("node transport", () => {
   });
 });
 
+interface RawServer {
+  readonly baseUrl: string;
+  readonly sockets: Socket[];
+  readonly closed: Promise<void>[];
+  readonly close: () => Promise<void>;
+}
+
+/** A TCP server that answers the first request bytes with `raw`, written verbatim (latin1), so it can say what no HTTP server library would. */
+async function rawServer(raw: string): Promise<RawServer> {
+  const sockets: Socket[] = [];
+  const closed: Promise<void>[] = [];
+  const server = createRawServer((socket) => {
+    sockets.push(socket);
+    closed.push(new Promise<void>((resolve) => socket.once("close", () => resolve())));
+    socket.on("error", () => undefined);
+    socket.once("data", () => socket.write(Buffer.from(raw, "latin1")));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    sockets,
+    closed,
+    close: () =>
+      new Promise<void>((resolve) => {
+        for (const socket of sockets) socket.destroy();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+/** Test-side deadline so a hang fails in one second rather than at the test timeout. It is not product code. */
+async function within<T>(ms: number, work: Promise<T>): Promise<T | "hung"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"hung">((resolve) => {
+    timer = setTimeout(() => resolve("hung"), ms);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+describe("node transport: a response this plugin cannot read", () => {
+  const servers: RawServer[] = [];
+  afterEach(async () => {
+    await Promise.all(servers.splice(0).map((server) => server.close()));
+  });
+
+  const unreadable = [
+    ["600", "HTTP/1.1 600 Nope\r\nContent-Length: 0\r\n\r\n"],
+    ["999", "HTTP/1.1 999 Nope\r\nContent-Length: 0\r\n\r\n"],
+    ["099", "HTTP/1.1 099 Nope\r\nContent-Length: 0\r\n\r\n"],
+    ["101", "HTTP/1.1 101 Nope\r\nContent-Length: 0\r\n\r\n"],
+  ] as const;
+  // 102 and 103 never reach the handler: Node's client emits them as 'information' and waits for the final response.
+
+  for (const [status, raw] of unreadable) {
+    it(`status ${status}: rejects with the fixed error, promptly, and closes the socket`, async () => {
+      const server = await rawServer(raw);
+      servers.push(server);
+      const started = Date.now();
+      const outcome = await within(
+        1000,
+        nodeOnly()(`${server.baseUrl}/x`, { method: "GET" }).then(
+          () => "resolved" as const,
+          (error: unknown) => error,
+        ),
+      );
+      expect(outcome).not.toBe("hung");
+      expect(outcome).toBeInstanceOf(Error);
+      expect((outcome as Error).message).toBe(NODE_RESPONSE_UNREADABLE_MESSAGE);
+      expect(Date.now() - started).toBeLessThan(1000);
+      expect(await within(1000, Promise.all(server.closed))).not.toBe("hung");
+    });
+  }
+
+  it("a malformed header never leaves the call pending", async () => {
+    const server = await rawServer("HTTP/1.1 200 OK\r\nBad Name: v\r\nContent-Length: 0\r\n\r\n");
+    servers.push(server);
+    const outcome = await within(
+      1000,
+      nodeOnly()(`${server.baseUrl}/x`, { method: "GET" }).then(
+        () => "resolved" as const,
+        (error: unknown) => error,
+      ),
+    );
+    expect(outcome).not.toBe("hung");
+    expect(outcome).toBeInstanceOf(Error);
+    expect(await within(1000, Promise.all(server.closed))).not.toBe("hung");
+  });
+
+  it("a header set that Headers refuses rejects with the fixed error and destroys both ends, echoing nothing", async () => {
+    const destroyed: string[] = [];
+    const hostile = "secret-header-name host.internal";
+    const fake: NodeModules = {
+      http: {
+        request: () => {
+          const handlers = new Map<string, (value: never) => void>();
+          const incoming = {
+            statusCode: 200,
+            headers: { [hostile]: "v" },
+            on() {},
+            pause() {},
+            resume() {},
+            destroy() {
+              destroyed.push("incoming");
+            },
+          };
+          const outgoing = {
+            on(event: string, listener: (value: never) => void) {
+              handlers.set(event, listener);
+              return outgoing;
+            },
+            end() {
+              queueMicrotask(() => handlers.get("response")?.(incoming as never));
+            },
+            destroy() {
+              destroyed.push("request");
+            },
+          };
+          return outgoing;
+        },
+      },
+      https: nodeHttps,
+    };
+    const transport = createNodeTransport({ fallback: refusedFallback, node: fake });
+    const outcome = await within(1000, transport("http://127.0.0.1:1/x", { method: "GET" }).catch((error: unknown) => error));
+    expect(outcome).not.toBe("hung");
+    expect((outcome as Error).message).toBe(NODE_RESPONSE_UNREADABLE_MESSAGE);
+    expect((outcome as Error).message).not.toContain(hostile);
+    expect(destroyed.sort()).toEqual(["incoming", "request"]);
+  });
+
+  it("the fixed text is stable", () => {
+    expect(NODE_RESPONSE_UNREADABLE_MESSAGE).toBe("the node answered with a response this plugin cannot read");
+  });
+});
+
 describe("plugin transport choice", () => {
   afterEach(() => {
     Platform.isDesktopApp = true;
@@ -267,16 +413,43 @@ describe("plugin transport choice", () => {
     }
   });
 
-  it("falls back to requestUrl when require is unavailable, throws, or the app is not desktop", async () => {
+  it("on desktop with no usable Node modules it fails closed: every request is refused and requestUrl is never called", async () => {
     setRequestUrlHandler(() => stubResponse(200, "via-request-url"));
-    const hosts: unknown[] = [{}, { require: () => { throw new Error("no module"); } }];
+    const hosts: unknown[] = [
+      {},
+      { require: "not a function" },
+      { require: () => { throw new Error("no module"); } },
+      { require: (id: string) => (id === "http" ? nodeHttp : undefined) },
+    ];
     for (const host of hosts) {
+      const transport = pluginTransport(host);
+      expect(transport.transportName).toBe("node-unavailable");
+      const failure = await transport("https://gw.example.org/x", { method: "POST" }).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect((failure as Error).message).toBe(NODE_UNAVAILABLE_MESSAGE);
+    }
+    expect(requestUrlCalls).toEqual([]);
+    expect(NODE_UNAVAILABLE_MESSAGE).toBe(
+      "the desktop network layer is unavailable, so the plugin will not send requests through the redirect-following fallback; reload the plugin or report this",
+    );
+  });
+
+  it("the refusal reaches a client call as a typed network error carrying the fixed text", async () => {
+    const transport = pluginTransport({});
+    const client = createKuboClient({ rpc: endpointOf("https://rpc.example.org:5001"), gateway: endpointOf("https://gw.example.org"), transport });
+    const failure = await client.keyList().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(KuboNetworkError);
+    expect((failure as Error).message).toContain(NODE_UNAVAILABLE_MESSAGE);
+  });
+
+  it("on mobile (isDesktopApp false) it uses requestUrl, whatever require is", async () => {
+    setRequestUrlHandler(() => stubResponse(200, "via-request-url"));
+    Platform.isDesktopApp = false;
+    for (const host of [{}, { require: () => nodeHttp }]) {
       const transport = pluginTransport(host);
       expect(transport.transportName).toBe("requestUrl");
       expect(await (await transport("https://gw.example.org/x", { method: "GET" })).text()).toBe("via-request-url");
     }
-    Platform.isDesktopApp = false;
-    expect(pluginTransport({ require: () => nodeHttp }).transportName).toBe("requestUrl");
   });
 
   it("no source file reaches requestUrl or requestUrlTransport except the module that owns the fallback", () => {

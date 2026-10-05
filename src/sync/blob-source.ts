@@ -11,7 +11,7 @@ import { PLUGIN_MIN_EXPONENT, RANGE_PROBE_MARGIN_BYTES, WHOLE_BODY_LIMIT, blobsP
  * does not equal `22 + 28 n + the manifest's size` for the segment size in the blob's own header.
  *
  * `chunks` is lazy: nothing is requested before the first read. A source may be backed by a stream (the CLI) or by a
- * body that was already fully buffered (the plugin: `requestUrl` returns whole bodies). This interface makes no claim
+ * body that was already fully buffered (the mobile plugin: `requestUrl` returns whole bodies; desktop streams). This interface makes no claim
  * either way; a caller that needs bounded memory must pick a source that provides it.
  */
 export interface BlobSource {
@@ -176,8 +176,8 @@ export async function probeSizeClasses(
 
 /**
  * Plugin source over `gatewayStream` with `Range` requests: the 22-byte header first (`bytes=0-21`), then segment `i` at
- * `22 + i * (2^e + 28)`, the last one short. Memory note: `requestUrl` returns a whole response before the plugin sees it, so
- * nothing here is unbuffered; what the ranges bound is the size of each response, and a response that is refused is discarded,
+ * `22 + i * (2^e + 28)`, the last one short. Memory note: on mobile `requestUrl` returns a whole response before the plugin sees it, so
+ * nothing there is unbuffered (desktop streams from Node's http); what the ranges bound is the size of each response, and a response that is refused is discarded,
  * not decrypted.
  *
  * Rules (design decision 14): a header or segment answer must be 206 with `Content-Range` equal to the request and the blob's

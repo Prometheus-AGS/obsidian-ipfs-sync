@@ -115,6 +115,38 @@ describe("buildAuth", () => {
     expect(() => buildAuth(input, "auth")).toThrowError(message);
   });
 
+  it.each([
+    "Host",
+    "host",
+    "Transfer-Encoding",
+    "CONNECTION",
+    "Content-Length",
+    "Upgrade",
+    "Expect",
+    "TE",
+    "te",
+    "Keep-Alive",
+    "Proxy-Connection",
+    "Trailer",
+  ])("rejects the connection-level header name %s without echoing it", (name) => {
+    try {
+      buildAuth({ scheme: "header", headerName: name, headerValue: "v" }, "auth");
+      throw new Error("expected a failure");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError);
+      expect((error as Error).message).toBe("auth: that header name is controlled by the HTTP connection and cannot carry a credential");
+      expect((error as Error).message).not.toContain(name);
+    }
+  });
+
+  it("still accepts an ordinary custom header name", () => {
+    expect(buildAuth({ scheme: "header", headerName: "X-Host-Token", headerValue: "v" }, "auth")).toEqual({
+      kind: "header",
+      name: "X-Host-Token",
+      value: "v",
+    });
+  });
+
   it("does not echo a header name that was a pasted secret", () => {
     const pasted = "sk-live-9f8e7d6c bearer";
     try {

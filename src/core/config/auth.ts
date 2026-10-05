@@ -6,6 +6,20 @@ export const REDACTED = "<redacted>";
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
+/** Names Node honours as connection framing or routing; a credential header must never be able to set one. Lower case. */
+const CONNECTION_HEADERS: ReadonlySet<string> = new Set([
+  "host",
+  "transfer-encoding",
+  "connection",
+  "content-length",
+  "upgrade",
+  "expect",
+  "te",
+  "keep-alive",
+  "proxy-connection",
+  "trailer",
+]);
+
 function suppliedFields(raw: RawAuthInput): readonly string[] {
   const fields: readonly (readonly [string, string | undefined])[] = [
     ["user", raw.user],
@@ -41,6 +55,9 @@ function buildHeader(label: string, raw: RawAuthInput): AuthConfig {
   const value = need(label, "header", "a header value", raw.headerValue);
   if (!HEADER_NAME.test(name)) {
     throw new ConfigError("invalid-auth", `${label}: the header name is not a valid HTTP header name`);
+  }
+  if (CONNECTION_HEADERS.has(name.toLowerCase())) {
+    throw new ConfigError("invalid-auth", `${label}: that header name is controlled by the HTTP connection and cannot carry a credential`);
   }
   return { kind: "header", name, value };
 }

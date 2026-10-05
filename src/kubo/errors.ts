@@ -104,7 +104,7 @@ export class KuboNetworkError extends KuboError {
 /** A browser `fetch` that fails with this message was usually blocked by CORS, not by the network. */
 function corsHint(cause: unknown): string {
   return cause instanceof TypeError && cause.message === "Failed to fetch"
-    ? " -- the browser blocked the request (CORS); the plugin uses requestUrl to avoid this"
+    ? " -- the browser blocked the request (CORS); desktop uses Node's http and is not subject to CORS, mobile uses requestUrl"
     : "";
 }
 

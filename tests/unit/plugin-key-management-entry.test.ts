@@ -129,12 +129,13 @@ beforeEach(() => {
   Modal.reset();
   resetRequestUrl();
   vi.stubGlobal("fetch", vi.fn());
+  Platform.isDesktopApp = false; // these tests run the mobile transport (requestUrl) against the stub; desktop would use Node's http
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
   resetRequestUrl();
-  Object.assign(Platform, { isIosApp: false, isAndroidApp: false, isMobile: false });
+  Object.assign(Platform, { isDesktopApp: true, isIosApp: false, isAndroidApp: false, isMobile: false });
 });
 
 describe("plugin entry: Measure key derivation time", () => {
