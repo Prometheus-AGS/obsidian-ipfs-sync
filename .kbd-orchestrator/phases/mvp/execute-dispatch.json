@@ -1,9 +1,13 @@
 {
   "phase": "mvp",
-  "dispatchedAt": "2026-10-06T00:15:15Z",
+  "dispatchedAt": "2026-10-06T10:10:38Z",
   "backend": "openspec",
   "driver": "kbd-apply",
-  "assignedChanges": ["mvp-08-sync-history-store"],
-  "pendingChanges": ["mvp-09-e2e-sync-fixture", "mvp-10-real-vault-publish-and-release"],
-  "note": "Dispatch receipt only. Execute remains active until all changes, the final gates, and verify/archive complete. mvp-08 artifacts authored by product-manager subagent; implementation dispatched to data-engineer subagents, docs revision to documentation-specialist; 10 tasks registered at KBD revision 956."
+  "assignedChanges": [
+    "mvp-09-e2e-sync-fixture"
+  ],
+  "pendingChanges": [
+    "mvp-10-real-vault-publish-and-release"
+  ],
+  "note": "Dispatch receipt only. Execute remains active. mvp-09 artifacts authored by product-manager subagent; implementation dispatched to bdd-engineer; 11 tasks registered. mvp-08 complete (10/10, gate + feature op green, committed fd47d54)."
 }

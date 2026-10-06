@@ -2,25 +2,25 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 999,
-  "derivedRevision": 999,
+  "sourceRevision": 1089,
+  "derivedRevision": 1089,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 999
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1089
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-10-06T09:23:54.055058Z",
+  "last_updated": "2026-10-06T14:11:34.436451Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 16,
-  "changes_completed": 9,
+  "changes_completed": 10,
   "implementation_total": 16,
-  "implementation_completed": 9,
+  "implementation_completed": 10,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 9,
+      "completed": 10,
       "total": 16,
       "status": "IN_PROGRESS"
     },
@@ -49,7 +49,7 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 9,
+      "completed": 10,
       "total": 16,
       "status": "IN_PROGRESS"
     },
@@ -227,11 +227,11 @@
     {
       "id": "mvp-09-e2e-sync-fixture",
       "title": "E2E encrypted sync fixture",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 11,
+      "tasks_done": 11,
+      "last_task_completed": "Feature operation: pnpm test:e2e against ipfs.prometheusags.ai (bdd-engineer)",
       "next_task_pending": null,
       "blockers": []
     },
@@ -240,10 +240,10 @@
       "title": "Real 1GB vault, encrypted — Release 3 v0.4.0",
       "status": "PENDING",
       "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
-      "next_task_pending": null,
+      "tasks_total": 15,
+      "tasks_done": 4,
+      "last_task_completed": "Release 3 descriptor and tool (release-deployment-lead)",
+      "next_task_pending": "Secret scan of the real vault before any publish (operator; ipfs-engineer prepares)",
       "blockers": []
     }
   ],

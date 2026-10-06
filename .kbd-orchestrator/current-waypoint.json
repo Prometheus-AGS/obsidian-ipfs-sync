@@ -2,10 +2,10 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 999,
-  "derivedRevision": 999,
+  "sourceRevision": 1089,
+  "derivedRevision": 1089,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 999
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1089
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
@@ -21,19 +21,19 @@
   "phase": "mvp",
   "parentPhase": null,
   "childPointer": null,
-  "change": "mvp-09-e2e-sync-fixture",
-  "currentTask": null,
+  "change": "mvp-10-real-vault-publish-and-release",
+  "currentTask": "2.1",
   "status": "ready",
   "lifecycle": "ready",
   "stageId": null,
   "stageStatus": null,
   "completionMetric": "implementation",
-  "implementationCompleted": 9,
+  "implementationCompleted": 10,
   "implementationTotal": 16,
   "planRevision": 3,
-  "revision": 999,
+  "revision": 1089,
   "exactNextCommand": "/kbd-status",
-  "nextChange": "mvp-09-e2e-sync-fixture",
-  "nextTask": null,
-  "updatedAt": "2026-10-06T09:23:54.055058Z"
+  "nextChange": "mvp-10-real-vault-publish-and-release",
+  "nextTask": "2.1",
+  "updatedAt": "2026-10-06T14:11:34.436451Z"
 }
