@@ -56,9 +56,21 @@ export class HostReadCapError extends Error {
 export class FileChangedDuringReadError extends Error {
   readonly path: string;
 
-  constructor(path: string) {
-    super(`"${path}" changed while it was being read`);
+  constructor(path: string, message: string = `"${path}" changed while it was being read`) {
+    super(message);
     this.name = "FileChangedDuringReadError";
     this.path = path;
+  }
+}
+
+/**
+ * The file no longer exists: it was deleted or renamed between the scan and the read. A kind of `FileChangedDuringReadError`,
+ * so every caller that skips a changed file skips this one too; the transfer words its reason differently. A host raises it
+ * only when the file is really gone (ENOENT, or a stat that finds nothing), never for a read that failed for another reason.
+ */
+export class FileRemovedDuringReadError extends FileChangedDuringReadError {
+  constructor(path: string) {
+    super(path, `"${path}" was removed while it was being read`);
+    this.name = "FileRemovedDuringReadError";
   }
 }

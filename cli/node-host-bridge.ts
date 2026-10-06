@@ -2,7 +2,7 @@ import { appendFile, chmod, lstat, mkdir, open, readFile, readdir, rename, rm, s
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import type { Bytes, HostBridge, HostFs, HostFsEntry, HostFsLstat, HostFsStat, HostKv } from "../src/core/host-bridge";
-import { HostNotImplementedError, HostPathError } from "../src/sync/host-errors";
+import { FileRemovedDuringReadError, HostNotImplementedError, HostPathError } from "../src/sync/host-errors";
 import { foldKey } from "../src/sync/path-fold";
 import { assertParentInsideRoot } from "./realpath-guard";
 import { assertStateFolderUnlinked } from "./state-folder-link";
@@ -70,8 +70,18 @@ async function listDirectory(absolute: string): Promise<readonly HostFsEntry[]> 
   return entries.filter((entry): entry is HostFsEntry => entry !== undefined).sort((a, b) => (a.name < b.name ? -1 : 1));
 }
 
-async function readSlice(absolute: string, offset: number, length: number): Promise<Bytes> {
-  const handle = await open(absolute, "r");
+/** Open a file for reading; one that is gone (deleted or renamed since the scan) is a `FileRemovedDuringReadError`, any other failure passes through. */
+async function openForRead(absolute: string, path: string): Promise<Awaited<ReturnType<typeof open>>> {
+  try {
+    return await open(absolute, "r");
+  } catch (error) {
+    if (isMissing(error)) throw new FileRemovedDuringReadError(path);
+    throw error;
+  }
+}
+
+async function readSlice(absolute: string, path: string, offset: number, length: number): Promise<Bytes> {
+  const handle = await openForRead(absolute, path);
   try {
     const buffer = new Uint8Array(length);
     const { bytesRead } = await handle.read(buffer, 0, length, offset);
@@ -110,7 +120,7 @@ function createFs(root: string): HostFs {
     list: async (dir) => listDirectory(at(dir)),
     stat: async (path) => statOrUndefined(at(path)),
     read: async (path) => readFile(at(path)),
-    readRange: async (path, offset, length) => readSlice(at(path), offset, length),
+    readRange: async (path, offset, length) => readSlice(at(path), path, offset, length),
     write: async (path, data) => {
       const target = await mutableAt(path);
       await mkdir(dirname(target), { recursive: true, mode: directoryMode(path) });

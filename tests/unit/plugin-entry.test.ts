@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { App, PluginManifest } from "obsidian";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import IpfsSyncPlugin from "../../src/plugin";
+import { MIN_AUTO_PUBLISH_INTERVAL_MINUTES } from "../../src/plugin/auto-publish-gate";
 import { testNodeSettings } from "../helpers/test-node-settings";
 import * as entry from "../../src/main";
 import { MemoryAdapter } from "../support/memory-adapter";
@@ -32,6 +33,7 @@ describe("plugin entry", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it("registers the Publish, Pull, Restore, Resolve fork, Status, Abandon and Clear stale lock commands and one ribbon icon for each of Publish and Pull", async () => {
@@ -77,7 +79,7 @@ describe("plugin entry", () => {
     expect(Notice.shown).toHaveLength(1);
   });
 
-  it("arms the timer from the stored interval and explains a refusal at most once per session", async () => {
+  it("arms the timer from the stored interval, skips a tick inside the minimum interval, and explains a refusal at most once per session", async () => {
     const setInterval = vi.fn(() => 7);
     vi.stubGlobal("window", { setInterval, clearInterval: vi.fn() });
     const { plugin, stub } = await loadPlugin({ ...testNodeSettings(), publishIntervalMinutes: 5 });
@@ -85,15 +87,33 @@ describe("plugin entry", () => {
     expect(stub.intervals).toEqual([7]);
 
     // The tick is fire-and-forget and the refusal waits on real file-system reads, so a timer turn is not a completion signal.
-    // Spy on the instance method the tick calls: it passes through and records each run's promise to await.
+    // Spy on the instance method the tick calls: it passes through and records each run's promise to await. The gate reads
+    // Date.now(), so the test moves a fake clock to exercise the minimum interval between automatic runs without waiting.
     const publishSpy = vi.spyOn(plugin, "publishVault");
+    let clock = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
     const setUpNotices = (): number => Notice.shown.filter((n) => n.message.includes("no encrypted vault is set up")).length;
     const tick = (setInterval.mock.calls[0] as unknown as [() => void])[0];
+    const finishedRuns = (): Promise<Array<{ kind: string; reason?: string }>> =>
+      Promise.all(publishSpy.mock.results.map((r) => r.value as Promise<{ kind: string; reason?: string }>));
+
     tick();
-    await vi.waitFor(() => expect(setUpNotices()).toBe(1));
+    await vi.waitFor(() => expect(publishSpy).toHaveBeenCalledTimes(1));
+    // Awaiting the run also lets the gate record when it completed; its continuation is registered before this one.
+    await finishedRuns();
+    expect(setUpNotices()).toBe(1);
+
+    // Sooner than the minimum after the first run completed: skipped, not queued. The gate decides synchronously,
+    // before the first await, so the call count is settled when tick() returns.
+    clock += (MIN_AUTO_PUBLISH_INTERVAL_MINUTES - 1) * 60_000;
     tick();
-    expect(publishSpy).toHaveBeenCalledTimes(2);
-    const outcomes = await Promise.all(publishSpy.mock.results.map((r) => r.value as Promise<{ kind: string; reason?: string }>));
+    expect(publishSpy).toHaveBeenCalledTimes(1);
+
+    // Past the minimum, the next tick runs again.
+    clock += 2 * 60_000;
+    tick();
+    await vi.waitFor(() => expect(publishSpy).toHaveBeenCalledTimes(2));
+    const outcomes = await finishedRuns();
     // Both runs finished and both were the set-up refusal, so the single notice is suppression, not a second run that never ended.
     expect(outcomes.map((o) => `${o.kind}:${o.reason}`)).toEqual(["refused:not-set-up", "refused:not-set-up"]);
     // The vault has no marker and no encrypted vault on this device: the refusal is the set-up one, explained once.

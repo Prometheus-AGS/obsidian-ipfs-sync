@@ -1,5 +1,5 @@
 import type { Bytes, HostFs, HostFsEntry, HostFsLstat, HostFsStat } from "../core/host-bridge";
-import { FileChangedDuringReadError, HostPathError, HostReadCapError } from "../sync/host-errors";
+import { FileChangedDuringReadError, FileRemovedDuringReadError, HostPathError, HostReadCapError } from "../sync/host-errors";
 import { DEFAULT_MAX_READ_MB, readCapBytes } from "./read-cap";
 
 /**
@@ -106,9 +106,20 @@ export function createObsidianFs(adapter: VaultAdapter, options: ObsidianFsOptio
 
   const loadSource = async (clean: string): Promise<RangeSource> => {
     const info = await adapter.stat(clean);
-    if (info?.type === "file" && info.size > capBytes) throw new HostReadCapError(clean, info.size, capBytes);
-    const bytes = new Uint8Array(await adapter.readBinary(clean));
-    return { bytes, size: info?.size ?? bytes.byteLength, mtime: info?.mtime ?? Number.NaN };
+    if (info === null) throw new FileRemovedDuringReadError(clean);
+    if (info.type === "file" && info.size > capBytes) throw new HostReadCapError(clean, info.size, capBytes);
+    const bytes = await readBinaryOrRemoved(clean);
+    return { bytes, size: info.size, mtime: info.mtime };
+  };
+
+  /** The adapter's `readBinary` throws for a missing file without a code; a stat that then finds nothing is the proof the file is gone. */
+  const readBinaryOrRemoved = async (clean: string): Promise<Uint8Array<ArrayBuffer>> => {
+    try {
+      return new Uint8Array(await adapter.readBinary(clean));
+    } catch (error) {
+      if ((await adapter.stat(clean)) === null) throw new FileRemovedDuringReadError(clean);
+      throw error;
+    }
   };
 
   const assertUnchanged = async (clean: string, source: RangeSource): Promise<void> => {
