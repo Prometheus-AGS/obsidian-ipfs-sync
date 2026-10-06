@@ -2,16 +2,16 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 801,
-  "derivedRevision": 801,
+  "sourceRevision": 957,
+  "derivedRevision": 957,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 801
+    "a92f5905-c918-468c-a89d-ee22138e2183": 957
   },
   "conflictCount": 0,
   "phase": "mobile-feasibility",
   "phaseId": "mvp::mobile-feasibility",
   "parentPhase": "mvp",
-  "last_updated": "2026-10-03T13:36:45.873786Z",
+  "last_updated": "2026-10-06T00:16:03.198421Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 0,
   "changes_completed": 0,
@@ -49,23 +49,23 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 7,
+      "completed": 8,
       "total": 16,
       "status": "IN_PROGRESS"
     },
     "evidence": {
-      "status": "PENDING",
-      "summary": null,
+      "status": "COMPLETE",
+      "summary": "gate 6.4 green; operator run 18/18; phone timing measured; guard checker A-E pass",
       "blockers": []
     },
     "certification": {
-      "status": "PENDING",
-      "summary": null,
+      "status": "COMPLETE",
+      "summary": "review record committed c699e24: 202 findings, 0 open, operator accepted 100",
       "blockers": []
     },
     "publication": {
-      "status": "PENDING",
-      "summary": null,
+      "status": "COMPLETE",
+      "summary": "GitHub pre-release v0.3.0 and tag pushed; publication receipt not produced",
       "blockers": []
     }
   },

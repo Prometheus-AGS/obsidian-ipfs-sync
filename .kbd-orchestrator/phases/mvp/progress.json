@@ -2,25 +2,25 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 903,
-  "derivedRevision": 903,
+  "sourceRevision": 999,
+  "derivedRevision": 999,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 903
+    "a92f5905-c918-468c-a89d-ee22138e2183": 999
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-10-04T19:58:44.276948Z",
+  "last_updated": "2026-10-06T09:23:54.055058Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 16,
-  "changes_completed": 7,
+  "changes_completed": 9,
   "implementation_total": 16,
-  "implementation_completed": 7,
+  "implementation_completed": 9,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 7,
+      "completed": 9,
       "total": 16,
       "status": "IN_PROGRESS"
     },
@@ -49,23 +49,23 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 7,
+      "completed": 9,
       "total": 16,
       "status": "IN_PROGRESS"
     },
     "evidence": {
-      "status": "PENDING",
-      "summary": null,
+      "status": "COMPLETE",
+      "summary": "gate 6.4 green; operator run 18/18; phone timing measured; guard checker A-E pass",
       "blockers": []
     },
     "certification": {
-      "status": "PENDING",
-      "summary": null,
+      "status": "COMPLETE",
+      "summary": "review record committed c699e24: 202 findings, 0 open, operator accepted 100",
       "blockers": []
     },
     "publication": {
-      "status": "PENDING",
-      "summary": null,
+      "status": "COMPLETE",
+      "summary": "GitHub pre-release v0.3.0 and tag pushed; publication receipt not produced",
       "blockers": []
     }
   },
@@ -194,12 +194,12 @@
     {
       "id": "mvp-07b-keys-history-guard-release-2",
       "title": "mvp-07b: keys, history pruning, guard removal, Release 2",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 45,
-      "tasks_done": 32,
-      "last_task_completed": "5.1 (documentation-specialist) Documentation for 07b.",
-      "next_task_pending": "1.8 History growth bound under auto-publish",
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 46,
+      "tasks_done": 46,
+      "last_task_completed": "7.4 (release-deployment-lead; each step needs the operator's explicit yes for that exact action) Outward steps, optional: show the exact commit, merge",
+      "next_task_pending": null,
       "blockers": []
     },
     {
@@ -216,11 +216,11 @@
     {
       "id": "mvp-08-sync-history-store",
       "title": "PGlite sync history (CLI)",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
-      "tasks_total": 0,
-      "tasks_done": 0,
-      "last_task_completed": null,
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
+      "tasks_total": 10,
+      "tasks_done": 10,
+      "last_task_completed": "Feature operation tools/feature-op-mvp-08.mjs (data-engineer)",
       "next_task_pending": null,
       "blockers": []
     },
