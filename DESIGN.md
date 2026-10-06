@@ -201,15 +201,21 @@ manifest-driven). Scripts remain desktop tools; mobile uses the plugin only.
 
 ## 7. Phase 3 sketch — AI layer (decision pending, specs TBD)
 
-- Embeddings computed on a capable device, stored as content-addressed index
-  pinned under the vault root (`/.ipfs-sync/ai/`):
-  ```
-  .ipfs-sync/ai/
-    index-<snapshotCID>.jsonl.zst   ← chunk embeddings, keyed by file sha256
-    meta.json                        ← model id, dim, version
-  ```
-- Index keyed by content hash → automatically correct for any device that has
-  those files; mismatched files just miss.
+- **Recorded decision (change `mvp-08-sync-history-store`, design.md):**
+  embeddings are excluded from the vault snapshot by default. Any embedding
+  store is device-local, optional and rebuildable per device; nothing in the
+  published vault layout carries embedding data. Embeddings are computed on a
+  capable device and rebuilt on each device that wants them, keyed by file
+  sha256 (content-keyed: automatically correct for any device that has those
+  files; mismatched files just miss).
+- **Size budget:** embedding data contributes 0 bytes per publish and 0 bytes
+  per vault snapshot — it never rides the sync payload. The budget that
+  motivates the exclusion: vector rows are dims × 4 bytes, so an illustrative
+  10k notes × 10 blocks × 384 dims ≈ 150 MB per vault (inference from the
+  Smart Connections assessment
+  `.kbd-orchestrator/phases/mvp/children/mobile-feasibility/assessment-smart-connections.md`,
+  not measurement) would otherwise ride every snapshot and every
+  fresh-device pull, for a cache that is cheaply rebuildable from the files.
 - Features: semantic search, RAG chat (replaces vault-chat + its plaintext API key),
   embedding-similarity backlink suggestions, clustering.
 - Open questions: local embeddings (transformers.js in WebView = heavy) vs.

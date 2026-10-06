@@ -5,8 +5,8 @@ export const HELP_TEXT = `ipfs-sync - vault sync over your own kubo node
 
 There is no default node. Every command needs the RPC URL and the gateway URL of a kubo node you run or trust:
 set them with --rpc-url and --gateway-url, with IPFS_SYNC_RPC_URL and IPFS_SYNC_GATEWAY_URL, or with the "rpc.url" and
-"gateway.url" keys of the config file. A command run without them exits with code 2 and sends no request. The abandon
-command needs neither the RPC URL nor the gateway URL: it sends no request.
+"gateway.url" keys of the config file. A command run without them exits with code 2 and sends no request. The abandon and
+history commands need neither the RPC URL nor the gateway URL: they send no request.
 
 Usage:
   ipfs-sync status [options]
@@ -19,6 +19,7 @@ Usage:
   ipfs-sync keys accept-slots <vault> [--name <id> | --root-cid <cid> [--allow-rollback]] [--allow-downgrade] [options]
   ipfs-sync keys discard <vault> [--yes-discard] [options]
   ipfs-sync prune-history <vault> --keep <n> [--dry-run | --yes-prune] [options]
+  ipfs-sync history [--limit <n>]
 
 Commands:
   status                  Show node identity, MFS listing, gateway fetch, write probe and key state.
@@ -134,6 +135,13 @@ Commands:
                           until you run the same command again, which finishes it. The rerun needs no --yes-prune and takes the
                           removal list from the journal: --keep and the rest of that command line are ignored. --dry-run prints the files it would remove and stops:
                           it takes no lock and writes nothing.
+  history                 Print this device's own sync operations (publishes, pulls, conflict copies), newest first, one
+                          line per operation: ISO timestamp, kind, root CID, counts and duration. --limit <n> caps the
+                          list (default 20; 0 means all). history is NOT prune-history: prune-history removes old history
+                          files from the NODE's working tree and publishes the result, so it mutates the node; history
+                          only reads the device-local operation log in the per-user state directory, sends no request,
+                          needs no node, no config file and no passphrase, and changes nothing. A device with no
+                          operations recorded yet prints "no sync operations recorded on this device" and exits 0.
 
 Options:
   --config <path>         Config file (default ./ipfs-sync.config.json if present). Endpoints and
@@ -163,6 +171,7 @@ Options:
   --dry-run               prune-history: print the files that would be removed and stop; no lock, nothing written.
   --yes-prune             prune-history: the non-interactive yes to the removal. Without a terminal the command does nothing unless this or
                           --dry-run is given.
+  --limit <n>             history: how many operations to print (a whole number; default 20; 0 means all).
   --auth <scheme>         none | basic | bearer | header.
   --auth-user <user>      basic: user.
   --auth-header-name <n>  header: header name.
@@ -244,5 +253,7 @@ not given, or (accept-slots) the slot file did not unlock, did not authenticate 
 nothing was changed unless the message says a rewrap was left pending. keys discard and keys accept-slots exit 0 when there was
 nothing to do. For prune-history, 0 also means nothing to remove or a dry run, and 1 also means: the device is not up to date, a lock
 is held, a journal is pending, the node's history could not be trusted (withheld, planted or damaged files), or the removal was not
-confirmed; nothing was removed unless the message says a prune was left pending.
+confirmed; nothing was removed unless the message says a prune was left pending. For history, 0 also means no operations are
+recorded on this device yet, and 1 means the history database exists but could not be read (an unknown schema version is
+refused fail-closed); it sends no request either way.
 `;

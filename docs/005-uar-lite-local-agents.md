@@ -97,8 +97,10 @@ rail as the vault.
 Airplane mode, phone only:
 1. User asks the agent panel "find notes about X".
 2. UAR-lite embeds the query **locally** (ONNX), searches the local index
-   (embeddings for the current snapshot were synced down with the vault —
-   spec 003/AI-layer: index pinned to snapshot, keyed by content hash).
+   (embeddings are excluded from the vault snapshot by default — the index
+   is device-local, optional and rebuilt on the device from the synced files,
+   keyed by content hash; decision record: change
+   `mvp-08-sync-history-store`, design.md).
 3. Answers with citations to vault notes. No packets.
 
 When connectivity returns: op-log sync (Phase 2) reconciles, remote lanes

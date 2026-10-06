@@ -31,6 +31,12 @@ interface Checks {
 
 const ROOT = resolve(__dirname, "..", "..");
 const TOOLS = join(ROOT, "tools", "feature-op-mvp-07");
+/**
+ * One scenario run spawns the built CLI many times and every spawn boots the embedded PGlite history store
+ * (~1.8 s measured per fresh boot, mvp-08): the heaviest scenario (replay) took 32 s measured, so 90 s with
+ * headroom instead of the default 20 s.
+ */
+const SCENARIO_TIMEOUT_MS = 90_000;
 const temporary: string[] = [];
 const temp = (): string => {
   const path = mkdtempSync(join(tmpdir(), "fop07-cli-"));
@@ -119,25 +125,25 @@ describe("hostile preparer", () => {
     expect(entry.kind).toBe("machine");
     expect(entry.detail).toMatch(/\/tamper/);
     expect(run.transcript).toMatch(/hostile preparer/);
-  });
+  }, SCENARIO_TIMEOUT_MS);
 });
 
 describe("script-only CLI scenarios", () => {
   it("older root by name is refused and a restore by --root-cid needs the flag, then publishes at sequence + 1", async () => {
     await passes(["replay"], ["older-root-by-name-refused", "restore-older-version"]);
-  });
+  }, SCENARIO_TIMEOUT_MS);
 
   it("a fork is refused by name, resolved by --resolve-fork, and the next publish continues", async () => {
     await passes(["fork"], ["fork-resolved"]);
-  });
+  }, SCENARIO_TIMEOUT_MS);
 
   it("a rewrap is refused on the other device until it accepts; the old passphrase fails on the current file and opens the previous root", async () => {
     await passes(["keys"], ["rewrap-and-accept"]);
-  });
+  }, SCENARIO_TIMEOUT_MS);
 
   it("increase-cost raises the slot and an unattended publish then refuses the higher cost", async () => {
     await passes(["cost"], ["increase-cost"]);
-  });
+  }, SCENARIO_TIMEOUT_MS);
 
   it.skipIf(process.env.FOP07_PRUNE_FULL === undefined)("prune-history removes the oldest history files after 25 publishes and changes nothing else", async () => {
     await passes(["prune"], ["prune-history"]);
@@ -145,7 +151,7 @@ describe("script-only CLI scenarios", () => {
 
   it("mass-removal-stopped passes on the run's main vault", async () => {
     await passes(["mass"], ["mass-removal-stopped"]);
-  });
+  }, SCENARIO_TIMEOUT_MS);
 });
 
 describe("the complete verify-only replay", () => {

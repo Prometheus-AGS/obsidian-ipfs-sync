@@ -31,6 +31,13 @@ export interface ParsedArgs {
   readonly keys: KeysFlags;
   /** Flags only `prune-history` understands; other commands reject them. */
   readonly prune: PruneFlags;
+  /** Flags only `history` understands; other commands reject them. */
+  readonly history: HistoryFlags;
+}
+
+export interface HistoryFlags {
+  /** `--limit <n>`: how many records to print (0 means all; the default of 20 applies when the flag is absent). */
+  readonly limit: number | undefined;
 }
 
 export interface PruneFlags {
@@ -123,6 +130,7 @@ const OPTIONS = {
   keep: { type: "string" },
   "dry-run": { type: "boolean" },
   "yes-prune": { type: "boolean" },
+  limit: { type: "string" },
   help: { type: "boolean", short: "h" },
 } as const;
 
@@ -249,6 +257,18 @@ function pruneFlags(values: ReturnType<typeof parseStrict>["values"]): PruneFlag
   return { keep: positiveInteger("--keep", values.keep), dryRun: values["dry-run"] ?? false, yesPrune: values["yes-prune"] ?? false };
 }
 
+/** A non-negative whole number written in decimal digits only (0 is meaningful: all records), or undefined when the flag is absent. */
+function limitFlag(text: string | undefined): number | undefined {
+  if (text === undefined) return undefined;
+  const value = Number(text);
+  if (!/^[0-9]+$/.test(text) || !Number.isSafeInteger(value)) throw new UsageError(`--limit needs a non-negative whole number (0 means all), got "${text}"`);
+  return value;
+}
+
+function historyFlags(values: ReturnType<typeof parseStrict>["values"]): HistoryFlags {
+  return { limit: limitFlag(values.limit) };
+}
+
 /** Parse argv (without node and script). Throws UsageError on unknown flags; each command checks its own operands. */
 export function parseCliArgs(argv: readonly string[]): ParsedArgs {
   const parsed = parseStrict(argv);
@@ -271,5 +291,6 @@ export function parseCliArgs(argv: readonly string[]): ParsedArgs {
     pull: pullFlags(parsed.values),
     keys: keysFlags(parsed.values),
     prune: pruneFlags(parsed.values),
+    history: historyFlags(parsed.values),
   };
 }

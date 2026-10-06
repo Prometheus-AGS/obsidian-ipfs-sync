@@ -92,7 +92,7 @@ describe("--accept-first-pull covers the replace consequence on a true first pul
 describe("R7-L2: abandon needs no node URL", () => {
   it("says in the opening paragraph that abandon needs neither the RPC URL nor the gateway URL", () => {
     const opening = flat.slice(0, flat.indexOf("Usage:"));
-    expect(opening).toContain("The abandon command needs neither the RPC URL nor the gateway URL");
+    expect(opening).toContain("The abandon and history commands need neither the RPC URL nor the gateway URL");
   });
 });
 

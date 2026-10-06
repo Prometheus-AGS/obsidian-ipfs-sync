@@ -84,6 +84,6 @@ describe("ipfs-sync publish raises the floor under the device store lock (A-08)"
     const floor = await stat(join(directory, SEQUENCE_FLOOR_FILE));
     // Unlocked, the floor is written within milliseconds of the name publication, long before the lock is released.
     expect(floor.mtimeMs).toBeGreaterThanOrEqual((released ?? Infinity) - 5);
-    expect((await readdir(directory)).sort()).toEqual(["device-id", SEQUENCE_FLOOR_FILE]);
+    expect((await readdir(directory)).sort()).toEqual(["device-id", "history", SEQUENCE_FLOOR_FILE]);
   });
 });

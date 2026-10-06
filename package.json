@@ -20,6 +20,7 @@
   },
   "packageManager": "pnpm@12.8.1",
   "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@noble/hashes": "2.4.0"
   },
   "devDependencies": {

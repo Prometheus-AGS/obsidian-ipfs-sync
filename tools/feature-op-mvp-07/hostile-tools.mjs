@@ -9,16 +9,23 @@
 //     name-publish    points the owned key at an immutable root the node already reported (the proxy allows only the owned key and such roots).
 //   cli-yes.mjs   cli/run.ts compiled into a bundle whose terminal question is answered yes by the script. It exists only for the one command that has
 //                 no non-interactive spelling (pull --resolve-fork asks on a terminal); the hash-bound dist bundle cannot be answered without a pty.
+//                 Like cli/main.ts, the entry registers the PGlite runtime assets before runCli: the bundle inlines @electric-sql/pglite, whose
+//                 own import.meta.url resolution points at the temp bundle location, so the assets are read from the package's dist directory
+//                 (resolved here, in the host process, and injected as a literal) instead of the embedded-pglite: virtual modules of the CLI build.
 // The folder name of the test-only hook is assembled at run time, so that no import specifier in tools/ names it (the hook-isolation lint).
 import { spawn } from "node:child_process";
 import { build } from "esbuild";
-import { join } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import process from "node:process";
 import { REPO, Refusal } from "./constants.mjs";
 import { childEnv, firstLine } from "./policy.mjs";
 
 const CALL_TIMEOUT_MS = 120_000;
 const BANNER = 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);';
+// The dist directory of @electric-sql/pglite (pglite.data, pglite.wasm, initdb.wasm), resolved in THIS process and
+// injected into the cli-yes entry as a literal; same resolution as esbuild.options.mjs uses for the embedded assets.
+const PGLITE_DIST = dirname(createRequire(import.meta.url).resolve("@electric-sql/pglite"));
 /** The byte offset inside a blob's body (after the 22-byte header) where the preparer flips one bit. */
 export const FLIP_OFFSET = 22 + 5;
 export const TAMPER_SEQUENCE_BUMP = 10;
@@ -100,10 +107,19 @@ function hostileSource() {
 
 function cliYesSource() {
   const at = (...parts) => JSON.stringify(join(REPO, ...parts));
+  const asset = (name) => `readFileSync(pgliteJoin(${JSON.stringify(PGLITE_DIST)}, ${JSON.stringify(name)}))`;
   return [
+    `import { readFileSync } from "node:fs";`,
+    `import { join as pgliteJoin } from "node:path";`,
     `import { createProcessIo } from ${at("cli", "io.ts")};`,
     `import { readTextIfPresent } from ${at("cli", "load-config.ts")};`,
     `import { runCli } from ${at("cli", "run.ts")};`,
+    `import { provideEmbeddedPgliteAssets } from ${at("cli", "store", "pglite-store.ts")};`,
+    "provideEmbeddedPgliteAssets(async () => ({",
+    `  fsBundle: new Blob([${asset("pglite.data")}]),`,
+    `  pgliteWasmModule: await WebAssembly.compile(${asset("pglite.wasm")}),`,
+    `  initdbWasmModule: await WebAssembly.compile(${asset("initdb.wasm")}),`,
+    "}));",
     "const io = { ...createProcessIo(), confirm: async () => true };",
     "runCli(process.argv.slice(2), { env: process.env, now: () => new Date(), readText: readTextIfPresent }, io).then(",
     "  (code) => { process.exitCode = code; },",

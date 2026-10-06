@@ -1,6 +1,12 @@
 import { createProcessIo } from "./io";
 import { readTextIfPresent } from "./load-config";
 import { runCli } from "./run";
+import { embeddedPgliteOptions } from "./store/pglite-embedded-assets";
+import { provideEmbeddedPgliteAssets } from "./store/pglite-store";
+
+// This bundle is shipped as one file with no sidecar assets, so the PGlite runtime (pglite.data, pglite.wasm,
+// initdb.wasm) is embedded by esbuild and registered here, before any command can open the history store.
+provideEmbeddedPgliteAssets(embeddedPgliteOptions);
 
 runCli(
   process.argv.slice(2),

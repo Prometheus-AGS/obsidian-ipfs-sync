@@ -27,7 +27,10 @@ is the **traversable relationship store**. They reference each other by
   persistence) and Node (filesystem) — collapses the cross-platform matrix to a
   single code path; live queries give reactive index UI for free; pgvector is
   the most proven embedded vector path when brute force stops sufficing (~100k+
-  vectors; we're at ~10k × 384-dim ≈ 15 MB).
+  vectors; we're at ~10k × 384-dim ≈ 15 MB) — but pgvector is absent from
+  @electric-sql/pglite 0.5.8 (verified by `npm pack` listing at plan time for
+  change `mvp-08-sync-history-store`), so a pgvector implementation waits for
+  a version that carries it or a different engine.
 - **SurrealDB WASM for the graph:** the vault is fundamentally a graph problem
   (notes, links, tags, embeddings-neighborhoods, agent-inferred relations), and
   graph traversals in SQL are painful vs SurrealQL's native `->` / `<->` /
@@ -41,8 +44,10 @@ is the **traversable relationship store**. They reference each other by
 
 > **Both stores are throwaway caches.** The source of truth is the vault +
 > manifest on IPFS (spec 005). iOS can evict IndexedDB under storage pressure;
-> the answer is rehydration, not grief: embeddings ride the vault snapshot
-> (content-keyed), the graph is rebuildable by re-parsing notes + replaying
+> the answer is rehydration, not grief: embeddings are excluded from the vault
+> snapshot by default and the embedding store is device-local, optional and
+> rebuilt on the device (decision record: change `mvp-08-sync-history-store`,
+> design.md); the graph is rebuildable by re-parsing notes + replaying
 > agent relation records. Worst case = seconds-to-minutes of rebuild, zero
   data loss.
 
@@ -86,8 +91,10 @@ WHERE kind IN ['links','backlinks'] LIMIT 50;
 
 ## Build/update pipeline
 
-1. **Baseline (sync pull):** manifest arrives → PGlite `files` upsert → any
-   synced embeddings hydrate `embeddings` (content-keyed, model-matched).
+1. **Baseline (sync pull):** manifest arrives → PGlite `files` upsert →
+   `embeddings` is rebuilt on the device for the changed content
+   (content-keyed, model-matched); no embedding data arrives with the
+   snapshot (decision record: change `mvp-08-sync-history-store`, design.md).
 2. **Incremental (note save):** sha256 change → re-embed locally (ONNX lane,
    spec 005) → update `embeddings`; link/tag parser updates `relation` edges
    with `provenance: 'parser'`.
