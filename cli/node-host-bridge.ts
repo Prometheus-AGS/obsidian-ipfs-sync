@@ -119,7 +119,14 @@ function createFs(root: string): HostFs {
   return {
     list: async (dir) => listDirectory(at(dir)),
     stat: async (path) => statOrUndefined(at(path)),
-    read: async (path) => readFile(at(path)),
+    read: async (path) => {
+      try {
+        return await readFile(at(path));
+      } catch (error) {
+        if (isMissing(error)) throw new FileRemovedDuringReadError(path);
+        throw error;
+      }
+    },
     readRange: async (path, offset, length) => readSlice(at(path), path, offset, length),
     write: async (path, data) => {
       const target = await mutableAt(path);

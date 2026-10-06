@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { HostPathError, createNodeHostBridge } from "../../cli/node-host-bridge";
 import type { HostBridge } from "../../src/core/host-bridge";
-import { HostNotImplementedError } from "../../src/sync/host-errors";
+import { FileChangedDuringReadError, FileRemovedDuringReadError, HostNotImplementedError } from "../../src/sync/host-errors";
 
 const bytes = (text: string): Uint8Array<ArrayBuffer> => new TextEncoder().encode(text);
 const text = (data: Uint8Array): string => new TextDecoder().decode(data);
@@ -39,6 +39,22 @@ describe("node host bridge", () => {
     expect(text(await host.fs.readRange("r.bin", 2, 4))).toBe("2345");
     expect(text(await host.fs.readRange("r.bin", 8, 10))).toBe("89");
     expect((await host.fs.readRange("r.bin", 10, 4)).length).toBe(0);
+  });
+
+  it("raises FileRemovedDuringReadError from a whole-file read of a file deleted since the scan", async () => {
+    await host.fs.write("gone.md", bytes("was here"));
+    await rm(join(root, "gone.md"));
+    const error = await host.fs.read("gone.md").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(FileRemovedDuringReadError);
+    expect(error).toBeInstanceOf(FileChangedDuringReadError);
+    expect((error as Error).message).toBe('"gone.md" was removed while it was being read');
+  });
+
+  it("passes a whole-file read failure that is not a removal through unchanged", async () => {
+    await host.fs.mkdir("a-directory");
+    const error = await host.fs.read("a-directory").catch((caught: unknown) => caught);
+    expect(error).not.toBeInstanceOf(FileRemovedDuringReadError);
+    expect((error as NodeJS.ErrnoException).code).toBe("EISDIR");
   });
 
   it("creates directories, removes files and tolerates removing a missing one", async () => {

@@ -98,7 +98,7 @@ export function createObsidianFs(adapter: VaultAdapter, options: ObsidianFsOptio
     const clean = assertVaultPath(path);
     const info = await adapter.stat(clean);
     if (info?.type === "file" && info.size > capBytes) throw new HostReadCapError(clean, info.size, capBytes);
-    return new Uint8Array(await adapter.readBinary(clean));
+    return readBinaryOrRemoved(clean);
   };
 
   /** Copies of files being read range by range, by vault path: bytes plus the stat taken before loading. */
