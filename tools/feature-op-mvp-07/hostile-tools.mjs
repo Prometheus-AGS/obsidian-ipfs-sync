@@ -4,6 +4,9 @@
 //   hostile.mjs  ops, all through the confinement proxy:
 //     prepare-tamper  reads a genuine root of a throwaway vault, unlocks it with the vault's own passphrase through the test-only unwrap hook, and
 //                     writes a tampered copy (one blob with a flipped bit, a new authentic manifest.enc at a higher sequence) below ONE folder.
+//                     With "completeTree": true in the JSON input the tamper tree instead holds a FULL copy of the genuine tree (keyslots.json,
+//                     manifest.enc and every blob under current/, exactly one carrying the flipped bit), still by files/write below that one
+//                     folder; the answer's "mode" field reports "complete-tree" or the default "single-blob".
 //     prepare-fork    writes a second authentic manifest.enc of the same sequence and vault (another device name and time, so another identity)
 //                     below ONE folder: the other half of a fork, which one MFS root cannot produce by itself.
 //     name-publish    points the owned key at an immutable root the node already reported (the proxy allows only the owned key and such roots).
@@ -70,13 +73,22 @@ function hostileSource() {
     "async function prepareTamper(input) {",
     "  const client = makeClient(input);",
     "  const { source, slots, keys, manifest } = await unlock(client, input);",
+    "  const complete = input.completeTree === true;",
     "  const target = Object.keys(manifest.files).sort()[0];",
     "  const entry = manifest.files[target];",
-    "  const blobPath = 'current/' + entry.blob.slice(0, 2) + '/' + entry.blob;",
-    "  const blob = Buffer.from(await client.gatewayFetch(source, blobPath));",
-    `  blob[${FLIP_OFFSET}] ^= 1;`,
+    "  const blobPathOf = (value) => 'current/' + value.blob.slice(0, 2) + '/' + value.blob;",
+    "  const blobPath = blobPathOf(entry);",
+    "  const writeBlob = async (value, flip) => {",
+    "    const bytes = Buffer.from(await client.gatewayFetch(source, blobPathOf(value)));",
+    `    if (flip) bytes[${FLIP_OFFSET}] ^= 1;`,
+    "    await client.filesWrite(input.tamperDir + '/' + blobPathOf(value), bytes);",
+    "  };",
     "  await client.filesWrite(input.tamperDir + '/keyslots.json', slots);",
-    "  await client.filesWrite(input.tamperDir + '/' + blobPath, blob);",
+    "  if (complete) {",
+    "    for (const [path, value] of Object.entries(manifest.files)) await writeBlob(value, path === target);",
+    "  } else {",
+    "    await writeBlob(entry, true);",
+    "  }",
     "  const current = (await client.filesStat(input.tamperDir + '/current')).cid;",
     "  const blobCid = (await client.filesStat(input.tamperDir + '/' + blobPath)).cid;",
     "  const flipped = { ...entry, sha256: (entry.sha256[0] === '0' ? '1' : '0') + entry.sha256.slice(1), cid: blobCid };",
@@ -84,7 +96,7 @@ function hostileSource() {
     "  const next = { ...manifest, sequence: manifest.sequence + input.bump, rootCID: current, publishedAt: new Date().toISOString(), files };",
     "  const encoded = await encodeManifestFile(keys, next);",
     "  await client.filesWrite(input.tamperDir + '/manifest.enc', encoded.file);",
-    "  return { root: (await client.filesStat(input.tamperDir)).cid, target, sequence: next.sequence, sourceSequence: manifest.sequence };",
+    "  return { root: (await client.filesStat(input.tamperDir)).cid, target, sequence: next.sequence, sourceSequence: manifest.sequence, mode: complete ? 'complete-tree' : 'single-blob', blobsWritten: complete ? Object.keys(manifest.files).length : 1 };",
     "}",
     "async function main() {",
     "  const [op, raw] = process.argv.slice(2);",

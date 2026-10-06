@@ -11,6 +11,7 @@
     "dev": "node esbuild.config.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.src.json && tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
+    "test:e2e": "vitest run --config tests/e2e/vitest.config.ts",
     "probe:webview": "node tools/webview-import-probe.mjs",
     "fixture:generate": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON fixtures/generate-fixture-vault.ts"
   },
