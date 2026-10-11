@@ -349,28 +349,83 @@ Resolved by decision D-E (2026-10-11): the demo runs via the CLI gate build, so 
 
 not run — mobile stays unverified (T3)
 
-## 7. Release record and approval evidence (tasks 5.2, 5.3 — team fills)
+## 7. Release record and approval evidence (tasks 5.2, 5.3)
 
-- Release record path: <>
-- Packaged assets under `dist/release/v0.4.0/` and checksum re-verification (paste): <>
-- Operator approval text reference (pre-approval recorded in
-  `.kbd-orchestrator/phases/mvp/execution.md`, 2026-10-06 entry): <confirmed>
-- `gh release view v0.4.0` output (paste): <>
-- Publication receipt: <produced at … | pending — no first-party page with absolute asset URLs>
+- Release record path: `dist/release/v0.4.0/` (local; `dist/` is gitignored, as with
+  v0.3.0) — `main.js`, `manifest.json`, `ipfs-sync-cli-0.4.0.tgz`, `SHA256SUMS`,
+  `release-notes.md`, `evidence.json`
+- Checksum re-verification: the tool re-verified at write time; independently re-run:
+
+  ```
+  $ cd dist/release/v0.4.0 && shasum -a 256 -c SHA256SUMS
+  ipfs-sync-cli-0.4.0.tgz: OK
+  main.js: OK   (fd46e105… — identical to the demo gate build)
+  manifest.json: OK
+  ```
+
+- Release notes gate check: `grep -ci 'airplane\|on-device' release-notes.md` → 1 hit,
+  inside the gate sentence that says the iPhone run has not happened; the notes open
+  with the can/cannot paragraph.
+- Approval: the operator's 2026-10-06 pre-approval ("outward steps for v0.4.0 are
+  pre-approved once the demo record is green", `.kbd-orchestrator/phases/mvp/execution.md`)
+  stands as the single batched approval (D-B); the demo record went green (§5: 0
+  mismatches) before any outward step ran.
+- Executed outward steps: commit `87b87f8` ("feat: mvp-10 real-vault round trip and
+  Release 3 (v0.4.0)"); annotated tag `v0.4.0` (tag object `d46008d6…`, target commit
+  `87b87f8c90f98693bd4faaedaa97614488e24e50` — the SHA that shipped); branch push
+  `ecb73dd..87b87f8 mvp-07b-guard-removal`; tag push;
+  `gh release create v0.4.0 --repo Prometheus-AGS/obsidian-ipfs-sync --verify-tag
+  --prerelease --latest=false` with the four assets and the notes file.
+- `gh release view v0.4.0` output:
+
+  ```json
+  {"assets":["ipfs-sync-cli-0.4.0.tgz","main.js","manifest.json","SHA256SUMS"],"prerelease":true,"tag":"v0.4.0","target":"main","url":"https://github.com/Prometheus-AGS/obsidian-ipfs-sync/releases/tag/v0.4.0"}
+  ```
+
+- Publication receipt: **pending** — no first-party page with absolute asset URLs exists
+  (same standing as Release 2).
 
 ## 8. Cleanup evidence (task 6.1 — pre-approved, executed once)
 
 - Confirmation source: operator pre-approval "demo-root cleanup after each feature op"
-  (execution.md, 2026-10-06 entry)
-- `files/ls /obsidian-vault-sync` before (paste): <>
-- `files/rm -r /obsidian-vault-sync/publish-real-20260929` result: <>
-- `files/ls /obsidian-vault-sync` after (paste — staging tree gone, nothing else changed): <>
+  (`.kbd-orchestrator/phases/mvp/execution.md`, 2026-10-06 entry; cited by the amended
+  task 6.1)
+- Executed 2026-10-11, after §5 passed:
+  `kubectl --context know-me -n ipfs exec ipfs-0 -c ipfs -- ipfs files rm -r
+  /obsidian-vault-sync/publish-real-20260929`
+- Before `files/ls /obsidian-vault-sync` (13 roots):
 
-## 9. Unverified list and goal statement (task 6.2 — team fills)
+  ```
+  mvp02-demo mvp03-demo mvp04-demo mvp05-demo mvp06-demo mvp06-probe mvp07a-demo
+  mvp07b-demo mvp08-demo phone-test-1 phone-test-big publish-real-20260929 real-obsidian
+  ```
 
-- Unverified: <mobile unless 3.3 ran; Android; non-macOS hosts; the CLI's missing read cap
-  and exclusion option; metadata visibility per T4; the publication receipt if pending;
-  authenticated endpoint>
-- Supporting evidence cited, not re-run: mvp-09's green `pnpm test:e2e` run (2026-10-06,
-  5/5 scenarios).
-- Phase goals 6 and 7: <met — this record is the evidence | gap: …>
+- After (12 roots; the staging tree is gone, nothing else changed):
+
+  ```
+  mvp02-demo mvp03-demo mvp04-demo mvp05-demo mvp06-demo mvp06-probe mvp07a-demo
+  mvp07b-demo mvp08-demo phone-test-1 phone-test-big real-obsidian
+  ```
+
+- No `key/rm`, no `pin/rm`, no other node state touched.
+
+## 9. Unverified list and goal statement (task 6.2)
+
+- Unverified: mobile (3.3 not run — T3); Android; non-macOS hosts; the CLI's missing
+  read cap and exclusion option (plugin-only features; the demo's CLI route published
+  the 195.4 MiB file uncapped); metadata visibility per T4 (file count, sizes, timing
+  and access patterns of the operator's vault are visible to the node and the DHT);
+  the publication receipt (pending, §7); an authenticated endpoint (the shared node's
+  RPC takes no credential).
+- Scanner coverage caveat carried from §1: gitleaks read 671.95 MB of the 954.9 MiB
+  publishable set (binary-detected files skipped); the name-scan adjudication covers all
+  36 names regardless.
+- Supporting evidence cited, not re-run: mvp-09's green `pnpm test:e2e` (2026-10-06,
+  5/5 scenarios against ipfs.prometheusags.ai, exit 0) — goal-6 supporting evidence.
+- **Phase goals 6 and 7: met.** Goal 6: the operator's real vault (4,825 files,
+  1,001,531,092 bytes publishable) was published encrypted to the operator's own node —
+  §4 (652 s, sequence 1, root CID
+  `bafybeihoemb6amr2txinn4w4oabcttv3wpcufxbmmsyej6xxpeu54qzzwa`, IPNS resolving).
+  Goal 7: it was reproduced into a fresh directory with **0 mismatches** across the
+  published set — §5 (4,825 fetched, 4,825/4,825 sha256-equal, 0 missing, 0 extra).
+  This record is the evidence.

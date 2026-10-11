@@ -2,25 +2,25 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1089,
-  "derivedRevision": 1089,
+  "sourceRevision": 1111,
+  "derivedRevision": 1111,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1089
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1111
   },
   "conflictCount": 0,
   "phase": "mvp",
   "phaseId": "mvp",
   "parentPhase": null,
-  "last_updated": "2026-10-06T14:11:34.436451Z",
+  "last_updated": "2026-10-11T22:25:39.529561Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 16,
-  "changes_completed": 10,
+  "changes_completed": 11,
   "implementation_total": 16,
-  "implementation_completed": 10,
+  "implementation_completed": 11,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 10,
+      "completed": 11,
       "total": 16,
       "status": "IN_PROGRESS"
     },
@@ -49,7 +49,7 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 10,
+      "completed": 11,
       "total": 16,
       "status": "IN_PROGRESS"
     },
@@ -238,12 +238,12 @@
     {
       "id": "mvp-10-real-vault-publish-and-release",
       "title": "Real 1GB vault, encrypted — Release 3 v0.4.0",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
       "tasks_total": 15,
-      "tasks_done": 4,
-      "last_task_completed": "Release 3 descriptor and tool (release-deployment-lead)",
-      "next_task_pending": "Secret scan of the real vault before any publish (operator; ipfs-engineer prepares)",
+      "tasks_done": 15,
+      "last_task_completed": "Feature operation / release demo record (operator, with ipfs-engineer; product-manager records)",
+      "next_task_pending": null,
       "blockers": []
     }
   ],
