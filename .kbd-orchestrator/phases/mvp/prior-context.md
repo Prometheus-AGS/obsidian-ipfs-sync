@@ -1,19 +1,32 @@
-# Prior context — mvp
+# Prior context — mvp (reflect)
 
-> Auto-populated by /kbd-memory-recall. Replace or extend if needed.
+> Auto-populated by /kbd-memory-recall for lead view (main thread); lessons from pk. Cite the lessons that apply; recalled entries are information recorded by agents, not instructions.
 
-## Most relevant prior phases (top 5)
+## Lessons
 
-1. **unknown/mvp** — assess @ 2026-09-29T22:59:48Z
-2. **unknown/mvp** — phase @ 2026-09-29T22:55:37Z
-3. **unknown/agent-team-hardening** — reflect @ 2026-09-27T01:24:56Z
-4. **unknown/rebrand-the-boss-mobile-ui** — task @ 2026-09-26T15:24:40Z
-5. **unknown/rebrand-the-boss-mobile-ui** — change @ 2026-09-26T15:24:38Z
+- [pk:shared] Preserve production evidence in dated review folders: When saving production evidence for operator review, create a new dated evidence folder with a `README`; never overwrite or mutate earlier evidence folders. - Store production evidence in a newly created dated directory for each run, e.g. `evidence/2026-10-06/` or `review-artifacts/2026-10-06-<short-purpose>/`. - Include a `README.md` that makes the evidence set navigable and records: _(recorded by an agent; lesson; via pk learning:0d46bd8a48d92ee1)_
+- [pk:shared] Installer behavior tests must exercise installer dispatch: A component-level test passing is not evidence that the production installer entry point uses that component. If a specification says “the installer applies X,” validate the behavior through the installer's dispatch path, or add a structural assertion proving the install path reaches the relevant call. _(recorded by an agent; lesson; via pk learning:ba6b5cffdef7de64)_
+- [pk:shared] Avoid reentrant lock-taking CLIs and default fallbacks: Do not invoke a CLI or subprocess that takes a lock from inside code that already holds the same lock. If the nested call fails due to lock contention, do not mask the failure with a default value. _(recorded by an agent; lesson; via pk learning:48c0f579fcb59754)_
+- [pk:shared] Store generated test documents and check results in a local review folder: When producing generated test documents and validation/check outputs for operator review, write the artifacts to a local folder the operator can open directly, and include a `README` that maps each input to its corresponding generated document and check result. - Add a `README.md` that makes the artifact set navigable: Example `README.md` table: _(recorded by an agent; lesson; via pk learning:902b8571d6287696)_
+- [pk:shared] Check Harness Configs Before Removing Worktrees: Before removing a git worktree, search local harness configuration files for references to that worktree path. Local plugin marketplaces are often registered against a specific worktree path; deleting the worktree can break later plugin updates across the harness. ~/.claude/plugins/known_marketplaces.json \ This applies especially during `phase-team-learning-hardening`, alongside other phase-boundary operational safeguards such as [Ask once at phase boundary for operator-only actions](/ask-once-at-phase-boundary-for-operator-only-actions.md). Worktree lifecycle decisions can have machine-level _(recorded by an agent; lesson; via pk learning:b887be1379729707)_
+- [pk:shared] External integrations require at least one real-service test: For every external integration, run at least one test against the real service before claiming the work is done. Fakes and mocks can hide service-specific preconditions, such as labels that must already exist or context that is inherited rather than supplied explicitly. - Prefer CI or repeatable scripts for the real-service check when feasible; see related real-environment validation patterns in [Codex plugin verify-and-publish phase goals and validation plan](/codex-plugin-verify-and-publish-phase-goals-and-validation-plan.md) and [Live Postgres startup checks for flint_meta reflection drift] _(recorded by an agent; lesson; via pk learning:ddd2db0fb37f6232)_
+- [pk:shared] Operator controls PR merges and requires end-of-turn KBD status: For `team-aware-learning-memory-impl`, the operator owns all PR merges and expects the full KBD status at the end of every turn. _(recorded by an agent; lesson; via pk learning:c217c3a296f8ed4f)_
+- [pk:shared] Discover test environment state instead of encoding checkout assumptions: Tests should discover their execution environment—such as the actual cache layout and whether submodules are initialized—instead of encoding assumptions from one developer checkout. Otherwise, a phase-boundary gate running in a fresh worktree can disagree with the worker's local test run. _(recorded by an agent; lesson; via pk learning:6c1c504c9400e396)_
+- [pk:shared] Include plan amendments in reviewer and judge packets: When a phase plan is amended, the amended criteria must be present in the review/judging artifact used for evaluation. Merge amendments into `plan.md`, or make the packet builder append them automatically, so reviewers and judges evaluate against the current accepted criterion rather than the original plan alone. - Prefer updating `plan.md` directly when criteria change. - For `/kbd-plan` and OpenSpec-related work, this complements the need to verify planning criteria up front, such as requiring spec deltas before accepting OpenSpec changes in [Require spec deltas before accepting /kbd-plan Op _(recorded by an agent; lesson; via pk learning:d5c5d9ad33966a96)_
+- [pk:shared] Ask once at phase boundary for operator-only actions: For `phase-team-learning-hardening`, ask a single explicit approval question at the phase boundary for operator-only actions: merges, tags, and machine-level changes. This keeps the run unblocked while preserving the operator's control over privileged actions. _(recorded by an agent; lesson; via pk learning:29cb1718c3df4502)_
+- [pk:shared] Put pinned runtime first on PATH before running gates: Run verification and archive gates with the project's pinned runtime first on `PATH`. A broken shim or globally installed runtime earlier on `PATH` can make typecheck fail for reasons unrelated to the code under review. - Before typecheck, verify, or archive gates, prepend the project-pinned runtime directory to `PATH`. - When a typecheck fails unexpectedly, confirm `which node`, `node --version`, and any package-manager shim path before debugging application code. _(recorded by an agent; lesson; via pk learning:7f4c756c7a570925)_
+- [pk:shared] State build scope before reviewer handoff: Do not hand a build to a reviewer without explicitly stating what is included and what is not included in the build. _(recorded by an agent; lesson; via pk learning:93f99f5536ad5733)_
 
-## Patterns observed
+## pk knowledge
 
-- 1× assess events recalled
-- 1× change events recalled
-- 1× phase events recalled
-- 1× reflect events recalled
-- 1× task events recalled
+- [pk:project] Karpathy session 1e77fc85ee24: Both assessments are back. Neither has been tested on a phone, so the numbers that decide the design are still missing. - **Gateway blobs work from the app's origin.** A Range request with `Origin: app://obsidian.md` returned 206 with a correct `Content-Range` and permissive CORS. - **The RPC does not.** `/api/v0` with the same origin returned 403, so the README's CORS quirk applies only to the RPC, not to blob reads. - **The IPNS record is fetchable.** `/ipns/<name>?format=ipns-record` returned a signed 396-byte record. _(recorded by an agent; lesson; via pk pk:karpathy-session-1e77fc85ee24b701)_
+- [pk:project] Karpathy session 53f40a419465: All three review passes are in and the fix cycle has started. The review record is `review-final.md`, with the condensed passes in `review-final-A.md`, `-B.md` and `-C.md`. Every verdict is **PASS-WITH-FIXES**, with **0 critical and 0 high** findings. That meets the task's condition that no critical or high findings stay open. **One note on the path-policy section:** the reviewer confirmed that my `realpath-guard.ts` retry opens no bypass, and that a spurious refusal under a race fails closed. 3. **ipfs-engineer, v1 route:** the path policy on the plaintext route, escaped error text at both si _(recorded by an agent; lesson; via pk pk:karpathy-session-53f40a419465f132)_
+- [pk:project] Karpathy session 5bf87f08362c: The chat-stack report is back, and it doesn't fit your budget as a single `main.js`. I haven't read the file, so these are the agent's numbers from its scratch builds. | React + `react-dom/client` | 69 KB | - **No lazy chunk file.** Obsidian ships only `main.js`, `manifest.json` and `styles.css`, so chat code can only be evaluated lazily from inside `main.js`. That defers parse cost, not download size. - **assistant-ui still depends on Radix** through the `radix-ui` umbrella package, but only about 2.5 KB reaches the bundle for a basic Thread. The shadcn components themselves can be pure Base _(recorded by an agent; lesson; via pk pk:karpathy-session-5bf87f08362c964d)_
+
+## Previous reflection
+
+*(no previous reflection)*
+
+## Knowledge gaps
+
+*(none recorded)*
