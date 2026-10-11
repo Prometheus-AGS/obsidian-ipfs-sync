@@ -32,10 +32,35 @@ task 2.3 (no `manifest.enc`, no other entries). The gate build the operator inst
 
 ## 1. Operator gate 2.1 — secret scan
 
-Paste the filled template from `mvp-10-secret-scan.md` §4 here: scan tool name, tool
-version, scan date, publishable-set size at scan time, content findings count,
-OpenAI-key-shaped finding remaining (yes/no), overall verdict GO/NO-GO, and both
-adjudication tables (content findings; all 36 name-list rows).
+Agent-run under design decision D-E (operator authorization 2026-10-11,
+`.kbd-orchestrator/phases/mvp/execution.md`); the operator adjudicates.
+
+- Name-scan list provenance: reconstructed 2026-10-06, pattern
+  `password|secret|credential|cert|gpg` on publishable `.md` basenames, count 36
+  (2026-10-05 scan recorded the count only; list not persisted).
+- Content scan tool: gitleaks (`gitleaks dir --redact`), run by the agent
+- Tool version: 8.30.1
+- Scan date: 2026-10-11
+- Publishable set at scan time: 4,825 files / 1,001,531,092 bytes
+- Scanner coverage caveat: gitleaks scanned 671.95 MB of the ~954 MiB publishable set;
+  binary-detected files (PDFs and similar) are skipped by the scanner.
+- Content findings in the publishable set: 686 findings across 134 files
+  (440 of them — 64% — in two files: `Keys and Stuff.md…` (len 17) and
+  `skytok/Supabase.md…` (len 19))
+- OpenAI-key-shaped finding remaining in publishable set: **yes** — 8 files carry
+  `openai-api-key` findings (worksheet section A)
+- Overall verdict: <GO / NO-GO — after adjudication>
+
+### Content findings adjudication
+
+Operator worksheet with full paths: `/tmp/mvp10-adjudication.md` (local, deleted after).
+Filled adjudication table lands here, names abbreviated (first 20 chars + len), one row
+per file: <pending operator adjudication — 153 rows in the worksheet>
+
+### Name-list adjudication (36/36 required)
+
+<to be filled from the worksheet section C: 25 of 36 had no content findings (name-only
+matches); 11 had findings — verdicts pending>
 
 ## 2. Operator gate 2.2 — OpenAI key rotation
 

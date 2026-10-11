@@ -40,6 +40,8 @@ Constraints that bind: `no-console-log-in-commits`, `no-any-type`, `no-hardcoded
 
 **D-D. The 195 MiB file and `.llm-wiki/` are operator decisions at preparation time, recorded in the demo record.** Options for the file: raise the plugin read cap above 195 MiB for the run (desktop-class memory) or add a user exclusion. `.llm-wiki/` (1,461 churning files) stays in by default — it is exactly the churn the hardening exists for — unless the operator excludes it; either way the exclusion list and its hash go into the record. The product position: the demo is more convincing with the churn included and the file's handling stated than with a sanitised vault.
 
+**D-E. The demo is agent-run via the CLI gate build (operator authorization, 2026-10-11).** Offered "agent-run demo authorized, CLI path acceptable as evidence, plugin smoke optional", the operator answered "yes" (recorded in `.kbd-orchestrator/phases/mvp/execution.md`, 2026-10-11 entry). The agent runs the secret scan, the real-vault publish and the fresh-vault pull/comparison for this change, superseding the 2026-10-05 operator-hands rule ("Do NOT publish the real directory without the operator running it") for mvp-10 only. D-E is the controlling decision for the demo route wherever this change's earlier text says otherwise (the Goals' operator-publishes framing, decision 3's Obsidian-desktop-only route, the Feature Operation procedure). Evidence route: the CLI build from the task-1.2 gate (`dist/cli/ipfs-sync.mjs`) publishes the real vault; an Obsidian-plugin smoke run is optional, not required evidence. Rationale: mvp-09's green `pnpm test:e2e` already proves the encrypted loop unattended against the same node, so human-hands execution added ceremony, not evidence. The residual human-only acts: adjudication of the scan findings (only the operator knows which credentials are live) and the OpenAI key rotation (account-bound). Accepted CLI consequences: the CLI has no read cap and no exclusion option (both exist only in the plugin), so (a) D-D's read-cap decision is moot for the demo — the 195 MiB file is simply published; (b) the adjudication verdict "excluded" is not implementable on the CLI path — findings resolve as rotated/removed/false-positive, or the plugin route is chosen instead; (c) the publication key defaults to a fresh `obsidian-vault-real` name (matches the node-safety pattern `^obsidian-vault(-[a-z0-9-]+)?$`, `src/core/config/node-safety.ts:57`) so the existing `obsidian-vault-sync` name keeps pointing at the demo root, unless the operator overrides at adjudication time.
+
 ## Decisions
 
 1. **Hardening shape.** `cli/node-host-bridge.ts` `read` maps a missing file (the existing `isMissing` check used by `openForRead`) to `FileRemovedDuringReadError`; `src/plugin/obsidian-fs.ts` `readAll` routes its `readBinary` call through the existing `readBinaryOrRemoved`. No new error type, no engine change, no signature change. Tests prove the skip for both hosts: a file deleted between scan and hash produces a skipped entry and a completed publish.
@@ -59,7 +61,7 @@ Constraints that bind: `no-console-log-in-commits`, `no-any-type`, `no-hardcoded
 - [Batched approval reduces per-action deliberation] -> accepted by the operator; mitigated by showing every exact command, checksum and the full notes text in the single gate, and by reporting struck items as not performed.
 - [No independent review before Release 3] -> stated in decision 6 and in the release notes' evidence section; the cumulative phase-boundary review follows.
 - [The real vault's metadata becomes node-visible] -> T4, accepted at plan time; the operator gate is where the operator accepts it for this specific vault, and the notes carry the "what is not hidden" section.
-- [A secret the scan misses gets encrypted and uploaded] -> the scan is operator-run with the 36 known secret-like names adjudicated one by one; encryption bounds the exposure to holders of the passphrase, and the rotation covers the one key already known leaked. Residual risk is the operator's to accept at the gate.
+- [A secret the scan misses gets encrypted and uploaded] -> the scan runs over the publishable set with the 36 known secret-like names adjudicated one by one by the operator (D-E); encryption bounds the exposure to holders of the passphrase, and the rotation covers the one key already known leaked. Residual risk is the operator's to accept at the adjudication.
 
 ## Migration Plan
 
@@ -67,7 +69,7 @@ Nothing to migrate. The hardening is additive error mapping. Rollback: `git reve
 
 ## Feature Operation
 
-The release demo, operator-run (procedure; tasks 3.1–3.3 carry the steps and Verify lines):
+The release demo, agent-run under D-E via the CLI gate build (procedure; tasks 3.1–3.3 carry the steps and Verify lines):
 
 1. Preconditions on the record: secret scan verdict with all 36 names adjudicated; OpenAI key rotated; adopt path proven on a scratch root; plugin settings recorded (node URLs, mfsRoot `/obsidian-vault-sync/real-obsidian`, key, exclusion list + hash, read cap).
 2. From Obsidian desktop, the operator publishes the host vault. Record: wall time, bytes sent, file count, root CID, the IPNS resolution, and the complete skipped-file list with reasons.
