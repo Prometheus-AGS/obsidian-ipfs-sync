@@ -1,5 +1,7 @@
 node_modules/
 main.js
+# golden fixtures include a main.js that the release regression tests compare against
+!tests/golden/**/main.js
 *.log
 .DS_Store
 dist/
