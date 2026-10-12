@@ -1,0 +1,59 @@
+{
+  "change": "mvp-10-real-vault-publish-and-release",
+  "passed": true,
+  "date": "2026-10-11",
+  "route": "agent-run via the CLI gate build under design decision D-E (operator authorization 2026-10-11); no Obsidian-desktop publish claimed",
+  "record": "docs/operator/mvp-10-demo-record.md",
+  "operatorGate": {
+    "scanTool": "gitleaks",
+    "scanToolVersion": "8.30.1",
+    "scanDate": "2026-10-11",
+    "publishableSet": "4825 files / 1001531092 bytes",
+    "contentFindings": "686 in 134 publishable files; adjudicated kept/rotated/false positive by the operator",
+    "openaiKeysRevoked": "2026-10-11",
+    "verdict": "GO"
+  },
+  "publish": {
+    "started": "2026-10-11T21:44:45Z",
+    "finished": "2026-10-11T21:55:37Z",
+    "wallSeconds": 652,
+    "filesWritten": 4825,
+    "filesRemoved": 0,
+    "plaintextBytes": 1001531092,
+    "publicationKey": "obsidian-vault-real",
+    "keyId": "k51qzi5uqu5dlend4qc9g19x832i7tta6rxrz35ycnmbio8dndzvrx1cfpv4eb",
+    "rootCid": "bafybeihoemb6amr2txinn4w4oabcttv3wpcufxbmmsyej6xxpeu54qzzwa",
+    "snapshotCid": "bafybeigcdchpg53d5z5kbrbniftd7t6ndnrxgbibh4cxygxqesqxjbdpny",
+    "sequence": 1,
+    "skippedFiles": 0
+  },
+  "pull": {
+    "started": "2026-10-11T21:57:26Z",
+    "finished": "2026-10-11T22:03:10Z",
+    "wallSeconds": 343,
+    "fetched": 4825,
+    "conflicts": 0,
+    "integrityFailed": 0,
+    "unfetched": 0,
+    "note": "first attempt exited 1 at the 512 MiB pull-confirmation ceiling; completed with --accept-large"
+  },
+  "comparison": {
+    "publishedSet": 4825,
+    "pulled": 4825,
+    "equal": 4825,
+    "mismatches": 0,
+    "missing": 0,
+    "extra": 0,
+    "drift": 0
+  },
+  "history": "ipfs-sync history from a fresh CLI process lists the publish and the pull from the on-disk database",
+  "mobile": "not run — mobile stays unverified (T3)",
+  "unverified": [
+    "mobile (T3)",
+    "Android",
+    "non-macOS hosts",
+    "the CLI has no read cap and no exclusion option (plugin-only features)",
+    "metadata visibility per T4: file count, sizes, timing and access patterns are not hidden",
+    "publication receipt (pending unless a first-party page with absolute asset URLs exists)"
+  ]
+}

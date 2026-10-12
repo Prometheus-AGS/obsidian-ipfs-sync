@@ -808,7 +808,8 @@ describe("hostile text and the path policy", () => {
     const byPath = Object.fromEntries(verified.policy.refusals.map((refusal) => [refusal.path, refusal]));
     expect(byPath[".obsidian/plugins/x/main.js"]).toMatchObject({ severity: "unsafe", class: "shape" });
     expect(byPath["CON.md"]).toMatchObject({ severity: "unsafe", class: "platform" });
-    expect(byPath[`${rlo}evil.`]).toMatchObject({ severity: "unsafe", class: "platform" });
+    // mvp-07b 7.6: a bidirectional override is a shape refusal now (it was platform, by its trailing dot).
+    expect(byPath[`${rlo}evil.`]).toMatchObject({ severity: "unsafe", class: "shape", code: "bidi-control" });
     expect(verified.policy.accepted).toEqual(["Notes/ok.md"]);
   });
 

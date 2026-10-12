@@ -43,6 +43,7 @@ export type PublishRefusalCode =
   | "history-junk"
   | "floor-not-recorded"
   | "path-limit"
+  | "path-bidi-control"
   | "maintenance-pending"
   | "maintenance-lost-race"
   | "publish-journal-pending"
@@ -269,6 +270,24 @@ export function pathOverLimit(offenders: readonly PathOverLimit[]): PublishRefus
     "path-limit",
     `the vault was not published: ${offenders.length === 1 ? "a file in it has" : "files in it have"} a path over this tool's limits (at most ${PATH_LIMITS.maxPathBytes} bytes per path, ` +
       `${PATH_LIMITS.maxSegmentBytes} bytes per segment and ${PATH_LIMITS.maxSegments} segments, counted in UTF-8): ${named.join(", ")}${more}. ` +
+      "Rename or move it, then publish again. Nothing was sent to the node.",
+  );
+}
+
+/**
+ * Local files whose name holds a bidirectional override or isolate (mvp-07b 7.6, operator decision). A pull on any device refuses such a
+ * path as unsafe, so publishing it would only make the file vanish on every other device. The whole publish is refused, the files are
+ * named (cut and escaped, so the override cannot rewrite this very message), and nothing is sent. Same consequence as `pathOverLimit`:
+ * one such file blocks every publish from this vault until it is renamed or moved.
+ */
+export function pathWithBidiControl(paths: readonly string[]): PublishRefusedError {
+  const limit = 3;
+  const named = paths.slice(0, limit).map(shownLocalPath);
+  const more = paths.length > limit ? ` and ${paths.length - limit} more` : "";
+  return new PublishRefusedError(
+    "path-bidi-control",
+    `the vault was not published: ${paths.length === 1 ? "a file in it has" : "files in it have"} a name with a bidirectional override or isolate character (U+202A to U+202E, U+2066 to U+2069), ` +
+      `which can make a name read differently from what it is (for example a spoofed file extension): ${named.join(", ")}${more}. ` +
       "Rename or move it, then publish again. Nothing was sent to the node.",
   );
 }

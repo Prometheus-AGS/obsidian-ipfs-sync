@@ -14,6 +14,7 @@ import { EXIT_CHECK_FAILED, EXIT_OK, type CliIo } from "./io";
 import { createNodeHostBridge } from "./node-host-bridge";
 import type { PullContext } from "./pull-context";
 import { createNodeLockContext, createNodeLockFile } from "./publish-lock-file";
+import { attachHistoryRecorder, openRunHistoryStore } from "./store/recorder";
 
 const MIB = 1024 * 1024;
 
@@ -183,6 +184,9 @@ export async function runEncryptedPull(ctx: PullContext, vault: string): Promise
   const bus = createSyncEventBus();
   bus.on("conflict", (event) => ctx.io.out(`  conflict ${shown(event.path)} -> ${shown(event.conflictPath)}`));
   bus.onListenerFailure((failure) => ctx.io.err(`warning: ${failure.event} listener failed`));
+  // Best-effort history (mvp-08): a store that will not open only costs a stderr line; the pull decides its own exit code.
+  const historyStore = await openRunHistoryStore(ctx.env, ctx.io);
+  const recorder = historyStore === undefined ? undefined : attachHistoryRecorder(bus, historyStore, ctx.io);
   const passphrase = await ctx.passphrase();
   try {
     const outcome = await pullEncryptedVault(
@@ -204,5 +208,8 @@ export async function runEncryptedPull(ctx: PullContext, vault: string): Promise
   } finally {
     // Success, stop or throw: the canonical bytes do not outlive this call. Best effort; the runtime may hold copies.
     wipe(passphrase);
+    // Drain the recorder's queued writes before the store handle closes, so no append outlives it.
+    await recorder?.detach();
+    await historyStore?.close();
   }
 }

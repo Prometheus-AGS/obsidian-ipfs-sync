@@ -4,6 +4,46 @@ All notable changes are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries describe what exists in the code;
 anything not yet built is under "Known limitations" or not mentioned.
 
+## [0.4.0] - 2026-10-11
+
+The real-vault release. The operator's own vault went through the full loop on the operator's kubo node, agent-run
+under design decision D-E (operator authorization 2026-10-11) via the CLI gate build — not the Obsidian plugin; no
+Obsidian-desktop publish of the real vault has happened. Evidence: `docs/operator/mvp-10-demo-record.md`. Follows
+v0.3.0 (2026-10-05, tag `v0.3.0`), which the entries below predated.
+
+### Added
+
+- **Publish-during-churn hardening.** A file deleted between the scan and its read is skipped with its removal reason
+  and the publish completes, in both hosts (`cli/node-host-bridge.ts`, `src/plugin/obsidian-fs.ts`); a file changed
+  mid-read was already skipped the same way. Unit tests for both hosts.
+
+### The demo (agent-run under D-E, CLI gate build)
+
+- **Publish, 2026-10-11T21:44:45Z → 21:55:37Z (652 s).** 4,825 files written, 0 removed; plaintext publishable set
+  1,001,531,092 bytes (about 954.9 MiB). The publication key `obsidian-vault-real` was created by the publish. Root CID
+  `bafybeihoemb6amr2txinn4w4oabcttv3wpcufxbmmsyej6xxpeu54qzzwa`, sequence 1. Zero skipped files: nothing churned
+  mid-read this run, and the vault's 2 dangling symlinks are outside the publishable set by construction.
+- **Pull into a fresh directory (343 s).** 4,825 fetched, 0 conflicts, 0 integrity-failed, 0 unfetched. The sha256
+  comparison of every pulled file against the source vault's published set: 4,825 equal, 0 mismatches, 0 missing,
+  0 extra. `ipfs-sync history` after a CLI restart lists both operations from the on-disk database.
+- **Ergonomics note.** The first pull attempt exited 1 at the CLI's 512 MiB confirmation ceiling and fetched nothing;
+  `--accept-large` was required (`cli/pull-encrypted-command.ts`).
+- **Operator gate.** A gitleaks 8.30.1 scan of the publishable set (2026-10-11) with every finding adjudicated by the
+  operator (kept, rotated or false positive); the leaked OpenAI keys were revoked on 2026-10-11 before the publish.
+- **Skipped-file policy (decision D-C).** The published set is exact: every file not published is named with its reason
+  (exclusion, changed-during-read, removed-during-read, dangling symlink), and the 0-mismatch result is meaningful only
+  against that named set.
+
+### Known limitations
+
+- The demo ran through the CLI. The CLI has no read cap and no exclusion option; both exist only in the plugin, so the
+  vault's 195 MiB file published as is and no finding could be excluded on the CLI path.
+- Mobile was not run — mobile stays unverified (T3). Android is untested; non-macOS hosts are untested.
+- Metadata is not hidden (T4): the node sees the file count, the exact per-file sizes, the publish and pull timing and
+  the access pattern. The real-vault publish exposed exactly that of the operator's vault.
+- No independent review gate for this release (the change's decision 6): it ships on the standard gate, the mvp-09 e2e
+  suite (cited, not re-run) and the demo; the cumulative phase-boundary review follows the release.
+
 ## [Unreleased] - no default IPFS node (branch `mvp-07b-guard-removal`, not a release)
 
 **If you relied on the built-in node, you must now configure one.** Releases up to 0.2.0 sent every request to the

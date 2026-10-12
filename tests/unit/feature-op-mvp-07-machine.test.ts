@@ -38,6 +38,12 @@ interface Checks {
 
 const ROOT = resolve(__dirname, "..", "..");
 const BLOB_MIB = Number(process.env.FOP07_BLOB_MIB ?? "1");
+/**
+ * --verify-only spawns the built CLI for every machine step and every spawn boots the embedded PGlite history
+ * store (~1.8 s measured per fresh boot, mvp-08): the shared verify-only run took 46 s measured, so 120 s with
+ * headroom instead of the default 20 s.
+ */
+const RUN_TIMEOUT_MS = 120_000;
 const MACHINE_IDS = ["ciphertext-only-on-node", "plaintext-restored-byte-equal", "wrong-passphrase-refused", "sequence-recorded", "pull-no-node-mutation", "conflict-copy-kept", "multi-segment-blob-pulled-in-plugin"];
 const STUB_IDS = ["tamper-refused-nothing-written", "older-root-by-name-refused", "restore-older-version", "fork-resolved", "rewrap-and-accept", "increase-cost", "prune-history"];
 const temporary: string[] = [];
@@ -93,7 +99,7 @@ describe("--verify-only replay through the built CLI against the stub node", () 
       expect(entry.passed, `${id}: ${entry.detail}`).toBe(true);
       expect(entry.detail.length, id).toBeGreaterThan(0);
     }
-  });
+  }, RUN_TIMEOUT_MS);
 
   it("does not ask the operator: the operator-observed assertion fails as not asked; the scenarios of 4.7b are not selected in this run and fail by name (their own test file runs them)", async () => {
     const run = await verifyOnly();
@@ -105,7 +111,7 @@ describe("--verify-only replay through the built CLI against the stub node", () 
     }
     expect(run.code).toBe(1);
     expect(run.record.passed).toBe(false);
-  });
+  }, RUN_TIMEOUT_MS);
 
   it("shows the proxy log inside the demo root and the owned key only, with real mutations, and the harness node audit passes", async () => {
     const run = await verifyOnly();
@@ -114,13 +120,13 @@ describe("--verify-only replay through the built CLI against the stub node", () 
     expect(run.record.proxy.violations).toBe(0);
     expect(run.record.proxy.mutating).toBeGreaterThan(5);
     expect(run.record.ownedKey.keyId).toBeNull();
-  });
+  }, RUN_TIMEOUT_MS);
 
   it("keeps passphrases and plaintext words out of the transcript", async () => {
     const run = await verifyOnly();
     expect(run.transcript).not.toMatch(/[A-Z2-7]{5}-[A-Z2-7]{5}-[A-Z2-7]{5}/);
     expect(run.transcript).toMatch(/step 1|setup/i);
-  });
+  }, RUN_TIMEOUT_MS);
 });
 
 describe("--phases script-only", () => {
@@ -130,7 +136,7 @@ describe("--phases script-only", () => {
     expect(run.record.assertions).toHaveLength(10);
     expect(run.record.notRun).toHaveLength(8);
     expect(STUB_IDS.filter((id) => byId(run.record, id).passed)).toEqual([]);
-  });
+  }, RUN_TIMEOUT_MS);
 });
 
 describe("pure checks bite", () => {

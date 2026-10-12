@@ -8,36 +8,39 @@ CRDT multi-writer sync and an AI layer later.
 The maintainer's test node is open to anyone and is not a default; see "Security" below. If you relied on the old
 built-in node (release 0.2.0), you must now configure one.
 
-> **Pre-release. This branch accepts real notes, and its evidence is not in yet. Read "Real notes: what you accept"
-> before you use it.**
+> **Releases. v0.3.0 shipped on 2026-10-05 (tag `v0.3.0`). Release 3 (v0.4.0) is being cut from this tree. Read "Real
+> notes: what you accept" before you use this on notes you cannot lose or cannot expose.**
 >
-> - **What this branch does.** The guard that limited the tool to generated test vaults is removed on branch
->   `mvp-07b-guard-removal` (commit `38db5f8`). `init`, `publish`, `pull` and the plugin accept any vault, and the
->   `.ipfs-sync-fixture` marker file has no meaning. Every publish is still encrypted on your device: file contents,
->   file names and the manifest. The key comes from a passphrase the tool generates for you. `main` keeps the old guard
->   until the release merge. Release 2 (v0.3.0) is not cut: `manifest.json` and `package.json` read 0.3.0, and there
->   is no tag, no GitHub release and no release record.
-> - **What has not happened.** No independent review of this tree has been recorded. The Release 2 evidence (the review
->   record, the operator run in Obsidian desktop against the shared node, the phone timing) is pending until the
->   iteration-9 release steps (tasks 6.4 to 7.3 of the change's `tasks.md`). Nothing has been run inside Obsidian or
->   on a phone. The earlier reviews listed in `DESIGN.md` section 8.1 were static reads of earlier trees by one model.
-> - **Pulling an encrypted vault is implemented in this tree and has not been run by the operator.** `ipfs-sync pull` and the
->   plugin's Pull, Restore and Resolve fork read an encrypted vault back, check it against the highest sequence this
->   device recorded, and write only verified files. The code is covered by automated tests with fake nodes. It has not
->   been run inside Obsidian, on a phone, or against the shared node by the operator (that run belongs to `mvp-07b`).
->   Large-file pull in the plugin is not advertised as working until that run records the outcome.
-> - **Key management, history pruning and the mass-removal guard (`mvp-07b`, unreleased).** The command line has
->   `keys change-passphrase`, `keys increase-cost`, `keys accept-slots`, `keys discard` and `prune-history`. Publish
->   stops a mass removal. The plaintext reader is gone. The plugin has dialogs for the key actions, the removal
->   confirmation and the cost confirmation, and a command that times key derivation. This is covered by automated tests
->   with fake nodes. None of it has been run inside Obsidian, on a phone or against the shared node by the operator.
->   The operator-run script for it (`tools/feature-op-mvp-07.mjs`) exists; no manual run of it in Obsidian has been
->   recorded, and a script-only result does not count. It has not been reviewed independently.
+> - **What this tree does.** The guard that limited the tool to generated test vaults is removed on branch
+>   `mvp-07b-guard-removal` (commit `38db5f8`), the branch v0.3.0 shipped from. `init`, `publish`, `pull` and the
+>   plugin accept any vault, and the `.ipfs-sync-fixture` marker file has no meaning. Every publish is still encrypted
+>   on your device: file contents, file names and the manifest. The key comes from a passphrase the tool generates for
+>   you. `main` keeps the old guard until the release merge.
+> - **v0.3.0 evidence.** The release evidence (`dist/release/v0.3.0/`) holds a review record (unsigned, bound to the
+>   tree by git history), a recorded manual operator run in Obsidian desktop against the shared node (2026-10-05) and a
+>   measured phone key-derivation timing (0.57 s on iOS 27.2). These are attestations, not proofs, and no human or
+>   outside review is recorded. An encrypted publish or pull has not run on a phone; mobile is not verified; Android is
+>   untested.
+> - **v0.4.0 and the real-vault demo (2026-10-11).** The CLI published the operator's real vault to the operator's kubo
+>   node and pulled it back into a fresh directory, agent-run under design decision D-E (operator authorization
+>   2026-10-11) — through the CLI, not the Obsidian plugin; no Obsidian-desktop publish of the real vault has happened.
+>   Publish: 4,825 files written, 0 removed, plaintext publishable set 1,001,531,092 bytes (about 954.9 MiB), 652 s,
+>   publication key `obsidian-vault-real` (created by the publish), root CID
+>   `bafybeihoemb6amr2txinn4w4oabcttv3wpcufxbmmsyej6xxpeu54qzzwa`, sequence 1, zero skipped files. Pull: 343 s, 4,825
+>   fetched, 0 conflicts, 0 integrity-failed, 0 unfetched; a sha256 comparison of every pulled file against the source
+>   vault's published set gave 4,825 equal, 0 mismatches, 0 missing, 0 extra. One ergonomics note: the first pull
+>   attempt stopped at the CLI's 512 MiB confirmation ceiling and fetched nothing; `--accept-large` was required. Full
+>   record: `docs/operator/mvp-10-demo-record.md`.
+> - **Skipped-file policy and churn hardening.** Every file a publish skips is named with its reason. A file deleted
+>   between the scan and its read is skipped with the removal reason instead of aborting the publish (new in v0.4.0);
+>   a file changed mid-read was already skipped the same way. The demo's published set was exact: 0 skipped, and the
+>   vault's 2 dangling symlinks are outside the publishable set by construction.
+> - **CLI limitations.** The CLI has no per-file read cap and no exclusion option; both exist only in the plugin. In
+>   the demo the vault's 195 MiB file published as is.
+> - **Mobile.** The demo's mobile attempt was not run — mobile stays unverified (T3).
 > - **Release 0.2.0** (tagged `v0.2.0`, a GitHub pre-release) is the plaintext build: it has no encryption, and
->   everything it published is readable by anyone who obtains the CID. The encryption described below is not in 0.2.0;
->   it is unreleased work after it. This tree cannot read what 0.2.0 published: a plaintext root is refused.
-> - The release demonstration targets Obsidian desktop on macOS. It is not recorded in this repository, so nothing is
->   verified on any platform yet. Mobile, Windows and Linux are not verified either.
+>   everything it published is readable by anyone who obtains the CID. The encryption described below is not in 0.2.0.
+>   This tree cannot read what 0.2.0 published: a plaintext root is refused.
 
 ## What's here (Phase 1)
 
@@ -75,10 +78,11 @@ True merging arrives with the Phase 2 op-log. See "Pull" below.
 
 ## Obsidian plugin
 
-**Any vault, encrypted, unreviewed.** The plugin encrypts every publish and publishes from any vault; it needs no
+**Any vault, encrypted, no outside review.** The plugin encrypts every publish and publishes from any vault; it needs no
 marker. Pull works into any directory and keeps a local edit as a conflict copy; it writes no marker. Read "Real notes:
-what you accept" before you install this on a vault that holds notes you cannot lose or cannot expose. Nothing in this
-plugin has been run inside Obsidian.
+what you accept" before you install this on a vault that holds notes you cannot lose or cannot expose. The v0.3.0
+evidence holds a recorded manual operator run in Obsidian desktop (2026-10-05); no review by a human or an outside
+party is recorded.
 
 `pnpm build` writes the plugin to `dist/plugin/` (`main.js` and `manifest.json`) and the CLI
 to `dist/cli/ipfs-sync.mjs`. A build never writes into a vault by default. To load the plugin
@@ -92,7 +96,8 @@ Dev loop: `pnpm install && pnpm dev` watches and rebuilds. `pnpm dev` writes the
 the variable. Warning: `OBSIDIAN_PLUGIN_DIR` overwrites the plugin files in that directory on
 every rebuild. Do not point it at a vault you do not want to overwrite.
 
-Requires Obsidian 1.12.3 or later (`minAppVersion`). The release demonstration targets Obsidian desktop on macOS; it is not recorded here.
+Requires Obsidian 1.12.3 or later (`minAppVersion`). The v0.3.0 evidence records the operator run on Obsidian desktop
+on macOS (2026-10-05); the mvp-10 real-vault demo (2026-10-11) ran through the CLI, not the plugin.
 `isDesktopOnly` is false in the manifest, but mobile has not been run.
 
 What the plugin does today:
@@ -309,8 +314,8 @@ last. A pull that dies earlier leaves whole, verified files and the old state.
   on an iPhone is in "Not verified".
 
 The earlier "pull demo" of release 0.2.0 (publish a generated fixture vault, then pull it into a second vault) was
-plaintext. Its encrypted equivalent is implemented in this tree (see "Encrypted vaults"); it has not been run by the
-operator. **There is no plaintext reader.**
+plaintext. Its encrypted equivalent shipped in v0.3.0 (see "Encrypted vaults"); the mvp-10 demo ran the CLI round trip
+of the operator's real vault, agent-run under D-E (`docs/operator/mvp-10-demo-record.md`). **There is no plaintext reader.**
 A root that holds `manifest.json` and no key slots (what release 0.2.0 published) is refused with "plaintext
 publications are no longer supported by this version" (CLI exit 2, nothing written), whatever this device has seen
 before. A root with key slots and no `manifest.enc` is refused too, and a planted `manifest.json` next to an encrypted
@@ -473,6 +478,10 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   codes: 0 ok, 1 a file failed or was not fetched, a path was skipped as unsafe, or the pull stopped at a check, 2
   usage or a refused destination (a plaintext root is one). The `keys` commands and `prune-history` are described
   under "Change the passphrase or the cost" and "History growth"; every flag above is in `--help`.
+- **The CLI has no read cap and no exclusion option.** The plugin's per-file read cap and user exclusion list exist
+  only in the plugin; a CLI publish reads any size and applies the built-in exclusion list only. The 512 MiB ceiling
+  above is the pull's confirmation threshold, not a read cap: the mvp-10 demo's first pull of a ~954.9 MiB vault
+  stopped there with exit 1 and fetched nothing until re-run with `--accept-large`.
 - Endpoints and auth: `--rpc-url`, `--gateway-url`, `--mfs-root`, `--key`, `--config`,
   `--auth`, or the `IPFS_SYNC_*` environment variables (`IPFS_SYNC_RPC_URL`,
   `IPFS_SYNC_GATEWAY_URL`, `IPFS_SYNC_MFS_ROOT`, `IPFS_SYNC_KEY`, `IPFS_SYNC_AUTH_*`).
@@ -583,10 +592,10 @@ way this goes wrong for you.
   Anyone with a root CID can download the ciphertext and the public `keyslots.json` and guess the passphrase offline,
   with no deadline. If the passphrase leaks, or encryption turns out to be broken, everything you ever published opens,
   and you cannot take it back. Assume you can never remove a published note from the network.
-- **No independent review of this tree has been recorded.** The encryption has had static reads by one model, not a
-  human or outside reviewer, and none of it has run inside Obsidian. The Release 2 evidence (the review record, the
-  operator run in Obsidian desktop against the shared node, the phone timing) is pending until the iteration-9
-  release steps. Until then a version number says nothing about safety; v0.3.0 is not released.
+- **No review by a human or an outside party has been recorded.** The encryption has had static reads by models. The
+  v0.3.0 evidence (2026-10-05) holds an unsigned review record bound to the tree by git history, a recorded operator
+  run in Obsidian desktop against the shared node, and a phone key-derivation timing — attestations, not proofs. A
+  version number says nothing about safety beyond what those attestations cover.
 - **Floor and rewrap limits.** The sequence floor does not stop a node from showing an old copy to a device that has
   no recorded state (a first pull, a reinstalled plugin, a deleted per-user directory). It does not detect a freeze.
   A passphrase change or a cost increase revokes nothing: the old passphrase and every old copy of the key slot, in
@@ -764,6 +773,11 @@ A file whose size and modification time equal the recorded values is not read ag
 modification time (`cp -p`, `rsync -t`, some backup tools) and gives a file of the same size is therefore missed by
 the delta check and by the idle check that skips unlocking, until the size or the time changes.
 
+**A file that vanishes or changes mid-read is skipped, not fatal.** A file deleted between the scan and its read is
+skipped with the removal reason and the publish completes (in the CLI and the plugin alike); a file changed mid-read
+was already skipped with the changed-during-read reason. The publish names every skipped file with its reason, so the
+published set is exact. Symbolic links are outside the publishable set by construction.
+
 ### Interrupted publishes, `--repair`, `--recover-slots`, `--break-lock`
 
 - **Journal.** Before it writes `manifest.enc`, a publish writes `.ipfs-sync/journal.<h>.json`. If the process dies,
@@ -940,9 +954,9 @@ terminal can still produce all three. A terminal and a nonce stop pipes and acci
 drives a pseudo-terminal. The review record is authenticated by git history; the release tool then needs the operator to
 type `I accept an unsigned review record for <tree hash prefix>`, and the notes say "unsigned". A change to any scoped file after the review record or after the operator run changes the tree hash, and both must be redone. A one-line fix therefore repeats the review record and
 the operator run, and a phone measurement is bound to the exact plugin build. The checker, the phone-timing recorder and
-the release tool and the operator-run script exist and are covered by tests. The review record does not exist, no manual
-operator run has been recorded and no phone timing has been recorded, so no release can pass today. The order and
-commands are in the operator runbook. The checker and the release tool bind to the tree of branch
+the release tool and the operator-run script exist and are covered by tests. For v0.3.0 (2026-10-05) all three records
+exist and the checker passed; the evidence is under `dist/release/v0.3.0/`. The order and
+commands are in the operator runbook. The checker and the release tool bound to the tree of branch
 `mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`.
 
 ### Not verified

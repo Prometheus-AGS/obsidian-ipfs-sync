@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { planDelta, type DeltaBaseline, type DeltaEntry } from "../../src/sync/diff";
 import { createExclusionMatcher } from "../../src/sync/exclusions";
 import { sha256Hex } from "../../src/sync/hash";
-import { FileChangedDuringReadError, HostReadCapError } from "../../src/sync/host-errors";
+import { FileChangedDuringReadError, FileRemovedDuringReadError, HostReadCapError } from "../../src/sync/host-errors";
 import { scanVault } from "../../src/sync/scan";
 import { createMemoryHost } from "../helpers/memory-host";
 
@@ -81,6 +81,14 @@ describe("planDelta: files the host could not read whole", () => {
     expect(Object.keys(changed.unchanged)).toEqual(["moving.md"]);
     expect(changed.mtimes).toEqual({ "steady.md": 5000 });
     expect(changed.removed).toEqual([]);
+  });
+
+  it("treats a file removed during the planning-stage read as skipped with the removal reason, and the plan still completes", async () => {
+    const removed = await planWith(new FileRemovedDuringReadError("moving.md"));
+    expect(removed.skipped.map((file) => file.path)).toEqual(["moving.md"]);
+    expect(removed.skipped[0]?.reason).toContain("was removed while it was being read");
+    expect(removed.writes.map((write) => write.path)).toEqual(["steady.md"]);
+    expect(removed.removed).toEqual([]);
   });
 
   it("still throws any other read error", async () => {

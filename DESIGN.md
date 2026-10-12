@@ -70,9 +70,19 @@ reachability work, and it adds nothing the AES-GCM authenticated data does not a
 ## 4. Phase 1.1 spec — delta sync over the RPC
 
 > **Status.** This section is the Phase 1.1 plaintext design. The delivered layout, manifest and publish flow are
-> encrypted and are described in §8 (layout and constants in §8.3). The delivered pull is described in §4.3 below and in
+> encrypted and are described in §8 (layout and constants in §8.3; the delivered manifest is the encrypted manifest v2
+> of §8.3, not the plaintext v1 schema of §4.2). The delivered pull is described in §4.3 below and in
 > §8.10; the plaintext reader it replaced was removed in `mvp-07b` (no flag reads a plaintext root any more). Where §4
 > and §8 differ, §8 describes the code.
+>
+> The configuration model as built: there is no built-in node. The CLI and the plugin start with empty RPC and gateway
+> URLs; both are required, resolved flag > environment > config file in the CLI (the plugin reads its settings tab),
+> and a command with either one missing exits 2 (`no-rpc-url`, `no-gateway-url`) and sends no request. Both are
+> required because every pull, publish read-back, status and key command reads through the gateway; the gateway URL is
+> never derived from the RPC URL. The gateway receives the RPC credential only when its origin (scheme, host, port)
+> equals the RPC origin; on any other origin it gets none unless gateway auth is set explicitly
+> (`IPFS_SYNC_GATEWAY_AUTH_*` in the CLI, the Gateway authentication control in the plugin). §8.6 carries the full
+> rules, including the retired built-in host. The §4.4 scripts are replaced by the CLI (§4.4).
 
 ### 4.1 Node-side layout (MFS)
 
@@ -166,10 +176,12 @@ plugin data, including this plugin's `data.json` with its credentials, never lea
 manifest path under it because a pulled plugin file would be code execution. A whitelist of config files is not
 implemented.
 
-### 4.4 CLI scripts
+### 4.4 CLI
 
-`publish.sh` / `pull.sh` gain the same delta logic (fixed `current/` tree,
-manifest-driven). Scripts remain desktop tools; mobile uses the plugin only.
+The `ipfs-sync` CLI (`dist/cli/ipfs-sync.mjs`) is the delivered form of this section: `ipfs-sync publish` and
+`ipfs-sync pull` run the encrypted publish of §8.4 and the pull of §8.10 through the same engine as the plugin,
+against the fixed `current/` tree and the encrypted manifest v2. It replaced the earlier `publish.sh` / `pull.sh`
+scripts, which were removed in release 0.2.0. The CLI is a desktop tool; mobile uses the plugin only.
 
 ## 5. Server-side prerequisites (not plugin code)
 
@@ -201,15 +213,21 @@ manifest-driven). Scripts remain desktop tools; mobile uses the plugin only.
 
 ## 7. Phase 3 sketch — AI layer (decision pending, specs TBD)
 
-- Embeddings computed on a capable device, stored as content-addressed index
-  pinned under the vault root (`/.ipfs-sync/ai/`):
-  ```
-  .ipfs-sync/ai/
-    index-<snapshotCID>.jsonl.zst   ← chunk embeddings, keyed by file sha256
-    meta.json                        ← model id, dim, version
-  ```
-- Index keyed by content hash → automatically correct for any device that has
-  those files; mismatched files just miss.
+- **Recorded decision (change `mvp-08-sync-history-store`, design.md):**
+  embeddings are excluded from the vault snapshot by default. Any embedding
+  store is device-local, optional and rebuildable per device; nothing in the
+  published vault layout carries embedding data. Embeddings are computed on a
+  capable device and rebuilt on each device that wants them, keyed by file
+  sha256 (content-keyed: automatically correct for any device that has those
+  files; mismatched files just miss).
+- **Size budget:** embedding data contributes 0 bytes per publish and 0 bytes
+  per vault snapshot — it never rides the sync payload. The budget that
+  motivates the exclusion: vector rows are dims × 4 bytes, so an illustrative
+  10k notes × 10 blocks × 384 dims ≈ 150 MB per vault (inference from the
+  Smart Connections assessment
+  `.kbd-orchestrator/phases/mvp/children/mobile-feasibility/assessment-smart-connections.md`,
+  not measurement) would otherwise ride every snapshot and every
+  fresh-device pull, for a cache that is cheaply rebuildable from the files.
 - Features: semantic search, RAG chat (replaces vault-chat + its plaintext API key),
   embedding-similarity backlink suggestions, clustering.
 - Open questions: local embeddings (transformers.js in WebView = heavy) vs.
@@ -225,28 +243,32 @@ pull, config-sync and exclusion text was corrected, §6 has not been rewritten. 
 the code (module named in the last column of §8.3).
 
 Read this first: the key-slot file is public, the node is open-write, and the only thing between an attacker and every
-note ever published is the passphrase. Encryption is implemented but has not been independently reviewed to a standard
-that permits real notes, and has never been run inside Obsidian. On branch `mvp-07b-guard-removal` real vaults are no
+note ever published is the passphrase. Encryption is implemented; the branch shipped as v0.3.0 (2026-10-05) on the
+strength of an unsigned review record, a recorded operator run in Obsidian desktop and a phone key-derivation timing —
+attestations, not proofs — and the mvp-10 demo ran the operator's real vault through the CLI, agent-run, not in
+Obsidian (§8.1). On branch `mvp-07b-guard-removal` real vaults are no
 longer refused; `main` still refuses them (§8.9). Whoever publishes a real vault there accepts those facts.
 
 ### 8.1 Status and state of review
 
 Delivered in `mvp-06`: encrypted-only publish in the CLI and the plugin; `ipfs-sync init`; the crypto core
 (`src/crypto/`); per-root state, journal, resume, `--repair`, lock file and history check (`src/sync/`); the plugin key
-session, setup, unlock and abandon dialogs (`src/plugin/`). Delivered in `mvp-07a` (not independently reviewed, not run in
+session, setup, unlock and abandon dialogs (`src/plugin/`). Delivered in `mvp-07a` (standing at delivery: not independently reviewed, not run in
 Obsidian, on a phone or by the operator against the shared node, which is the maintainer's own test node and the
-operator's verification target, not a default): the decrypting pull in the CLI and the plugin (§8.10),
+operator's verification target, not a default; superseded by the status paragraph below): the decrypting pull in the CLI and the plugin (§8.10),
 the sequence floor, restore, fork resolution, second-device publish, history names with a sequence prefix, the path
 policy for pulled manifests, and the `.obsidian/` and `.smart-env/` exclusions. Delivered in `mvp-07b` code tasks (same
-standing: automated tests with fake nodes; not independently reviewed; not run in Obsidian, on a phone or by the operator
-against the shared node): rewrap by `keys change-passphrase` and `keys increase-cost`, `keys accept-slots`, `keys
+standing at delivery: automated tests with fake nodes; not independently reviewed; not run in Obsidian, on a phone or by the operator
+against the shared node; superseded by the status paragraph below): rewrap by `keys change-passphrase` and `keys increase-cost`, `keys accept-slots`, `keys
 discard`, the maintenance journal (§8.4), `prune-history` (§8.7), the mass-removal guard (§8.7), the removal of the
 plaintext reader and its latch (§8.7), the plugin's key rows, dialogs, cost confirmation and measure command, desktop Range
 streaming, the guard-evidence checker with its recorder and release tool, and the operator-run script
-`tools/feature-op-mvp-07.mjs` (§8.9). The guard-removal branch `mvp-07b-guard-removal` exists (§8.9). Not delivered:
-additional key slots, revocation, a recorded manual operator run, a review record, a phone timing, coalescing
+`tools/feature-op-mvp-07.mjs` (§8.9). The guard-removal branch `mvp-07b-guard-removal` exists (§8.9). Delivered after this list was first written: the history
+store (`mvp-08`), the e2e encrypted sync suite against the shared node (`mvp-09`), and the publish-during-churn
+hardening (`mvp-10`: a file deleted between scan and read is skipped with its removal reason in both hosts instead of
+aborting the publish). Not delivered: additional key slots, revocation, coalescing
 of auto-publishes (task 1.8 chose the CLI command plus a plugin prune action instead; the plugin action, task 2.5, is
-built and tested only with a fake DOM), the history store (`mvp-08`).
+built and tested only with a fake DOM).
 
 **Documentation sync, `mvp-07b` task 5.1.** §4 (status note and the pull paragraph), §8.1, §8.3 (local files and history
 limits), §8.5, §8.7, §8.9 and §8.10 were brought in line with the code on this date. §6 ("encryption decision pending") is
@@ -278,9 +300,23 @@ R5-01 to R5-08 the same way (static, single model, nothing executed): R5-01 and 
 C5-03, C5-04 and C5-05) have NOT been re-read by any reviewer; C5-02 is still open (§8.7). No later review is
 scheduled short of the phase-boundary gate, which has not run.
 
-Nothing has run in Obsidian (desktop or phone). The key derivation was timed on an iPhone in a probe build (§8.7
-"Mobile"); an encrypted publish or pull has not run on a phone. The feature-operation script of `mvp-06` ran twice
-against the shared node on 2026-09-30 (§8.7 item 6); the `mvp-07a` pull has not been run against it.
+**v0.3.0 and the mvp-10 demo, stated as they happened.** The guard-removal branch shipped as Release 2, v0.3.0 (tag
+`v0.3.0`, 2026-10-05, commit `c699e24`): its release evidence holds the review record for tree 75df2b2a (unsigned,
+bound by git history), a recorded manual operator run in Obsidian desktop against the shared node (finished
+2026-10-05) and a measured phone key-derivation timing (0.57 s on iOS 27.2). All three are attestations, not proofs
+(§8.7); the phone timing is one input, not a mobile verification, and an encrypted publish or pull has still not run
+on a phone. On 2026-10-11 the mvp-10 release demo ran agent-side under design decision D-E (operator authorization
+2026-10-11): the CLI gate build published the operator's real vault — 4,825 files written, 0 removed, plaintext
+publishable set 1,001,531,092 bytes (about 954.9 MiB), 652 s, publication key `obsidian-vault-real` created by the
+publish, root CID `bafybeihoemb6amr2txinn4w4oabcttv3wpcufxbmmsyej6xxpeu54qzzwa`, sequence 1, zero skipped files — and
+pulled it into a fresh directory in 343 s with 4,825 fetched, 0 conflicts, 0 integrity-failed, 0 unfetched, and a
+sha256 comparison of 4,825 equal, 0 mismatches, 0 missing, 0 extra. The full record is
+`docs/operator/mvp-10-demo-record.md`. It was run through the CLI by the agent against the operator's node; no
+Obsidian-desktop publish or pull of the real vault has happened.
+
+The earlier statements in this section that the encrypted flow had not run in Obsidian or by the operator describe the
+standing before 2026-10-05 and are superseded by the paragraph above. The feature-operation script of `mvp-06` ran
+twice against the shared node on 2026-09-30 (§8.7 item 6).
 
 ### 8.2 Key hierarchy
 
@@ -478,6 +514,17 @@ objects. No request URL or body contains a vault path, file name or content othe
 of each publish is visible in the clear in its history file name (the node could count the files anyway), and a pull
 reads only: `name/resolve`, `key/list`, listings of the immutable root and gateway reads. Events keep their
 shape: `file.changed` carries its `path` inside the process only, and no persistent sink may store event paths.
+
+**What is not hidden (T4).** The node, and anyone who can read it, sees the file count, the exact size of each file
+(a blob's length is its plaintext length plus a fixed overhead, so a file of a known length is recognisable), the
+timing and frequency of publishes and pulls, which blob names change between publishes, the sequence numbers, and the
+IPNS and gateway access pattern. The mvp-10 real-vault publish made this concrete for the operator's own vault
+(`docs/operator/mvp-10-demo-record.md`): on 2026-10-11 the node received 4,825 encrypted blobs whose sizes map one to
+one onto the operator's files (plaintext publishable set 1,001,531,092 bytes, about 954.9 MiB), in a publish that ran
+21:44:45Z to 21:55:37Z (652 s), under the new publication key `obsidian-vault-real` at sequence 1; the pull that
+followed read all 4,825 blobs back through the gateway over 343 s. File names, paths and contents were not exposed;
+the count, the exact sizes and the timing were. This exposure is accepted by design (T4) and was accepted for this
+vault at the operator gate.
 
 Which node sees this is the user's choice, made explicitly. The lowest configuration layer (`defaultLayer()` in
 `src/core/config/defaults.ts`) supplies no RPC or gateway URL. With none set by flag, environment variable or config
@@ -867,8 +914,9 @@ Unverified, or unenforced, at the time of writing:
 2. Encrypted publish and pull on a phone (Argon2id alone was timed on an iPhone; see "Mobile"), and Android.
 3. Zeroization beyond the arrays the core owns.
 4. Rollback and freeze prevention: a pull refuses a sequence below this device's record, and nothing detects a freeze or a
-   stale first pull; the pull itself (CLI and plugin) has not been run in Obsidian, on a phone, or by the operator
-   against the shared node.
+   stale first pull. The pull has not been run in Obsidian or on a phone, and not by the operator. The mvp-10 demo ran
+   the CLI pull against the shared node agent-side under decision D-E (2026-10-11,
+   `docs/operator/mvp-10-demo-record.md`).
 5. An authenticated (auth-protected) kubo endpoint with the plugin.
 6. The automated feature operation against the shared node ran twice on 2026-09-30 (task 6.2 and the delivery-cadence feature checkpoint). `tools/feature-op-mvp-06.mjs` (with
    `tools/feature-op-mvp-06/`) has an offline `--dry-run` and a `--local-stub` mode, records the IPNS pointer of
@@ -1002,9 +1050,10 @@ directory, a mass removal (§8.7), a missing or wrong passphrase, the path polic
 recorded floor, and a plaintext root. After the removal a real vault publishes encrypted, a non-empty directory pulls
 with the conflict policy, and the pull writes no marker.
 
-**What the branch does not have.** No review record of this tree, no recorded manual operator run, no phone timing, no
-tag and no release record. v0.3.0 is not cut. Anyone who publishes a real vault from this branch does so on the strength
-of static reads of earlier trees by one model each (§8.1) and nothing else.
+**What the branch did not have when it was cut.** No review record of this tree, no recorded manual operator run, no phone timing, no
+tag and no release record. It has since shipped: v0.3.0 (tag `v0.3.0`, 2026-10-05, commit `c699e24`), with the review
+record for tree 75df2b2a, the operator-run record (a manual run in Obsidian desktop against the shared node) and the
+phone-timing record in the release evidence under `dist/release/v0.3.0/` — attestations, not proofs (§8.7).
 
 **The uncomfortable fact about `main`.** `main` is one commit ahead of the branch's base: `871257c` (the vault-agent UI
 design set; it touches `docs/`, `AGENTS.md`, `.gitignore`, `.claude/agents/uiux-lead.md`,
@@ -1041,15 +1090,16 @@ checklist tests run in the clean export with zero skips, the limit sentences pre
 and `pnpm audit --prod` matched against dated accepted findings. The release tool (`tools/release-mvp-07.mjs`) runs the
 checker in the same invocation, copies the checked bytes, asserts their hashes, edits no scoped file, needs a typed
 `I accept an unsigned review record for <T8>` for the git form, and never runs git, tags, pushes or publishes. State
-today: the checker, the recorder, the release tool, the operator-run script and the branch are built; the review record,
-a recorded manual operator run and a phone timing are not, so items A, B and C cannot pass and no release can be
-recorded. Item B counts only a manual run in Obsidian desktop against the shared node; a script-only result does not. The review record, the operator-run
+at v0.3.0 (2026-10-05): the checker passed for tree 75df2b2a and the release was recorded; the evidence is under
+`dist/release/v0.3.0/`. Item B counts only a manual run in Obsidian desktop against the shared node; a script-only result does not. The review record, the operator-run
 record and the phone-timing record are attestations, not proofs (§8.7).
 
 ### 8.10 What one pull does
 
-Delivered by `mvp-07a`, unreleased, covered by automated tests with fake nodes; not independently reviewed, not run in
-Obsidian, on a phone, or by the operator against the shared node. The CLI (`cli/pull-command.ts`,
+Delivered by `mvp-07a`, released in v0.3.0 (2026-10-05), covered by automated tests with fake nodes; not independently
+reviewed; not run on a phone. The v0.3.0 evidence holds a manual operator run in Obsidian desktop against the shared
+node; the mvp-10 demo ran the CLI pull of the operator's real vault agent-side under decision D-E (2026-10-11,
+`docs/operator/mvp-10-demo-record.md`). The CLI (`cli/pull-command.ts`,
 `cli/pull-encrypted-command.ts`) and the plugin (`src/plugin/pull-runner.ts`) call one engine, `pullEncryptedVault`
 (`src/sync/encrypted-pull.ts` for steps 1 to 6, `src/sync/encrypted-pull-stage.ts` for steps 7 and 8). Which reader runs:
 there is one reader. A root with `manifest.json` and no key slots is refused ("plaintext publications are no longer

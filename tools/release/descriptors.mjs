@@ -22,6 +22,7 @@ import { CLI_TARBALL_FILES, MIN_APP_VERSION, PLUGIN_ARTIFACTS, RELEASE_DIR, REPO
 import { buildRelease1Notes } from "./notes.mjs";
 import { release1Claims, release1UnverifiedClaims } from "./release1.mjs";
 import { RELEASE_2_LIMITATIONS, buildRelease2Notes, release2Claims, release2UnverifiedClaims } from "./release2.mjs";
+import { RELEASE_3_LIMITATIONS, buildRelease3Notes, release3Claims, release3UnverifiedClaims } from "./release3.mjs";
 
 const REQUIRED_TEXT = ["version", "tag", "featureOpFile", "commitMessage", "tagMessage", "releaseTitle"];
 const REQUIRED_FUNCTIONS = ["buildNotes", "unverifiedClaims", "claims"];
@@ -104,3 +105,31 @@ export function makeRelease2(guard) {
 }
 
 export const RELEASE_2 = makeRelease2(null);
+
+// Release 3 (v0.4.0, mvp-10). The Release 1 shape: the record bumps manifest.json and package.json and rebuilds,
+// and there is no guard-checker binding (design.md decision 6). The evidence is the operator-run real-vault demo
+// record, which the release tool passes as the feature-operation file: it must carry an unambiguous pass verdict
+// (readFeatureOp in facts.mjs), and the record step refuses without it. `demo` is { recordPath, mobileOutcome } or
+// null when no demo record was supplied (the plan before the demo); the notes and the unverified list then state
+// no demo result. The tag is the single field (`v0.4.0`).
+export function makeRelease3(demo) {
+  return makeDescriptor({
+    version: "0.4.0",
+    tag: "v0.4.0",
+    featureOpFile: "docs/operator/mvp-10-demo-record.json",
+    commitMessage: "release: v0.4.0",
+    tagMessage: "IPFS Sync 0.4.0",
+    releaseTitle: "IPFS Sync 0.4.0",
+    prerelease: true,
+    requiresFixtureStatement: false,
+    record: { bumpVersions: true, build: true },
+    commitScope: "the version bump to 0.4.0 and every change of mvp-10 that belongs in the tag",
+    commitStepTitle: "Commit the version bump and every change that belongs in the tag",
+    limitations: RELEASE_3_LIMITATIONS,
+    buildNotes: (input) => buildRelease3Notes({ ...input, demo }),
+    unverifiedClaims: (facts, options) => release3UnverifiedClaims(demo, facts, options),
+    claims: (input) => release3Claims({ ...input, demo }),
+  });
+}
+
+export const RELEASE_3 = makeRelease3(null);

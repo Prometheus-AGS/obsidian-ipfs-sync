@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Bytes } from "../../src/core/host-bridge";
 import { createObsidianHostBridge } from "../../src/plugin/obsidian-host-bridge";
-import { FileChangedDuringReadError, HostPathError, HostReadCapError } from "../../src/sync/host-errors";
+import { FileChangedDuringReadError, FileRemovedDuringReadError, HostPathError, HostReadCapError } from "../../src/sync/host-errors";
 import { MemoryAdapter } from "../support/memory-adapter";
 
 const MB = 1024 * 1024;
@@ -241,5 +241,33 @@ describe("obsidian fs semantics: one read per ranged file (W-16)", () => {
       return data;
     };
     await expect(host(adapter).fs.readRange("note.md", 0, 100)).rejects.toBeInstanceOf(FileChangedDuringReadError);
+  });
+});
+
+describe("obsidian fs semantics: removed during a whole-file read", () => {
+  it("raises FileRemovedDuringReadError when the file is deleted between the stat and the load", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.put("note.md", "first", 1000);
+    const readBinary = adapter.readBinary.bind(adapter);
+    adapter.readBinary = async (path) => {
+      adapter.files.delete(path);
+      return readBinary(path);
+    };
+    const error = await host(adapter).fs.read("note.md").catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(FileRemovedDuringReadError);
+    expect(error).toBeInstanceOf(FileChangedDuringReadError);
+    expect((error as Error).message).toBe('"note.md" was removed while it was being read');
+  });
+
+  it("raises it too when the file is already gone at the read", async () => {
+    const adapter = new MemoryAdapter();
+    await expect(host(adapter).fs.read("never.md")).rejects.toBeInstanceOf(FileRemovedDuringReadError);
+  });
+
+  it("passes a read failure that is not a removal through unchanged", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.put("note.md", "still here", 1000);
+    adapter.readBinary = () => Promise.reject(new Error("adapter blew up"));
+    await expect(host(adapter).fs.read("note.md")).rejects.toThrow("adapter blew up");
   });
 });

@@ -7,7 +7,7 @@ import { removeBlobPaths, writeEncryptedBlobs, writeKeySlotsFile, type TransferC
 import { createExclusionMatcher, excludesHash } from "./exclusions";
 import { idlePublishResult } from "./idle-check";
 import { pathLimitViolation } from "./path-limits";
-import { adviseUnrestorablePaths } from "./path-policy";
+import { adviseUnrestorablePaths, hasBidiControl } from "./path-policy";
 import { assertHistoryReady } from "./history-gate";
 import { assertRootLayout, statIfPresent, type RootView } from "./node-reader";
 import { deleteJournal } from "./journal";
@@ -18,7 +18,7 @@ import { EmptyVaultError } from "./publish-errors";
 import { commitPublish } from "./publish-commit";
 import { finalManifest, provisionalManifest, sanitizeDevice, type ManifestFrame } from "./publish-manifest";
 import { buildPublishPlan, type PublishPlan } from "./publish-plan";
-import { largeReupload, massRemoval, overlappingPublish, pathOverLimit, remoteObjectInvalid, rootCidNotV1 } from "./publish-refusals";
+import { largeReupload, massRemoval, overlappingPublish, pathOverLimit, pathWithBidiControl, remoteObjectInvalid, rootCidNotV1 } from "./publish-refusals";
 import { assessRemovals } from "./removal-guard";
 import { checkTarget, openSession, type PublishSession } from "./publish-session";
 import { decideSequence, type SequenceDecision, type SequenceInput } from "./publish-sequence";
@@ -174,6 +174,9 @@ async function checkWriterCaps(session: PublishSession, plan: PublishPlan, frame
     return limit === undefined ? [] : [{ path: item.path, limit }];
   });
   if (offenders.length > 0) throw pathOverLimit(offenders);
+  // A bidirectional override or isolate in a local name is refused the same way (mvp-07b 7.6): the pull refuses it on every device.
+  const spoofable = planned.filter((item) => hasBidiControl(item.path)).map((item) => item.path);
+  if (spoofable.length > 0) throw pathWithBidiControl(spoofable);
   await encodeManifestFile(session.opened.keys, await provisionalManifest(session.opened.keys, frame, plan.kept, planned));
 }
 

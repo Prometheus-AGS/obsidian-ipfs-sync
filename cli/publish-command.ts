@@ -26,6 +26,7 @@ import { PassphraseInputError } from "./passphrase-errors";
 import { recordOwnedKey } from "./owned-keys-store";
 import { createNodeLockContext, createNodeLockFile } from "./publish-lock-file";
 import { refuseLinkedStateFolder } from "./state-folder-link";
+import { attachHistoryRecorder, openRunHistoryStore } from "./store/recorder";
 
 export interface PublishFlags {
   /** `--break-lock`: remove the publish lock after a confirmation, then continue. */
@@ -156,6 +157,9 @@ async function publishWithHosts(ctx: PublishContext, host: HostBridge, lock: Pub
   const bus = createSyncEventBus();
   bus.on("file.changed", (event) => ctx.io.out(`  ${event.kind.padEnd(8)} ${event.path}`));
   bus.onListenerFailure((failure) => ctx.io.err(`warning: ${failure.event} listener failed`));
+  // Best-effort history (mvp-08): a store that will not open only costs a stderr line; the publish decides its own exit code.
+  const historyStore = await openRunHistoryStore(ctx.env, ctx.io);
+  const recorder = historyStore === undefined ? undefined : attachHistoryRecorder(bus, historyStore, ctx.io);
   // The passphrase is asked for only now: after the marker check and the lock, and never held longer than this call.
   const passphrase = await ctx.passphrase?.();
   try {
@@ -189,6 +193,9 @@ async function publishWithHosts(ctx: PublishContext, host: HostBridge, lock: Pub
   } finally {
     // Success, refusal or throw: the canonical bytes do not outlive this call. Best effort; the runtime may hold copies.
     wipe(passphrase);
+    // Drain the recorder's queued writes before the store handle closes, so no append outlives it.
+    await recorder?.detach();
+    await historyStore?.close();
   }
 }
 

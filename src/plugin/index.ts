@@ -22,6 +22,7 @@ import { createPullRunner, type PullOutcome, type PullRunner } from "./pull-runn
 import { createSessionDialogs, describeDialogError, obsidianDialogFactories, type SessionDialogs } from "./session-dialogs";
 import { createSessionKeys, type SessionKeys } from "./session-keys";
 import { observed } from "./session-status";
+import { createAutoPublishTick } from "./auto-publish-gate";
 import { IpfsSyncSettingTab } from "./settings-tab";
 import { pluginTransport } from "./request-url-transport";
 import { createStaleLockControl } from "./stale-lock";
@@ -70,6 +71,8 @@ export default class IpfsSyncPlugin extends Plugin {
   private measuring = false;
   private readonly bus: SyncEventBus = createSyncEventBus();
   private timer: number | undefined;
+  /** The timer's gate: one per plugin load, so re-arming after a settings change does not forget the last automatic run. */
+  private readonly autoPublishTick = createAutoPublishTick({ now: () => Date.now(), publish: () => this.publishVault({ quiet: true }) });
   /** The MFS root the session's keys belong to; a settings change to another root drops them. */
   private sessionRoot = "";
   /** Reasons already explained by an unattended (auto-publish) run, so it never repeats itself. */
@@ -261,7 +264,7 @@ export default class IpfsSyncPlugin extends Plugin {
     if (!Number.isFinite(stored) || stored <= 0) return;
     // Whole minutes, at least one (a fraction would otherwise be a near-zero delay), and held at the cap: a longer delay overflows the timer.
     const minutes = Math.min(Math.max(1, Math.floor(stored)), MAX_PUBLISH_INTERVAL_MINUTES);
-    this.timer = window.setInterval(() => void this.publishVault({ quiet: true }), minutes * MS_PER_MINUTE);
+    this.timer = window.setInterval(() => void this.autoPublishTick(), minutes * MS_PER_MINUTE);
     this.registerInterval(this.timer);
   }
 

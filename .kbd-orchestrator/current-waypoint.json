@@ -2,10 +2,10 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 903,
-  "derivedRevision": 903,
+  "sourceRevision": 1127,
+  "derivedRevision": 1127,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 903
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1127
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
@@ -21,19 +21,19 @@
   "phase": "mvp",
   "parentPhase": null,
   "childPointer": null,
-  "change": "mvp-07b-keys-history-guard-release-2",
-  "currentTask": "37",
+  "change": null,
+  "currentTask": null,
   "status": "ready",
   "lifecycle": "ready",
   "stageId": null,
   "stageStatus": null,
   "completionMetric": "implementation",
-  "implementationCompleted": 7,
+  "implementationCompleted": 11,
   "implementationTotal": 16,
   "planRevision": 3,
-  "revision": 903,
+  "revision": 1127,
   "exactNextCommand": "/kbd-status",
-  "nextChange": "mvp-07b-keys-history-guard-release-2",
-  "nextTask": "37",
-  "updatedAt": "2026-10-04T19:58:44.276948Z"
+  "nextChange": null,
+  "nextTask": null,
+  "updatedAt": "2026-10-11T23:13:33.425901Z"
 }

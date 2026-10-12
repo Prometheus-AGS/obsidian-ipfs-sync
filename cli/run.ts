@@ -6,6 +6,7 @@ import type { KeyOperations } from "../src/sync/key-management";
 import { UsageError, parseCliArgs, type ParsedArgs } from "./args";
 import { runAbandon } from "./abandon-command";
 import { HELP_TEXT } from "./help-text";
+import { runHistory } from "./history-command";
 import { runInit } from "./init-command";
 import { EXIT_OK, EXIT_USAGE, type CliIo } from "./io";
 import { KEYS_SUBCOMMANDS, runKeys, type KeysSubcommand } from "./keys-command";
@@ -18,7 +19,7 @@ import { runPull } from "./pull-command";
 import { installRequestTrace } from "./request-trace";
 import { runStatus } from "./status-command";
 
-const COMMANDS: readonly string[] = ["status", "init", "publish", "pull", "abandon", "keys", "prune-history"];
+const COMMANDS: readonly string[] = ["status", "init", "publish", "pull", "abandon", "keys", "prune-history", "history"];
 
 /**
  * What the process supplies beyond configuration. `passphrase` yields the vault passphrase, already canonicalised, or
@@ -138,6 +139,11 @@ function checkPruneFlags(args: ParsedArgs): void {
   if (dryRun && yesPrune) throw new UsageError("--dry-run and --yes-prune exclude each other: a dry run removes nothing, so there is nothing to confirm; nothing was sent");
 }
 
+/** `--limit` belongs to `history` only. */
+function checkHistoryFlags(args: ParsedArgs): void {
+  if (args.command !== "history" && args.history.limit !== undefined) throw new UsageError("--limit is only valid for the history command");
+}
+
 /**
  * A passphrase file inside the vault folder would be published with the notes it protects. Both the file `--passphrase-file` is to create and the
  * one `IPFS_SYNC_PASSPHRASE_FILE` names are judged by their real location; `init` and `abandon` ignore the variable and are not judged on it.
@@ -179,7 +185,12 @@ async function execute(argv: readonly string[], deps: CliDeps, io: CliIo): Promi
   checkDiscardFlags(args);
   checkKeysFlags(args);
   checkPruneFlags(args);
+  checkHistoryFlags(args);
   await checkPassphraseFileOutsideVault(args, vaultPath, deps.env);
+  if (args.command === "history") {
+    // Device-local and read-only: no config file is read, no client is created, no request can be sent, no passphrase is asked.
+    return await runHistory({ io, env: deps.env, limit: args.history.limit });
+  }
   if (args.command === "abandon" && vaultPath !== undefined) {
     // Local only, and the escape hatch for a node that is gone: no RPC or gateway URL is needed, no client is created, no request can be sent.
     const local = await loadLocalConfig(args, deps);
