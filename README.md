@@ -957,7 +957,11 @@ the operator run, and a phone measurement is bound to the exact plugin build. Th
 the release tool and the operator-run script exist and are covered by tests. For v0.3.0 (2026-10-05) all three records
 exist and the checker passed; the evidence is under `dist/release/v0.3.0/`. The order and
 commands are in the operator runbook. The checker and the release tool bound to the tree of branch
-`mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`; PR #2 merged that branch to `main` on 2026-10-12, so the v0.4.0 evidence now binds to the tree of `main`.
+`mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`. The v0.4.0 evidence binds to the immutable
+tree hash of tag `v0.4.0` (commit `87b87f8`, tree `70dfb535af1f249415cb3347ba3e6bd624940a2b`, from
+`git rev-parse v0.4.0^{tree}`); PR #2 merged that branch to `main` on 2026-10-12, making the tagged tree an ancestor of
+`main` (`git merge-base --is-ancestor v0.4.0 main`). The evidence does not follow the moving `main` branch: later
+commits on `main` are not covered by it.
 
 ### Not verified
 

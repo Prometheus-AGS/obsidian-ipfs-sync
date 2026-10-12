@@ -1,41 +1,48 @@
-# Website
+# IPFS Sync documentation site
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
+The public documentation site for IPFS Sync for Obsidian, built with
+[Docusaurus](https://docusaurus.io/) and deployed to GitHub Pages. Uses npm
+(the lockfile is `site/package-lock.json`); there is no yarn setup.
 
-## Installation
-
-```bash
-yarn
-```
-
-## Local Development
+## Install
 
 ```bash
-yarn start
+npm ci
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+## Local development
+
+```bash
+npm start
+```
+
+Starts a local development server and opens a browser window. Most changes are
+reflected live. The `prestart` hook runs the public-content sanitizer first.
 
 ## Build
 
 ```bash
-yarn build
+npm run build
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+Generates the static site into `build/`. The `prebuild` hook runs
+`npm run sanitize`, which does two things:
+
+1. `scripts/check-public-docs.mjs` scans everything that enters the build —
+   `docs/`, `src/`, `static/` and the serialized configuration
+   (`docusaurus.config.js`, `sidebars.js`, `package.json`) — for forbidden
+   content: machine-local home paths, bearer/basic credentials, private-key
+   fields and PEM blocks, device keyslot/state file names, and node-access
+   references. Any finding fails the build.
+2. `node scripts/check-public-docs.mjs --self-test` plants each forbidden
+   form in a temporary site tree and asserts the scanner names them, then
+   asserts a clean tree passes — so a pattern regression cannot silently
+   neuter the sanitizer.
 
 ## Deployment
 
-Using SSH:
-
-```bash
-USE_SSH=true yarn deploy
-```
-
-Not using SSH:
-
-```bash
-GIT_USER=<Your GitHub username> yarn deploy
-```
-
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+Push to `main`. `.github/workflows/docs-pages.yml` builds the site
+(`npm ci` + `npm run build`) on every push to `main` that touches `site/`
+and deploys the `build/` artifact to GitHub Pages via
+`actions/deploy-pages`. There is no branch-based deploy step; do not use
+`docusaurus deploy` or push a `gh-pages` branch.

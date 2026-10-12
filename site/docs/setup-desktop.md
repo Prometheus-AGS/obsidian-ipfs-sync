@@ -10,7 +10,9 @@ description: Install the Obsidian plugin from a GitHub release or from source, i
 **There is no default node.** Nothing works until you enter the RPC URL and the
 gateway URL of a kubo node you run or trust, in the plugin's settings tab or
 the CLI's flags, environment or config file. With either one missing, every
-command refuses and sends no request.
+command that contacts the node refuses and sends no request. Two commands are
+exceptions: `abandon` never contacts the node (it only moves local state
+aside), and the device-local `history` command sends no request either.
 
 ## Before anything else: harden the node
 

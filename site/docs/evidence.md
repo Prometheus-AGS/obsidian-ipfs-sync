@@ -74,19 +74,25 @@ successful run passed `--accept-large`.
   everything it published is readable by anyone who obtains the CID. The
   current tree refuses to read what 0.2.0 published. Treat everything it
   published as public.
-- **v0.3.0** (2026-10-05) is the first **encrypted** release. Its evidence
-  holds a review record (unsigned, bound to the tree by git history), a
-  recorded manual operator run in Obsidian desktop against the maintainer's
-  shared node, and a measured phone key-derivation timing (0.57 s on iOS
-  27.2). These are attestations, not proofs, and no review by a human or an
-  outside party is recorded. An encrypted publish or pull has not run on a
-  phone.
-- **v0.4.0** (2026-10-11, a GitHub pre-release) removed the fixture-only guard,
-  hardened publish against mid-read churn, and is the tree the demo above ran
-  on. Its release is gated by a checker that binds the shipped bytes to a tree
-  hash and a reproducible clean-export build and requires the review,
-  operator-run and phone-timing records — attestations that make forgery more
-  work and leave a trail, not proofs.
+- **v0.3.0** (2026-10-05) is the first **encrypted** release — and the release
+  whose line removed the fixture-only guard: the removal shipped on branch
+  `mvp-07b-guard-removal` (commit `38db5f8`), the branch v0.3.0 shipped from;
+  `main` kept the old guard until PR #2 merged that branch on 2026-10-12. Its
+  evidence holds a review record (unsigned, bound to the tree by git
+  history), a recorded manual operator run in Obsidian desktop against the
+  maintainer's shared node, and a measured phone key-derivation timing
+  (0.57 s on iOS 27.2). These are attestations, not proofs, and no review by
+  a human or an outside party is recorded. An encrypted publish or pull has
+  not run on a phone.
+- **v0.4.0** (2026-10-11, a GitHub pre-release) keeps the guard removed and
+  adds the mid-read churn hardening (a file deleted between the scan and its
+  read raises `FileRemovedDuringReadError` and is skipped with the removal
+  reason instead of aborting the publish), the device-local `history`
+  command, and is the tree the demo above ran on. Its release is gated by a
+  checker that binds the shipped bytes to a tree hash and a reproducible
+  clean-export build and requires the review, operator-run and phone-timing
+  records — attestations that make forgery more work and leave a trail, not
+  proofs.
 
 A version number says nothing about safety beyond what those attestations
 cover. The standing limits are on the [limitations](limitations.md) page.

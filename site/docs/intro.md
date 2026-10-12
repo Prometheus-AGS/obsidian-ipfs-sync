@@ -31,9 +31,14 @@ snapshot:
   manifest — and sends only what changed.
 - **Pull** authenticates the manifest, checks it against this device's record,
   and writes only verified files. Local edits survive as dated conflict copies.
-- **Key management** (`init`, `keys change-passphrase`, `increase-cost`,
-  `accept-slots`, `discard`) and history pruning (`prune-history`) are
-  command-line operations; the plugin exposes the same operations as dialogs.
+- **Key management is split between the plugin and the command line.** The
+  plugin exposes dialogs in the settings tab's Encryption section for
+  **Change passphrase**, **Increase cost**, **Accept key slots** and
+  **Prune history**. Creating the encrypted vault is `init` on the command
+  line, or the setup dialog the plugin opens on a first Publish. The rest are
+  CLI-only: `keys discard`, finishing an interrupted key action or prune, and
+  the recovery flags `--repair`, `--recover-slots` and `--break-lock` — the
+  plugin cannot repair.
 - A shared exclusion list keeps `.obsidian/`, `.git/`, `node_modules/` and
   similar folders out of every publish.
 

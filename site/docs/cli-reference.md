@@ -166,12 +166,24 @@ This is documented as-is; it is not fixed here. In the demo, the vault's
   not fetched, a path was skipped as unsafe, or the run stopped at a check
   (wrong passphrase, rollback, fork, a held lock, an unconfirmed question). A
   confirmation that was asked and declined also exits 1.
-- **2** — usage, unsafe configuration or a refused destination; no request is
-  sent. A plaintext (release 0.2.0) root is one such refusal. A command that
-  needs a confirmation and has neither a terminal nor its confirming flag
-  (`--accept-no-revocation`, `--yes-prune`/`--dry-run`, `--yes-discard`,
-  `--yes-abandon`) exits 2 before any request; `pull --resolve-fork` has no
-  confirming flag, so without a terminal it always exits 2.
+- **2** — usage, unsafe configuration or a refused destination. Whether any
+  request was sent depends on the refusal class:
+  - **Preflight refusals send no request.** Unknown flags, invalid flag
+    combinations, a missing RPC or gateway URL (`no-rpc-url` /
+    `no-gateway-url`), credential flags given on the command line, a
+    working-directory config file steering a credential, and a passphrase
+    file inside the vault are all refused before the node is contacted. A
+    command that needs a confirmation and has neither a terminal nor its
+    confirming flag (`--accept-no-revocation`, `--yes-prune`/`--dry-run`,
+    `--yes-discard`, `--yes-abandon`) also exits 2 before any request;
+    `pull --resolve-fork` has no confirming flag, so without a terminal it
+    always exits 2.
+  - **Remote-format refusals happen after read-only requests.** Detecting a
+    plaintext (release 0.2.0) root requires the pull to resolve the IPNS name
+    and list the remote root first, and a missing `manifest.enc` is found the
+    same way. The refusal is exit 2 with **nothing written** — no file on
+    your disk changes and nothing mutating is sent — but those reads
+    occurred.
 
 A question is asked only when standard input, standard output and standard
 error are all terminals; with any of the three redirected, the run cannot ask.
