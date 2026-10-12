@@ -29,15 +29,25 @@ Generates the static site into `build/`. The `prebuild` hook runs
 `npm run sanitize`, which does two things:
 
 1. `scripts/check-public-docs.mjs` scans everything that enters the build —
-   `docs/`, `src/`, `static/` and the serialized configuration
-   (`docusaurus.config.js`, `sidebars.js`, `package.json`) — for forbidden
-   content: machine-local home paths, bearer/basic credentials, private-key
+   `docs/` and `src/` (by source extension), every file under `static/`
+   regardless of extension (utf8-lossy, so ASCII secrets in binary assets
+   are caught), and the serialized configuration (`docusaurus.config.js`,
+   `sidebars.js`, `package.json`) — for forbidden
+   content: machine-local home paths, bearer/basic credentials (including
+   short Basic values in an authorization header or JSON field), private-key
    fields and PEM blocks, device keyslot/state file names, and node-access
    references. Any finding fails the build.
 2. `node scripts/check-public-docs.mjs --self-test` plants each forbidden
    form in a temporary site tree and asserts the scanner names them, then
    asserts a clean tree passes — so a pattern regression cannot silently
    neuter the sanitizer.
+
+The `postbuild` hook then runs `scripts/check-built-output.mjs`, the build's
+own output guard: it scans every generated file under `build/` (utf8-lossy,
+any extension) with the same shared pattern list
+(`scripts/forbidden-patterns.mjs`, imported by both scripts so they cannot
+drift). Every `npm run build` — local and the CI deploy build — fails on
+findings before any artifact upload.
 
 ## Deployment
 

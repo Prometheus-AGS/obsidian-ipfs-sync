@@ -15,6 +15,7 @@
     "check:public-docs": "node scripts/check-public-docs.mjs",
     "sanitize": "node scripts/check-public-docs.mjs && node scripts/check-public-docs.mjs --self-test",
     "prebuild": "npm run sanitize",
+    "postbuild": "node scripts/check-built-output.mjs",
     "prestart": "node scripts/check-public-docs.mjs"
   },
   "dependencies": {

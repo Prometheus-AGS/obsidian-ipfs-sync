@@ -11,10 +11,14 @@
 // docs/ is not part of the build and is not scanned. If a plugin ever
 // serves ../docs content, add that root here in the same commit.
 //
-// Built-output scanning (grepping the generated build/ for home paths and
-// private keys) is covered by the skill's verify.mjs —
-// ~/.kimi-code/skills/build-branded-docusaurus/scripts/verify.mjs — which
-// runs as a separate gate. Referenced here, not reimplemented.
+// docs/ and src/ are scanned by extension (source formats); static/ is
+// scanned wholesale — every file regardless of extension, read utf8-lossy,
+// so ASCII secret material embedded in an otherwise-binary asset is still
+// caught. Forbidden patterns come from ./forbidden-patterns.mjs, shared
+// with check-built-output.mjs so the input and output scans never drift.
+//
+// Generated-output scanning is the build's own gate: check-built-output.mjs
+// runs as `postbuild` and scans site/build/ with the same patterns.
 //
 // Self-test: `node check-public-docs.mjs --self-test` plants one file per
 // forbidden form in a temporary site tree and asserts the scanner names
@@ -25,12 +29,18 @@ import {mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile} from 'node:fs/pr
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {forbidden} from './forbidden-patterns.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteDir = path.resolve(scriptDir, '..');
 
-// Directories scanned recursively, relative to the site root.
-const scanDirs = ['docs', 'src', 'static'];
+// Source directories scanned recursively (extension-filtered), relative to
+// the site root.
+const scanDirs = ['docs', 'src'];
+
+// static/ is published verbatim, so every file in it is scanned regardless
+// of extension (utf8-lossy read).
+const scanAllDirs = ['static'];
 
 // Individual files scanned in full: Docusaurus serializes configuration
 // into the client bundle, so these are publication inputs too.
@@ -38,64 +48,15 @@ const scanFiles = ['docusaurus.config.js', 'sidebars.js', 'package.json'];
 
 const scannable = /\.(md|mdx|js|jsx|ts|tsx|css|json|html?|svg|txt|xml|ya?ml)$/;
 
-const forbidden = [
-  {
-    label: 'machine-local home path',
-    pattern: new RegExp(
-      `${escapeRegExp(`${os.homedir()}${path.sep}`)}|/Users/[^/\\s]+/|/home/[^/\\s]+/`,
-      'g',
-    ),
-  },
-  {
-    // Bearer or basic credentials in any representation: an HTTP header
-    // (`Authorization: Bearer …`) or a JSON field (`"authorization":
-    // "Bearer …"`) — the scheme word followed by a long token catches both,
-    // case-insensitive on the scheme.
-    label: 'literal bearer/basic credential',
-    pattern: /\b(?:bearer|basic)\s+[A-Za-z0-9_\-.+/=]{32,}/gi,
-  },
-  {
-    // Private-key fields in JSON or config form: the key name may itself be
-    // quoted (`"private_key": "…"`, `"privateKey": "…"`), and the value must
-    // be a quoted string of 40+ characters.
-    label: 'literal 32-byte private key field',
-    pattern: /["']?private[_-]?key["']?\s*[:=]\s*["'][A-Za-z0-9+/_=-]{40,}["']/gi,
-  },
-  {
-    label: 'PEM private key block',
-    pattern: /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/g,
-  },
-  {
-    label: 'raw private wiki path',
-    pattern: /\.prometheus\/knowledge\/wiki\/[^\s)`]+/g,
-  },
-  {
-    label: 'device keyslot file reference',
-    pattern: /\bkeyslots\.[A-Za-z0-9_-]+\.json/g,
-  },
-  {
-    label: 'device state file reference',
-    pattern: /\bstate\.[a-f0-9]{8,}\.json/gi,
-  },
-  {
-    label: 'node-access command (kubectl)',
-    pattern: /\bkubectl\b/g,
-  },
-  {
-    label: 'node-access context (know-me)',
-    pattern: /know-me/g,
-  },
-  {
-    label: 'node-access namespace (ipfs-0)',
-    pattern: /ipfs-0/g,
-  },
-];
-
 async function collectFiles(base) {
   const files = [];
   for (const dir of scanDirs) {
     const root = path.join(base, dir);
     if (await isDirectory(root)) files.push(...(await scannableFiles(root)));
+  }
+  for (const dir of scanAllDirs) {
+    const root = path.join(base, dir);
+    if (await isDirectory(root)) files.push(...(await allFiles(root)));
   }
   for (const name of scanFiles) {
     const file = path.join(base, name);
@@ -107,7 +68,10 @@ async function collectFiles(base) {
 async function scan(base) {
   const findings = [];
   for (const file of await collectFiles(base)) {
-    const content = await readFile(file, 'utf8');
+    // Buffer.toString('utf8') decodes lossy (invalid sequences become
+    // U+FFFD), which keeps ASCII secret material in binary assets visible
+    // to the patterns.
+    const content = (await readFile(file)).toString('utf8');
     const relative = path.relative(base, file);
     for (const rule of forbidden) {
       rule.pattern.lastIndex = 0;
@@ -138,7 +102,7 @@ async function selfTest() {
     const longToken = 'abcdef0123456789abcdef0123456789abcdef0123456789';
     const longKey = '0123456789abcdef0123456789abcdef0123456789abcdef01';
     const plants = [
-      // [relative path, content, expected label]
+      // [relative path, content (string or Buffer), expected label]
       [
         'docs/bearer-json.md',
         `Config sample: {"authorization": "Bearer ${longToken}"}`,
@@ -148,6 +112,20 @@ async function selfTest() {
         'docs/bearer-header.md',
         `authorization: basic ${longToken}`,
         'literal bearer/basic credential',
+      ],
+      [
+        // Short Basic credential in header form (encodes "u:p"): below the
+        // 32+ floor, caught by the no-floor header rule.
+        'docs/basic-header-short.md',
+        'Send `Authorization: Basic dTpw` with each request.',
+        'basic authorization header',
+      ],
+      [
+        // Short Basic credential in JSON form (8-character value): caught
+        // by the authorization-field rule.
+        'docs/basic-json-short.md',
+        '{"authorization": "Basic dXNlcjpw"}',
+        'basic credential in authorization field',
       ],
       [
         'static/private-key.json',
@@ -167,6 +145,19 @@ async function selfTest() {
       [
         'docs/home-path.md',
         'The vault lived at /Users/fixture-operator/notes on that machine.',
+        'machine-local home path',
+      ],
+      [
+        // Bearer token inside a static HTML asset.
+        'static/planted.html',
+        `<html><script>const h = "Bearer ${longToken}";</script></html>`,
+        'literal bearer/basic credential',
+      ],
+      [
+        // Unlisted extension with a leading non-UTF8 byte: the lossy read
+        // must still expose the ASCII home path.
+        'static/planted.dat',
+        Buffer.concat([Buffer.from([0xff, 0xfe, 0x00]), Buffer.from('/Users/fixture-operator/secrets')]),
         'machine-local home path',
       ],
       [
@@ -235,6 +226,17 @@ async function scannableFiles(root) {
   return files;
 }
 
+async function allFiles(root) {
+  const entries = await readdir(root, {withFileTypes: true});
+  const files = [];
+  for (const entry of entries) {
+    const candidate = path.join(root, entry.name);
+    if (entry.isDirectory()) files.push(...(await allFiles(candidate)));
+    else if (entry.isFile()) files.push(candidate);
+  }
+  return files;
+}
+
 async function isDirectory(candidate) {
   try {
     return (await stat(candidate)).isDirectory();
@@ -249,8 +251,4 @@ async function isFile(candidate) {
   } catch {
     return false;
   }
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

@@ -959,9 +959,13 @@ exist and the checker passed; the evidence is under `dist/release/v0.3.0/`. The 
 commands are in the operator runbook. The checker and the release tool bound to the tree of branch
 `mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`. The v0.4.0 evidence binds to the immutable
 tree hash of tag `v0.4.0` (commit `87b87f8`, tree `70dfb535af1f249415cb3347ba3e6bd624940a2b`, from
-`git rev-parse v0.4.0^{tree}`); PR #2 merged that branch to `main` on 2026-10-12, making the tagged tree an ancestor of
-`main` (`git merge-base --is-ancestor v0.4.0 main`). The evidence does not follow the moving `main` branch: later
-commits on `main` are not covered by it.
+`git rev-parse v0.4.0^{tree}`); PR #2 merged that branch to `main` on 2026-10-12 as merge commit `5ecc05a`, making the
+tagged tree an ancestor of `main` (`git merge-base --is-ancestor v0.4.0 main`). The merge commit's own tree
+(`59084995cedcfb5bb206ac178bf587892cd705c7`, from `git rev-parse 5ecc05a^{tree}`) differs from the tag tree: the
+post-tag closeout commits on the branch (`0ec6682`, `41f178f`) touch only documentation and state files
+(`docs/operator/`, `openspec/changes/*/tasks.md`, `.kbd-orchestrator/`, `.prometheus/`), no sources. The evidence binds
+to the tag tree, not to the merge tree, and it does not follow the moving `main` branch: later commits on `main` are
+not covered by it.
 
 ### Not verified
 
