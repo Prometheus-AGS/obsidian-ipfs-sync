@@ -2,38 +2,38 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1127,
-  "derivedRevision": 1127,
+  "sourceRevision": 1179,
+  "derivedRevision": 1179,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1127
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1179
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
   "runId": "mvp-20260930T010010Z",
   "path": [
-    "mvp"
+    "docs-site"
   ],
   "phaseIds": [
-    "mvp"
+    "docs-site"
   ],
-  "activePhaseId": "mvp",
-  "activePhase": "mvp",
-  "phase": "mvp",
+  "activePhaseId": "docs-site",
+  "activePhase": "docs-site",
+  "phase": "docs-site",
   "parentPhase": null,
   "childPointer": null,
-  "change": null,
-  "currentTask": null,
+  "change": "docs-03-site-content-guides",
+  "currentTask": "1",
   "status": "ready",
   "lifecycle": "ready",
-  "stageId": null,
-  "stageStatus": null,
+  "stageId": "execute",
+  "stageStatus": "IN_PROGRESS",
   "completionMetric": "implementation",
-  "implementationCompleted": 11,
-  "implementationTotal": 16,
+  "implementationCompleted": 13,
+  "implementationTotal": 20,
   "planRevision": 3,
-  "revision": 1127,
-  "exactNextCommand": "/kbd-status",
-  "nextChange": null,
-  "nextTask": null,
-  "updatedAt": "2026-10-11T23:13:33.425901Z"
+  "revision": 1179,
+  "exactNextCommand": "/kbd-assess docs-site",
+  "nextChange": "docs-03-site-content-guides",
+  "nextTask": "1",
+  "updatedAt": "2026-10-12T10:28:22.982685Z"
 }
