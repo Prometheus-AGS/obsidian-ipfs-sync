@@ -520,7 +520,7 @@ describe("imports of the operator-run script are in the scope", () => {
 describe("the import scan on this repository's own scoped tools", () => {
   it("finds no import failure in hook-isolation, the release tools, esbuild.options and the checker itself", () => {
     const files: Record<string, string> = { "package.json": "{}\n" };
-    for (const path of ["tools/hook-isolation.mjs", "tools/check-guard-preconditions.mjs", "esbuild.options.mjs", "tools/release/plan.mjs", "tools/release/record.mjs", "tools/release/assemble.mjs", "tools/release/steps.mjs", "tools/release/descriptors.mjs", "tools/release/constants.mjs", "tools/release/facts.mjs", "tools/release/bump.mjs", "tools/release/notes.mjs", "tools/release/tar.mjs", "tools/release/release1.mjs", "tools/release/release2.mjs", "tools/release-mvp-07.mjs"]) {
+    for (const path of ["tools/hook-isolation.mjs", "tools/check-guard-preconditions.mjs", "esbuild.options.mjs", "tools/release/plan.mjs", "tools/release/record.mjs", "tools/release/assemble.mjs", "tools/release/steps.mjs", "tools/release/descriptors.mjs", "tools/release/constants.mjs", "tools/release/facts.mjs", "tools/release/bump.mjs", "tools/release/notes.mjs", "tools/release/tar.mjs", "tools/release/release1.mjs", "tools/release/release2.mjs", "tools/release/release3.mjs", "tools/release-mvp-07.mjs"]) {
       files[path] = readFileSync(join(REPO_ROOT, path), "utf8");
     }
     const result = checker.computeTreeHash({ root: createRepo(files) });
