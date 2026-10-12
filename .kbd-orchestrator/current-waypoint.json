@@ -2,10 +2,10 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1198,
-  "derivedRevision": 1198,
+  "sourceRevision": 1207,
+  "derivedRevision": 1207,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1198
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1207
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
@@ -21,19 +21,19 @@
   "phase": "docs-site",
   "parentPhase": null,
   "childPointer": null,
-  "change": "docs-04-pages-deploy-repo-link",
-  "currentTask": "1",
+  "change": null,
+  "currentTask": null,
   "status": "ready",
   "lifecycle": "ready",
   "stageId": "execute",
   "stageStatus": "IN_PROGRESS",
   "completionMetric": "implementation",
-  "implementationCompleted": 14,
+  "implementationCompleted": 15,
   "implementationTotal": 20,
   "planRevision": 3,
-  "revision": 1198,
+  "revision": 1207,
   "exactNextCommand": "/kbd-assess docs-site",
-  "nextChange": "docs-04-pages-deploy-repo-link",
-  "nextTask": "1",
-  "updatedAt": "2026-10-12T10:53:47.619972Z"
+  "nextChange": null,
+  "nextTask": null,
+  "updatedAt": "2026-10-12T11:05:23.595862Z"
 }

@@ -2,27 +2,27 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1198,
-  "derivedRevision": 1198,
+  "sourceRevision": 1207,
+  "derivedRevision": 1207,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1198
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1207
   },
   "conflictCount": 0,
   "phase": "docs-site",
   "phaseId": "docs-site",
   "parentPhase": null,
-  "last_updated": "2026-10-12T10:53:47.619972Z",
+  "last_updated": "2026-10-12T11:05:23.595862Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 4,
-  "changes_completed": 3,
+  "changes_completed": 4,
   "implementation_total": 4,
-  "implementation_completed": 3,
+  "implementation_completed": 4,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 3,
+      "completed": 4,
       "total": 4,
-      "status": "IN_PROGRESS"
+      "status": "COMPLETE"
     },
     "evidence": {
       "status": "NOT_TRACKED",
@@ -49,7 +49,7 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 14,
+      "completed": 15,
       "total": 20,
       "status": "IN_PROGRESS"
     },
@@ -106,12 +106,12 @@
     {
       "id": "docs-04-pages-deploy-repo-link",
       "title": "GitHub Pages deployment workflow, first deploy verified, repository About link",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
       "tasks_total": 4,
-      "tasks_done": 0,
-      "last_task_completed": null,
-      "next_task_pending": "4.1 Add docs-pages.yml workflow with pinned action SHAs",
+      "tasks_done": 4,
+      "last_task_completed": "4.4 Evaluate the first-party-page condition for the pending publication receipts",
+      "next_task_pending": null,
       "blockers": []
     }
   ],
