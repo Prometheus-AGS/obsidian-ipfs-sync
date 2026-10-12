@@ -1,14 +1,28 @@
 // @ts-check
 
-// Sidebar skeleton. The sections the docs-03 content change will fill:
-//   Setup, Concepts, CLI, Security, Limitations, Evidence
-// They are intentionally not sidebar entries yet: empty categories do not
-// build, and entries would dangle — onBrokenLinks: 'throw' is the proof
-// that nothing here references a document that does not exist.
+// Sidebar for the docs-03 content set. Every entry names a real document:
+// onBrokenLinks: 'throw' makes a dangling id a build failure.
 
 /** @type {import('@docusaurus/plugin-content-docs').SidebarsConfig} */
 const sidebars = {
-  docsSidebar: ['intro'],
+  docsSidebar: [
+    'intro',
+    {
+      type: 'category',
+      label: 'Setup',
+      items: ['setup-desktop', 'setup-mobile'],
+    },
+    {
+      type: 'category',
+      label: 'Concepts',
+      items: ['how-it-works', 'security'],
+    },
+    {
+      type: 'category',
+      label: 'Reference',
+      items: ['cli-reference', 'limitations', 'evidence', 'roadmap', 'coverage-matrix'],
+    },
+  ],
 };
 
 module.exports = sidebars;
