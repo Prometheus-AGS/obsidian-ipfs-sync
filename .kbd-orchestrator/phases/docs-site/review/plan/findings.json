@@ -1,0 +1,27 @@
+{
+  "mode": "artifact",
+  "verdict": "PASS",
+  "judge_model": "gpt-6.1-sol",
+  "producer_model": "kimi-code/kimi-for-coding",
+  "isolation_mode": "rest-gateway:http://localhost:4000/v1",
+  "cross_model_check": "unverified-producer-unknown",
+  "findings": [
+    {
+      "severity": "WARNING",
+      "file": "plan.md",
+      "claim": "The site-content change has no acceptance criterion for factual accuracy or completed coverage; its exit gate checks only technical validity.",
+      "evidence": "docs-03 says to start from a \"coverage matrix (topics \u00d7 source \u00d7 status) that separates shipped behavior from designed-not-built,\" but its gate is only \"sanitizer + link check + mermaid check + production build all green.\" Nothing requires the matrix to be completed or the published claims to be checked against shipped behavior before deployment, despite the goal of a site \"fully explaining the IPFS Obsidian plugin.\"",
+      "suggested_fix": "Add a docs-03 content gate requiring every required topic to map to a published page, every behavioral claim to have a checked source, and every designed-but-unbuilt feature to be explicitly labeled. Require resolution or explicit disclosure of all unchecked matrix entries before docs-04 deploys."
+    }
+  ],
+  "judge_identity": {
+    "providerConnectionId": "openai-proxy-8181",
+    "providerId": "openai",
+    "modelId": "gpt-6.1-sol"
+  },
+  "sycophancy_screen": {
+    "reject_cap": 2,
+    "cap_overridden": false,
+    "cap_default": 2
+  }
+}

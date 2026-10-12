@@ -1,7 +1,7 @@
 {
   "name": "IPFS Sync for Obsidian",
   "description": "Sync an Obsidian vault over IPFS through your own kubo node — plugin + CLI, mobile-compatible delta sync, CRDT + AI layers planned.",
-  "activePhase": "mvp",
+  "activePhase": "docs-site",
   "worktreeRoot": "${HOME}/.claude/worktrees",
   "maxChildDepth": 4,
   "ux_profile": "advanced",
@@ -119,5 +119,5 @@
       }
     ]
   },
-  "updatedAt": "2026-09-29T22:55:36Z"
+  "updatedAt": "2026-10-12T03:54:08Z"
 }

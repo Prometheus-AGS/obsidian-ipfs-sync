@@ -25,3 +25,5 @@ dist/
 .prometheus/cadence-input/
 # Open Design MCP registration: absolute app paths and per-launch socket paths (see docs/operator/open-design-mcp.md)
 .mcp.json
+site/node_modules/
+site/build/

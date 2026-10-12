@@ -1,0 +1,12 @@
+{
+  "phase": "docs-site",
+  "dispatchedAt": "2026-10-12T09:50:00Z",
+  "backend": "openspec",
+  "rounds": {
+    "1": ["docs-01-readme-accuracy-pass", "docs-02-docusaurus-scaffold-branding"],
+    "2": ["docs-03-site-content-guides"],
+    "3": ["docs-04-pages-deploy-repo-link"]
+  },
+  "pending": ["docs-01-readme-accuracy-pass", "docs-02-docusaurus-scaffold-branding", "docs-03-site-content-guides", "docs-04-pages-deploy-repo-link"],
+  "notes": "Dispatch receipt only; Execute stays active until the completion checklist passes."
+}

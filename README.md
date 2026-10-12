@@ -8,14 +8,14 @@ CRDT multi-writer sync and an AI layer later.
 The maintainer's test node is open to anyone and is not a default; see "Security" below. If you relied on the old
 built-in node (release 0.2.0), you must now configure one.
 
-> **Releases. v0.3.0 shipped on 2026-10-05 (tag `v0.3.0`). Release 3 (v0.4.0) is being cut from this tree. Read "Real
+> **Releases. v0.3.0 shipped on 2026-10-05 (tag `v0.3.0`). Release 3 shipped on 2026-10-11 as v0.4.0 (tag `v0.4.0`, a GitHub pre-release, cut from this tree). Read "Real
 > notes: what you accept" before you use this on notes you cannot lose or cannot expose.**
 >
 > - **What this tree does.** The guard that limited the tool to generated test vaults is removed on branch
 >   `mvp-07b-guard-removal` (commit `38db5f8`), the branch v0.3.0 shipped from. `init`, `publish`, `pull` and the
 >   plugin accept any vault, and the `.ipfs-sync-fixture` marker file has no meaning. Every publish is still encrypted
 >   on your device: file contents, file names and the manifest. The key comes from a passphrase the tool generates for
->   you. `main` keeps the old guard until the release merge.
+>   you. `main` kept the old guard until PR #2 merged this branch to it on 2026-10-12; `main` no longer carries the guard.
 > - **v0.3.0 evidence.** The release evidence (`dist/release/v0.3.0/`) holds a review record (unsigned, bound to the
 >   tree by git history), a recorded manual operator run in Obsidian desktop against the shared node (2026-10-05) and a
 >   measured phone key-derivation timing (0.57 s on iOS 27.2). These are attestations, not proofs, and no human or
@@ -36,7 +36,7 @@ built-in node (release 0.2.0), you must now configure one.
 >   a file changed mid-read was already skipped the same way. The demo's published set was exact: 0 skipped, and the
 >   vault's 2 dangling symlinks are outside the publishable set by construction.
 > - **CLI limitations.** The CLI has no per-file read cap and no exclusion option; both exist only in the plugin. In
->   the demo the vault's 195 MiB file published as is.
+>   the demo the vault's 195.4 MiB file published as is.
 > - **Mobile.** The demo's mobile attempt was not run — mobile stays unverified (T3).
 > - **Release 0.2.0** (tagged `v0.2.0`, a GitHub pre-release) is the plaintext build: it has no encryption, and
 >   everything it published is readable by anyone who obtains the CID. The encryption described below is not in 0.2.0.
@@ -52,7 +52,7 @@ built-in node (release 0.2.0), you must now configure one.
 | CLI pull | `ipfs-sync pull` | Reads an encrypted vault back: authenticates the manifest, checks the sequence against this device's record, writes only verified files. Also restores an older version, resolves a fork and lists versions. A plaintext (version 1) root from release 0.2.0 is refused |
 | CLI keys | `ipfs-sync keys change-passphrase`, `increase-cost`, `accept-slots`, `discard` | Replace the key slot under a new generated passphrase or a higher cost, accept another device's change, drop a stuck operation. Revokes nothing (see "Change the passphrase or the cost") |
 | CLI prune | `ipfs-sync prune-history` | Remove the oldest history files from the node's working tree so the folder stays under the publisher's limit (see "History growth") |
-| Exclusions | `src/sync/exclusions.ts` | Shared exclusion list: trash, the whole `.obsidian/` folder, the Smart Connections folder `.smart-env/`, this dev folder and the old marker file name `.ipfs-sync-fixture` (still excluded, so a leftover marker is never published). Plugin code and plugin data are device-local and are never published or pulled |
+| Exclusions | `src/sync/exclusions.ts` | Shared exclusion list: trash, `.DS_Store`, `node_modules/`, `.git/`, the whole `.obsidian/` folder, the Smart Connections folder `.smart-env/`, this dev folder and the old marker file name `.ipfs-sync-fixture` (still excluded, so a leftover marker is never published). Plugin code and plugin data are device-local and are never published or pulled |
 
 **Mutable pointer:** the project IPNS key `obsidian-vault-sync` on your node. `publish`
 creates it if absent and records its ID in the config file (`ownedKeys`). Each publish
@@ -229,7 +229,7 @@ What the plugin does today:
   every request goes through Node's `http` and `https` (`src/plugin/node-transport.ts`). On mobile, which has no Node,
   requests go through Obsidian's `requestUrl`. `requestUrl` is used only on mobile: a desktop app whose Node modules
   cannot be loaded refuses every request (see "Desktop streams every response" below).
-- The whole `.obsidian/` folder is never published and never pulled (before `mvp-07a` only `.obsidian/plugins/` was):
+- The whole `.obsidian/` folder is never published and never pulled (before `mvp-07a` only `.obsidian/plugins/` and five named files under `.obsidian/` were):
   plugin code and plugin data, including this plugin's own `data.json` with your credentials, stay on the device. Those
   credentials are stored in plain text, and so is the sequence floor, which lives in the same plugin data.
 
@@ -493,7 +493,7 @@ node dist/cli/ipfs-sync.mjs prune-history <vault> --keep <n> [--dry-run | --yes-
   `no-gateway-url`) and sends no request. Both are needed because every pull, publish read-back, status and key command
   reads through the gateway, and the gateway URL is never derived from the RPC URL. A port variable alone
   (`--rpc-port`, `IPFS_SYNC_RPC_PORT`) does not count as a URL. `abandon` is the exception: it only moves local state
-  aside, so it runs with no node configured.
+  aside, so it runs with no node configured. The device-local `history` command sends no request either.
 - **Which endpoint gets the credential.** The global auth (`--auth`, `IPFS_SYNC_AUTH_*`) is the RPC credential. The
   gateway inherits it only when its origin (scheme, host and port) equals the RPC origin, as with one reverse proxy
   serving both. On any other origin the gateway gets auth kind `none`, so the credential never goes to a host you did not
@@ -856,8 +856,8 @@ console for details"), never the error's own message.
 ### History growth
 
 Every publish that changes something adds one file to `manifests/` on the node: an encrypted copy of the whole manifest,
-about 4 to 14 MB for a vault of 5,000 to 20,000 files, pinned forever. The tool lists that folder before it writes
-anything. It warns at 1,500 files and refuses at 1,999, with a message that names `ipfs-sync prune-history`.
+pinned forever. The estimate was about 4 to 14 MB for a vault of 5,000 to 20,000 files; the one measurement is below that band:
+the mvp-10 demo's 4,825-file vault produced a 1,595,014-byte `manifest.enc`, so size scales with path length, not just file count. The tool lists that folder before it writes anything. It warns at 1,500 files and refuses at 1,999, with a message that names `ipfs-sync prune-history`.
 
 `ipfs-sync prune-history <vault> --keep <n>` removes the oldest history files from the node's working tree so that `n`
 remain. At least the newest 20 are kept whatever `n` says. Order comes from the sequence-prefixed names; older names
@@ -905,7 +905,7 @@ case there (see above).
 
 ### The retired fixture marker (history, and what stays)
 
-Earlier trees, and `main` until the release merge, limited `publish` and `init` to a vault whose `.ipfs-sync-fixture`
+Earlier trees, and `main` before PR #2 merged the removal branch to it on 2026-10-12, limited `publish` and `init` to a vault whose `.ipfs-sync-fixture`
 file held the text `fixture`. That was an accident guard, not a control: anyone who could create the file could
 override it. Release 0.2.0 wrote the text `fixture copy created by ipfs-sync pull` into a pulled copy, and the trees
 after it wrote `pulled-fixture`.
@@ -957,7 +957,7 @@ the operator run, and a phone measurement is bound to the exact plugin build. Th
 the release tool and the operator-run script exist and are covered by tests. For v0.3.0 (2026-10-05) all three records
 exist and the checker passed; the evidence is under `dist/release/v0.3.0/`. The order and
 commands are in the operator runbook. The checker and the release tool bound to the tree of branch
-`mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`.
+`mvp-07b-guard-removal` (see `DESIGN.md` section 8.9), not to `main`; PR #2 merged that branch to `main` on 2026-10-12, so the v0.4.0 evidence now binds to the tree of `main`.
 
 ### Not verified
 
