@@ -2,16 +2,16 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1207,
-  "derivedRevision": 1207,
+  "sourceRevision": 1208,
+  "derivedRevision": 1208,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1207
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1208
   },
   "conflictCount": 0,
   "phase": "docs-site",
   "phaseId": "docs-site",
   "parentPhase": null,
-  "last_updated": "2026-10-12T11:05:23.595862Z",
+  "last_updated": "2026-10-12T11:36:55.653315Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 4,
   "changes_completed": 4,

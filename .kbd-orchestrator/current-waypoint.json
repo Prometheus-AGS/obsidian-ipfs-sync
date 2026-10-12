@@ -2,10 +2,10 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1207,
-  "derivedRevision": 1207,
+  "sourceRevision": 1208,
+  "derivedRevision": 1208,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1207
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1208
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
@@ -26,14 +26,14 @@
   "status": "ready",
   "lifecycle": "ready",
   "stageId": "execute",
-  "stageStatus": "IN_PROGRESS",
+  "stageStatus": "COMPLETE",
   "completionMetric": "implementation",
   "implementationCompleted": 15,
   "implementationTotal": 20,
   "planRevision": 3,
-  "revision": 1207,
+  "revision": 1208,
   "exactNextCommand": "/kbd-assess docs-site",
   "nextChange": null,
   "nextTask": null,
-  "updatedAt": "2026-10-12T11:05:23.595862Z"
+  "updatedAt": "2026-10-12T11:36:55.653315Z"
 }
