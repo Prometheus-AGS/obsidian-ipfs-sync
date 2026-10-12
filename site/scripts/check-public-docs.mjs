@@ -128,6 +128,13 @@ async function selfTest() {
         'basic credential in authorization field',
       ],
       [
+        // Minimal valid Basic credential in JSON form (4-character value):
+        // no length floor anywhere.
+        'docs/basic-json-minimal.md',
+        '{"authorization": "Basic dTpw"}',
+        'basic credential in authorization field',
+      ],
+      [
         'static/private-key.json',
         `{"private_key": "${longKey}"}`,
         'literal 32-byte private key field',

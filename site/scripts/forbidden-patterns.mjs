@@ -29,14 +29,15 @@ export const forbidden = [
     // "user:pass"), so the 32+ floor above misses them. This rule requires
     // the authorization header or JSON field context (`Authorization:
     // Basic …`, `"authorization": "Basic …"`) and accepts any plausible
-    // base64 value of 8+ characters, case-insensitive.
+    // base64 value with no length floor, case-insensitive.
     label: 'basic credential in authorization field',
-    pattern: /["']?authorization["']?\s*[:=]\s*["']?\s*basic\s+[A-Za-z0-9+/=]{8,}["']?/gi,
+    pattern: /["']?authorization["']?\s*[:=]\s*["']?\s*basic\s+[A-Za-z0-9+/=]+["']?/gi,
   },
   {
-    // Header form with no length floor: `Authorization: Basic <value>`.
+    // Header form with no length floor: `Authorization: Basic <value>`,
+    // tolerating quotes around the field name and value (JSON form).
     label: 'basic authorization header',
-    pattern: /\bauthorization\s*:\s*basic\s+[A-Za-z0-9+/=]+/gi,
+    pattern: /\bauthorization["']?\s*:\s*["']?\s*basic\s+[A-Za-z0-9+/=]+/gi,
   },
   {
     // Private-key fields in JSON or config form: the key name may itself be
