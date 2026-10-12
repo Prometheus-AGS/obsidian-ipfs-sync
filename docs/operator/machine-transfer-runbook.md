@@ -19,23 +19,30 @@ What moves:
 
 - **The repo** — via git. Remote `git@github.com:Prometheus-AGS/obsidian-ipfs-sync.git`, main HEAD `1e53e71`,
   fully pushed, zero unpushed commits (verified 2026-10-12). Nothing is carried by hand.
-- **Vault sync state** — via the staged transfer bundle
-  `~/ipfs-sync-transfer-2026-10-12/vault-sync-state-f6720bcd22c0ded6.tar.gz` (5,537,660 bytes, directory mode
-  700), tarred anchored at `$HOME` so paths are self-documenting on restore. It holds
-  `obsidian/.ipfs-sync/keyslots.f6720bcd22c0ded6.json` (594 bytes, mode 600 — this device's identity for vault
-  `f6720bcd22c0ded6`), `obsidian/.ipfs-sync/state.f6720bcd22c0ded6.json` (2.3 MB),
-  `obsidian/.ipfs-sync/.opencode/opencode-loop/` (one 4 KB session file), and the CLI per-user state directory
-  `Library/Application Support/ipfs-sync/` (38 MB — `device-id`, `sequence-floor.json`, `feature-ops/`, and the
-  `history/` operation database). SHA-256
-  `408365354b9ff9934c54412c01b4e62d8a17a52fcbd83455f388c470a45c01e9` is recorded in
-  `~/ipfs-sync-transfer-2026-10-12/SHA256SUMS`.
+- **Vault sync state + repo-local history** — via the staged transfer bundle
+  `~/ipfs-sync-transfer-2026-10-12/vault-sync-state-f6720bcd22c0ded6.tar.gz` (27,488,658 bytes, directory mode
+  700), tarred anchored at `$HOME` so paths are self-documenting on restore. It holds:
+  - `obsidian/.ipfs-sync/keyslots.f6720bcd22c0ded6.json` (594 bytes, mode 600 — this device's identity for vault
+    `f6720bcd22c0ded6`), `obsidian/.ipfs-sync/state.f6720bcd22c0ded6.json` (2.3 MB), and
+    `obsidian/.ipfs-sync/.opencode/opencode-loop/` (one 4 KB session file).
+  - The CLI per-user state directory `Library/Application Support/ipfs-sync/` (38 MB — `device-id`,
+    `sequence-floor.json`, `feature-ops/`, and the `history/` operation database). It is device-local (never
+    synced, never published, `$XDG_STATE_HOME/ipfs-sync` overrides the location per `cli/device-store-node.ts`).
+    Adopting the device identity (decision (a)) requires it — otherwise the Mac Pro is a fresh CLI device with
+    no device-id, no sequence floor, and an empty operation log.
+  - `obsidian/.ipfs-sync/.prometheus/knowledge/` (92 MB — the Karpathy knowledge logs: 268 wiki pages, 260 of
+    them distilled `karpathy-session-*.md`, plus `.prompt-snapshots/` with 120 prompt captures, mode 700). **Deliberately not in git**: the
+    repo is PUBLIC and `knowledge/` is excluded on the source via `.git/info/exclude` — committing it would
+    publish session-derived material. The bundle carries it instead.
+  - `obsidian/.ipfs-sync/.prometheus/progress-memory-receipts/` (2.2 MB — phase-boundary receipts).
+  - The two `.kbd-orchestrator/phases/*/hooks.log.jsonl` files (304 KB) — the only `.kbd-orchestrator` content
+    not in git. All canonical state (current-waypoint, phases, progress, reflections, handoffs) IS committed;
+    `position.json`, `position-reminder.txt`, and `model-preflight.json` are derived caches that regenerate on
+    the target (see §5 smoke check).
+  - SHA-256 `1485d5c28f8e9e1f72c7ad33a81c3dce50de5e3739b2e3cc099f3a613bc32ea0`, recorded in
+    `~/ipfs-sync-transfer-2026-10-12/SHA256SUMS`.
 - **Vault content** — ≈1 GB of actual notes (the vault totals 2.3 GB, of which 1.3 GB is the `.ipfs-sync/` repo
   checkout that does not move as part of the vault).
-- **The CLI per-user state directory** — `~/Library/Application Support/ipfs-sync/` on the source holds
-  `device-id`, `sequence-floor.json`, `feature-ops/` and the `history/` operation database. It is device-local
-  (never synced, never published, `$XDG_STATE_HOME/ipfs-sync` overrides the location per
-  `cli/device-store-node.ts`) and it IS in the bundle. Adopting the device identity (decision (a)) requires it —
-  otherwise the Mac Pro is a fresh CLI device with no device-id, no sequence floor, and an empty operation log.
 - **Toolchain** — fresh installs on the target (§3), not copies.
 - **Agent substrate** — `~/.kimi-code`, selected `~/.prometheus` subtrees, `~/.local/bin` binaries, and the
   LaunchAgents fleet (§5).
@@ -48,6 +55,10 @@ What does NOT move:
   testing on the Mac Pro too.
 - `~/.prometheus/backups` (13G), `~/.prometheus/recovery` (6.6G), `~/.prometheus/repair-backups` (4.9G) — ≈24.5G
   of history. Excluded below; archive separately only if wanted.
+- **Repo-local `.prometheus/cadence/` (219 MB) and `.prometheus/cadence-input/`** — machine-local delivery-cadence
+  state with absolute paths baked in (that is exactly why `.gitignore` excludes it); the paths would be wrong on
+  the target, where the clone lives at a different location. The one open item it holds (stuck cadence iteration
+  9) is already recorded as debt in the mvp and docs-site reflections. Cadence starts fresh on the Mac Pro.
 - `*.bak` / `*.deprecated` LaunchAgent files. Do not transfer.
 - `~/.kimi-code/sessions/` — session logs; optional, excluded by default below.
 
@@ -145,7 +156,7 @@ you.
    Record both hashes in the §8 table now — they are the before-transfer baseline.
 
 2. **[source → target] Move the bundle.** Either AirDrop the whole `~/ipfs-sync-transfer-2026-10-12/` directory
-   (it is mode 700, 5.5 MB), or:
+   (it is mode 700, 27 MB), or:
 
    ```bash
    # [target]
@@ -224,6 +235,31 @@ you.
    "$HOME/Library/Application Support/ipfs-sync/"` does the same job.)
 
    Skip this only if you chose pair-as-new in decision (a).
+
+   **Restore the repo-local history into the clone** (Karpathy knowledge logs, progress receipts, hook logs —
+   these belong with the repo at `~/Projects/obsidian-ipfs-sync`, NOT in the vault's `.ipfs-sync/`):
+
+   ```bash
+   # [target]
+   cp -Rp ~/ipfs-sync-transfer-2026-10-12/extracted/obsidian/.ipfs-sync/.prometheus/knowledge \
+          ~/ipfs-sync-transfer-2026-10-12/extracted/obsidian/.ipfs-sync/.prometheus/progress-memory-receipts \
+          ~/Projects/obsidian-ipfs-sync/.prometheus/
+   cp -p ~/ipfs-sync-transfer-2026-10-12/extracted/obsidian/.ipfs-sync/.kbd-orchestrator/phases/mvp/hooks.log.jsonl \
+         ~/Projects/obsidian-ipfs-sync/.kbd-orchestrator/phases/mvp/
+   cp -p ~/ipfs-sync-transfer-2026-10-12/extracted/obsidian/.ipfs-sync/.kbd-orchestrator/phases/docs-site/hooks.log.jsonl \
+         ~/Projects/obsidian-ipfs-sync/.kbd-orchestrator/phases/docs-site/
+   chmod 700 ~/Projects/obsidian-ipfs-sync/.prometheus/knowledge/.prompt-snapshots
+   ```
+
+   These paths are gitignored (knowledge via the source's `.git/info/exclude`, the rest via `.gitignore`), so
+   they will never be committed by accident on the target either — but note the clone does not carry the
+   source's `.git/info/exclude`; add `.prometheus/knowledge/` to the target clone's `.git/info/exclude` to
+   keep it that way:
+
+   ```bash
+   # [target]
+   echo ".prometheus/knowledge/" >> ~/Projects/obsidian-ipfs-sync/.git/info/exclude
+   ```
 
 7. **[target] Install the plugin into the vault.** Two options; pick one.
 
@@ -418,8 +454,10 @@ Fill in on the target. The transfer is not done until every row has an observed 
 | Check | Command | Expected | Observed |
 |---|---|---|---|
 | Bundle checksum | `shasum -a 256 -c ~/ipfs-sync-transfer-2026-10-12/SHA256SUMS` | `OK` | |
-| Git HEAD | `git -C ~/Projects/obsidian-ipfs-sync rev-parse --short HEAD` | `1e53e71` | |
+| Git HEAD | `git -C ~/Projects/obsidian-ipfs-sync rev-parse --short HEAD` | `1e53e71` or later | |
 | Git clean | `git -C ~/Projects/obsidian-ipfs-sync status --short` | empty | |
+| Karpathy knowledge logs | `ls ~/Projects/obsidian-ipfs-sync/.prometheus/knowledge/wiki/ | wc -l` | 268 | |
+| Knowledge still untracked | `git -C ~/Projects/obsidian-ipfs-sync status --short --ignored .prometheus/knowledge/ | head -1` | `!! .prometheus/knowledge/` | |
 | keyslots sha256 (source, before transfer) | `shasum -a 256 keyslots.f6720bcd22c0ded6.json` in the source repo root | (record) | |
 | keyslots sha256 (target) | `shasum -a 256 ~/obsidian/.ipfs-sync/keyslots.f6720bcd22c0ded6.json` | = source value | |
 | state sha256 (source, before transfer) | `shasum -a 256 state.f6720bcd22c0ded6.json` in the source repo root | (record) | |
