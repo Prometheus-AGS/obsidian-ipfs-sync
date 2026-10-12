@@ -2,10 +2,10 @@
   "schemaVersion": "5",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1208,
-  "derivedRevision": 1208,
+  "sourceRevision": 1210,
+  "derivedRevision": 1210,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1208
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1210
   },
   "conflictCount": 0,
   "projectId": "5b770324-5ba1-49ef-a0b9-115736a22fe2",
@@ -31,9 +31,9 @@
   "implementationCompleted": 15,
   "implementationTotal": 20,
   "planRevision": 3,
-  "revision": 1208,
+  "revision": 1210,
   "exactNextCommand": "/kbd-assess docs-site",
   "nextChange": null,
   "nextTask": null,
-  "updatedAt": "2026-10-12T11:36:55.653315Z"
+  "updatedAt": "2026-10-12T12:15:41.582913Z"
 }

@@ -2615,3 +2615,17 @@ Encrypted-only publish engine, `init`, session keys, dialogs, abandon, lock acti
 - Exact next work: /kbd-status
 - Verification:
   - none recorded
+
+<!-- karpathy-progress-event:kpm-8c6b5800c5c2c4ffd0091c013b2873c0 -->
+## Progress boundary — 2026-10-12T12:15:43.605425Z
+
+- Event: `kpm-8c6b5800c5c2c4ffd0091c013b2873c0`
+- Boundary: `phase` / `complete`
+- Position: `docs-site` / `-` / `-`
+- Class and elapsed time: `product` / `0.0` hours
+- Commit: `6782f1533802891f5bf256923acf7c05233ad617`
+- Files: `.kbd-orchestrator/current-waypoint.json`, `.kbd-orchestrator/phases/docs-site/handoffs/reflect.handoff.json`, `.kbd-orchestrator/phases/docs-site/hooks-status.json`, `.kbd-orchestrator/phases/docs-site/prior-context.md`, `.kbd-orchestrator/phases/docs-site/progress.json`, `.kbd-orchestrator/phases/docs-site/reflection.md`, `.kbd-orchestrator/phases/docs-site/tasks.md`, `.opencode/opencode-loop/ses_ef18db3c5ffeVkQeWZ7vNMPiTZ.json`, `keyslots.f6720bcd22c0ded6.json`, `state.f6720bcd22c0ded6.json`
+- Blocker: none
+- Exact next work: /kbd-assess docs-site
+- Verification:
+  - none recorded

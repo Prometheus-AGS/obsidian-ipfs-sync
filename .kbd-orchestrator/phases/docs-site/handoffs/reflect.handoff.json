@@ -1,0 +1,11 @@
+{
+  "stage": "reflect",
+  "completedAt": "2026-10-12T12:15:34Z",
+  "outputs": [
+    "reflection.md"
+  ],
+  "nextStage": null,
+  "summaryForNext": "docs-site 4/4 MET; deltas: QA gate did the quality work (3 BLOCK rounds, 13 findings incl. lead's wrong-SHA dispatch), packet tool lacks range-diff mode, docs-04 first deploy hit Pages-ordering as designed; recommended next phase: phase-mobile-and-hardening (carried from mvp) with publication-receipt asset-link page as a fold-in candidate",
+  "skipped": false,
+  "skipReason": null
+}
