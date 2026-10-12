@@ -1,0 +1,88 @@
+/* Flat 2.0: no gradients, no decorative shadows, no separator borders.
+   Regions differ by filled backgrounds; focus visibility comes from the
+   global :focus-visible rule in custom.css. */
+
+.main {
+  background: var(--ifm-background-color);
+}
+
+.hero {
+  padding: clamp(4rem, 9vw, 7rem) 0;
+  background: var(--knowme-panel);
+}
+
+.eyebrow {
+  margin: 0 0 0.9rem;
+  color: var(--ifm-color-primary-darkest);
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.hero h1 {
+  max-width: 14ch;
+  margin: 0;
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  line-height: 1;
+  letter-spacing: -0.05em;
+}
+
+.lead {
+  max-width: 43rem;
+  margin: 1.75rem 0 0;
+  color: var(--knowme-text-muted);
+  font-size: clamp(1.08rem, 1.8vw, 1.3rem);
+  line-height: 1.65;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin-top: 2.2rem;
+}
+
+.map {
+  padding: clamp(3rem, 7vw, 5.5rem) 0;
+  background: var(--knowme-panel-muted);
+}
+
+.map h2 {
+  margin: 0;
+  font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.mapNote {
+  margin: 1rem 0 0;
+  color: var(--knowme-text-muted);
+}
+
+.sectionList {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sectionCard {
+  padding: 1.5rem;
+  border-radius: 1rem;
+  background: var(--knowme-panel);
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+[data-theme='dark'] .eyebrow {
+  color: var(--ifm-color-primary-light);
+}
+
+@media (max-width: 700px) {
+  .sectionList {
+    grid-template-columns: 1fr;
+  }
+}

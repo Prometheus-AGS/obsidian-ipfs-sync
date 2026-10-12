@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+        <g transform="translate(36, 20)">
+          <rect x="0" y="0" width="24" height="160" rx="12" fill="#E8EDF3"/>
+          <path d="M 20,80 C 32,68 54,42 78,24 C 90,14 100,12 104,20 C 106,26 100,32 94,36
+                   C 74,50 50,70 36,82 C 28,88 22,86 20,82 Z" fill="#E8EDF3"/>
+          <path d="M 20,80 C 32,92 54,118 78,136 C 90,146 100,148 104,140 C 106,134 100,128 94,124
+                   C 74,110 50,90 36,78 C 28,72 22,74 20,78 Z" fill="#E8EDF3"/>
+          <circle cx="22" cy="80" r="12" fill="#FF6A3D"/>
+        </g>
+      </svg>
