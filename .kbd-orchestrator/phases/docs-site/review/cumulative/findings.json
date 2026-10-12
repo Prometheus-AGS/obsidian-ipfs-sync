@@ -1,0 +1,84 @@
+{
+  "mode": "diff",
+  "verdict": "BLOCK",
+  "judge_model": "gpt-6.1-sol",
+  "producer_model": "kimi-code/kimi-for-coding",
+  "isolation_mode": "rest-gateway:http://localhost:4000/v1",
+  "cross_model_check": "unverified-producer-unknown",
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "site/scripts/check-public-docs.mjs",
+      "line": 20,
+      "claim": "The sanitizer omits publishable static assets and configuration, allowing forbidden content to reach the deployed site without inspection.",
+      "evidence": "The scan roots are only site/docs and site/src, and scannable excludes JSON, HTML, SVG and text files. Docusaurus publishes site/static assets, demonstrated by the logos and .nojekyll in this diff, and serializes configuration into the client bundle as acknowledged in task 2.2. The sanitizer acceptance criterion requires forbidden publishable content to block the build.",
+      "suggested_fix": "Scan all publication inputs, including static assets and serialized configuration, and scan the generated output before artifact upload; add negative fixtures in static JSON/HTML assets."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "site/scripts/check-public-docs.mjs",
+      "line": 34,
+      "claim": "The credential and private-key patterns miss ordinary representations of the secrets they are required to forbid.",
+      "evidence": "The bearer pattern matches only the exact case-sensitive prefix 'Authorization: Bearer' followed by at least 32 restricted characters, so a JSON header such as {\"Authorization\":\"Bearer <token>\"} is not detected. The private-key pattern requires whitespace immediately after the field name, so a quoted JSON field such as {\"private_key\":\"<64-character key>\"} is not detected. Task 2.3 requires bearer credentials and private key fields to be forbidden.",
+      "suggested_fix": "Recognize quoted JSON keys and common header representations, handle header casing, and add negative tests for JSON credentials and key fields rather than only the planted fixture syntax."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "site/docs/intro.md",
+      "line": 34,
+      "claim": "The introduction incorrectly claims that the plugin exposes all listed CLI key-management operations as dialogs.",
+      "evidence": "The list includes keys discard and then says 'the plugin exposes the same operations as dialogs'. The checked README inventory C040 explicitly records 'no keys discard in the plugin', and C042 records that the plugin has no resume or discard operation.",
+      "suggested_fix": "List the plugin-supported actions separately and explicitly identify discard and interrupted-operation recovery as CLI-only."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "site/docs/evidence.md",
+      "line": 83,
+      "claim": "The evidence page attributes fixture-guard removal to v0.4.0 even though the packet places that removal in the branch from which v0.3.0 shipped.",
+      "evidence": "The page says 'v0.4.0 ... removed the fixture-only guard'. README lines 14\u201318 state that the guard was removed at commit 38db5f8 on mvp-07b-guard-removal, 'the branch v0.3.0 shipped from'; inventory C004 marks that history checked. This contradicts the content gate requiring behavioral and release claims to match their checked sources.",
+      "suggested_fix": "Describe v0.4.0 as retaining the already-removed guard and adding the documented churn hardening, or verify and document the precise first release containing the removal."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "site/docs/cli-reference.md",
+      "line": 171,
+      "claim": "The exit-code reference falsely guarantees that an exit-2 plaintext-root refusal sends no request.",
+      "evidence": "The exit-2 bullet says 'no request is sent' and explicitly includes a plaintext root. Inventory C064 describes pull resolving the remote root and listing it before reading/authenticating its manifest; detecting a remote plaintext publication requires those reads. The no-request guarantee therefore cannot apply to every exit-2 outcome.",
+      "suggested_fix": "Distinguish preflight usage/configuration refusals that send no requests from remote-format or destination refusals, and state the actual request behavior for each."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "site/docs/setup-desktop.md",
+      "line": 12,
+      "claim": "The desktop guide incorrectly says every command requires both node URLs.",
+      "evidence": "The opening says 'With either one missing, every command refuses and sends no request'. The README correction at line 496 and the CLI reference explicitly identify abandon and history as device-local commands requiring neither URL; inventory C103 records this exception as a corrected factual claim.",
+      "suggested_fix": "Limit the statement to node-contacting commands and name abandon and history as exceptions."
+    },
+    {
+      "severity": "WARNING",
+      "file": "README.md",
+      "line": 960,
+      "claim": "A branch merge is presented as sufficient evidence that the v0.4.0 release evidence binds to main's tree without recording a tree-hash comparison.",
+      "evidence": "The new sentence concludes 'so the v0.4.0 evidence now binds to the tree of main' solely from PR #2 merging. Inventory C155 supplies merge state/date as evidence, while the same entry describes release binding to an exact tree hash and clean-export build. A merge can include other changes, and subsequent commits change main's tree.",
+      "suggested_fix": "Name the immutable release tree hash and the matching merge commit, record their tree-hash comparison, and avoid implying that evidence covers the moving main branch."
+    },
+    {
+      "severity": "WARNING",
+      "file": "site/README.md",
+      "line": 8,
+      "claim": "The site's maintenance instructions prescribe Yarn and branch-based deployment instead of the implemented npm and Actions workflow.",
+      "evidence": "The README instructs yarn, yarn start, yarn build and yarn deploy to gh-pages. The package-manager separation acceptance criterion specifies npm with site/package-lock.json, and docs-pages.yml deploys an Actions artifact after npm ci and npm run build.",
+      "suggested_fix": "Replace the scaffold instructions with npm ci, npm start, npm run build and the actual main-branch GitHub Pages deployment procedure."
+    }
+  ],
+  "judge_identity": {
+    "providerConnectionId": "openai-proxy-8181",
+    "providerId": "openai",
+    "modelId": "gpt-6.1-sol"
+  },
+  "sycophancy_screen": {
+    "reject_cap": 2,
+    "cap_overridden": false,
+    "cap_default": 2
+  }
+}

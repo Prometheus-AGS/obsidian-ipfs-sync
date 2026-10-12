@@ -1,0 +1,26 @@
+{
+  "mode": "diff",
+  "verdict": "PASS",
+  "judge_model": "gpt-6.1-sol",
+  "producer_model": "kimi-code/kimi-for-coding",
+  "isolation_mode": "rest-gateway:http://localhost:4000/v1",
+  "cross_model_check": "unverified-producer-unknown",
+  "findings": [],
+  "judge_identity": {
+    "providerConnectionId": "openai-proxy-8181",
+    "providerId": "openai",
+    "modelId": "gpt-6.1-sol"
+  },
+  "checked_classes": [
+    "Spec violations \u2014 The contextual authorization-field rule replaces {8,} with +, removing the length floor, and the self-test adds the exact required {\"authorization\": \"Basic dTpw\"} fixture. Both modified patterns match that fixture; the packet does not expose scanner execution results.",
+    "Correctness and regressions \u2014 Both regex changes broaden detection without removing previously matched forms; quoted JSON authorization fields and unquoted headers remain matched.",
+    "Security \u2014 The reported short-Basic-credential bypass is closed by both modified patterns. No demonstrably exploitable new bypass is introduced by the diff.",
+    "Constraint breaches \u2014 The changes are confined to documentation-scanner patterns and a test fixture; they introduce no prohibited runtime imports, secrets, default node addresses, or node mutations.",
+    "Silent failure \u2014 The diff introduces no error handling, fallback behavior, or suppressed failures."
+  ],
+  "sycophancy_screen": {
+    "reject_cap": 2,
+    "cap_overridden": false,
+    "cap_default": 2
+  }
+}

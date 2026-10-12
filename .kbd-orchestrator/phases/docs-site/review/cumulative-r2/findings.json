@@ -1,0 +1,48 @@
+{
+  "mode": "diff",
+  "verdict": "BLOCK",
+  "judge_model": "gpt-6.1-sol",
+  "producer_model": "kimi-code/kimi-for-coding",
+  "isolation_mode": "rest-gateway:http://localhost:4000/v1",
+  "cross_model_check": "unverified-producer-unknown",
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "site/scripts/check-public-docs.mjs",
+      "claim": "Generated-output scanning is still not implemented as a pre-upload gate.",
+      "evidence": "The first acceptance criterion requires scanning generated output before artifact upload. The script only scans publication inputs and delegates output scanning in a comment to `~/.kimi-code/skills/build-branded-docusaurus/scripts/verify.mjs`. The package.json changes run the sanitizer in prebuild, before generated output exists; no invocation of that external verifier or post-build scanning gate is supplied.",
+      "suggested_fix": "Add a repository-owned output scanner and invoke it after the Docusaurus build and before artifact upload, failing deployment on findings."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "site/scripts/check-public-docs.mjs",
+      "claim": "The extension allowlist still permits forbidden content in verbatim-published static assets to bypass inspection.",
+      "evidence": "The new `scannable` regex only includes md, mdx, js, jsx, ts, tsx, css, json, html, htm, svg, txt, xml, yaml and yml. Static assets are documented in this same hunk as 'published verbatim', so `static/credentials.env`, `static/private.pem`, or an extensionless file containing a private key is published without scanning. The first acceptance criterion requires all publication inputs to be scanned.",
+      "suggested_fix": "Scan every file under static regardless of extension, using a content strategy that also detects ASCII secret material in otherwise binary assets. Add negative fixtures for omitted extensions and the explicitly required static HTML fixture."
+    },
+    {
+      "severity": "CRITICAL",
+      "file": "site/scripts/check-public-docs.mjs",
+      "claim": "The Basic credential pattern misses ordinary valid credentials shorter than 32 encoded characters.",
+      "evidence": "The replacement pattern `/\\b(?:bearer|basic)\\s+[A-Za-z0-9_\\-.+/=]{32,}/gi` rejects only tokens of at least 32 characters. A common header such as `Authorization: Basic dXNlcjpwYXNz` encodes `user:pass` and passes the scanner, as does its quoted JSON representation. The second acceptance criterion requires recognizing common header and JSON credential representations; the Basic self-test uses an artificially long token rather than covering this case.",
+      "suggested_fix": "Use scheme-specific detection without the 32-character minimum for Basic credentials, and add short valid Basic header and JSON fixtures."
+    },
+    {
+      "severity": "WARNING",
+      "file": "README.md",
+      "claim": "The README does not supply the required merge-commit tree comparison.",
+      "evidence": "The README acceptance criterion explicitly requires naming the matching merge commit and recording its tree-hash comparison. The replacement records the tag's commit and tree hash, but supplies only `git merge-base --is-ancestor v0.4.0 main` for the merge relationship. An ancestry check does not establish equality between the release tree and the merge commit's tree.",
+      "suggested_fix": "Name PR #2's merge commit and record the comparison of its tree hash with `v0.4.0^{tree}`; if they differ, state that explicitly rather than claiming a match."
+    }
+  ],
+  "judge_identity": {
+    "providerConnectionId": "openai-proxy-8181",
+    "providerId": "openai",
+    "modelId": "gpt-6.1-sol"
+  },
+  "sycophancy_screen": {
+    "reject_cap": 2,
+    "cap_overridden": false,
+    "cap_default": 2
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "mode": "diff",
+  "verdict": "BLOCK",
+  "judge_model": "gpt-6.1-sol",
+  "producer_model": "kimi-code/kimi-for-coding",
+  "isolation_mode": "rest-gateway:http://localhost:4000/v1",
+  "cross_model_check": "unverified-producer-unknown",
+  "findings": [
+    {
+      "severity": "CRITICAL",
+      "file": "site/scripts/forbidden-patterns.mjs",
+      "line": 34,
+      "claim": "Short valid Basic credentials in quoted authorization fields still bypass both scanners.",
+      "evidence": "The required fix calls for Basic detection without the length minimum and short valid header and JSON fixtures. The authorization-field pattern still requires `{8,}` characters, while the no-floor header pattern requires an unquoted `authorization:` followed directly by `basic`. Consequently, `{\"authorization\": \"Basic dTpw\"}` (valid Base64 for `u:p`) matches neither rule nor the retained 32-character rule. The new JSON fixture uses eight characters, so it does not test this bypass.",
+      "suggested_fix": "Remove the eight-character floor from the contextual authorization-field rule and add a JSON fixture containing `{\"authorization\": \"Basic dTpw\"}`. Verify that both the source scanner and the generated-output scanner reject it."
+    }
+  ],
+  "judge_identity": {
+    "providerConnectionId": "openai-proxy-8181",
+    "providerId": "openai",
+    "modelId": "gpt-6.1-sol"
+  },
+  "sycophancy_screen": {
+    "reject_cap": 2,
+    "cap_overridden": false,
+    "cap_default": 2
+  }
+}
