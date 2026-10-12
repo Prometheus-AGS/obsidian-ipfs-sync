@@ -2,25 +2,25 @@
   "schemaVersion": "2",
   "generatedBy": "kbd-runtime",
   "projectionContractVersion": 2,
-  "sourceRevision": 1179,
-  "derivedRevision": 1179,
+  "sourceRevision": 1198,
+  "derivedRevision": 1198,
   "frontier": {
-    "a92f5905-c918-468c-a89d-ee22138e2183": 1179
+    "a92f5905-c918-468c-a89d-ee22138e2183": 1198
   },
   "conflictCount": 0,
   "phase": "docs-site",
   "phaseId": "docs-site",
   "parentPhase": null,
-  "last_updated": "2026-10-12T10:28:22.982685Z",
+  "last_updated": "2026-10-12T10:53:47.619972Z",
   "last_updated_by": "kbd-runtime",
   "changes_total": 4,
-  "changes_completed": 2,
+  "changes_completed": 3,
   "implementation_total": 4,
-  "implementation_completed": 2,
+  "implementation_completed": 3,
   "completion": {
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 2,
+      "completed": 3,
       "total": 4,
       "status": "IN_PROGRESS"
     },
@@ -49,7 +49,7 @@
     "runId": "mvp-20260930T010010Z",
     "primaryCounter": "implementation",
     "implementation": {
-      "completed": 13,
+      "completed": 14,
       "total": 20,
       "status": "IN_PROGRESS"
     },
@@ -95,12 +95,12 @@
     {
       "id": "docs-03-site-content-guides",
       "title": "Documentation content — how it works, desktop and mobile setup, CLI reference, security, limitations, evidence",
-      "status": "PENDING",
-      "implementation_status": "PENDING",
+      "status": "DONE",
+      "implementation_status": "COMPLETE",
       "tasks_total": 9,
-      "tasks_done": 0,
-      "last_task_completed": null,
-      "next_task_pending": "3.1 Coverage matrix",
+      "tasks_done": 9,
+      "last_task_completed": "3.9 Content gate: sanitizer + link check + mermaid check + build green; coverage matrix resolved or disclosed",
+      "next_task_pending": null,
       "blockers": []
     },
     {
